@@ -1,0 +1,197 @@
+import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { StatsCard } from '@/components/StatsCard';
+import { mockTransactions, mockReferralEvents, mockExams, reasonLabels } from '@/data/mock';
+import { motion } from 'framer-motion';
+
+export default function Dashboard() {
+  const { user, wallet } = useAuth();
+
+  const recentTransactions = mockTransactions.slice(-5).reverse();
+  const successfulReferrals = mockReferralEvents.filter(
+    (r) => r.status === 'rewarded'
+  ).length;
+  const pendingReferrals = mockReferralEvents.filter(
+    (r) => r.status === 'pending'
+  ).length;
+  const userExams = mockExams.filter((e) => e.countryId === user?.countryId);
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <h1 className="text-2xl sm:text-3xl font-black text-foreground">
+          مرحبًا {user?.name} 👋
+        </h1>
+        <p className="mt-1 text-muted-foreground">
+          إليك ملخص حسابك على منصة ساريس
+        </p>
+      </motion.div>
+
+      {/* Diamond upsell banner */}
+      {!user?.isDiamond && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+        >
+          <Link
+            to="/app/topup"
+            className="group flex items-center gap-4 rounded-2xl gradient-diamond p-5 text-diamond-foreground shadow-diamond transition-all hover:scale-[1.01]"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20">
+              <Sparkles className="h-6 w-6" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-lg">اشترك في Diamond</h3>
+              <p className="text-sm opacity-90">
+                وصول غير محدود لجميع الاختبارات والتدريب والتحليل بدون نقاط
+              </p>
+            </div>
+            <ArrowLeft className="h-5 w-5 opacity-60 group-hover:opacity-100 transition-opacity" />
+          </Link>
+        </motion.div>
+      )}
+
+      {/* Stats Grid */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.15 }}
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+      >
+        <StatsCard
+          title="رصيد النقاط"
+          value={wallet?.balance ?? 0}
+          subtitle="نقطة متاحة"
+          icon={Coins}
+          variant="gold"
+        />
+        <StatsCard
+          title="الاختبارات المتاحة"
+          value={userExams.length}
+          subtitle={`في ${user?.countryName}`}
+          icon={BookOpen}
+          variant="info"
+        />
+        <StatsCard
+          title="دعوات ناجحة"
+          value={successfulReferrals}
+          subtitle={`${pendingReferrals} قيد الانتظار`}
+          icon={UserPlus}
+          variant="success"
+        />
+        <StatsCard
+          title="الجلسات المستخدمة"
+          value={mockTransactions.filter((t) => t.type === 'debit').length}
+          subtitle="جلسة مكتملة"
+          icon={TrendingUp}
+        />
+      </motion.div>
+
+      {/* Recent Activity */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+        className="rounded-2xl border bg-card shadow-card overflow-hidden"
+      >
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="font-bold text-lg">آخر الحركات</h2>
+          <Link
+            to="/app/wallet"
+            className="text-sm text-primary font-medium hover:underline"
+          >
+            عرض الكل
+          </Link>
+        </div>
+        <div className="divide-y">
+          {recentTransactions.map((tx) => (
+            <div
+              key={tx.id}
+              className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
+            >
+              <div
+                className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                  tx.type === 'credit'
+                    ? 'bg-success/10 text-success'
+                    : 'bg-destructive/10 text-destructive'
+                }`}
+              >
+                <Coins className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  {reasonLabels[tx.reason] || tx.reason}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(tx.createdAt).toLocaleDateString('ar-SA')}
+                </p>
+              </div>
+              <span
+                className={`text-sm font-bold ${
+                  tx.type === 'credit' ? 'text-success' : 'text-destructive'
+                }`}
+              >
+                {tx.type === 'credit' ? '+' : '-'}
+                {tx.amount}
+              </span>
+            </div>
+          ))}
+        </div>
+      </motion.div>
+
+      {/* Quick actions */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.25 }}
+        className="grid gap-4 sm:grid-cols-3"
+      >
+        <Link
+          to="/app/exams"
+          className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-primary text-primary-foreground">
+            <BookOpen className="h-6 w-6" />
+          </div>
+          <div>
+            <h3 className="font-bold text-foreground">ابدأ اختبار</h3>
+            <p className="text-xs text-muted-foreground">محاكاة أو تدريب ذكي</p>
+          </div>
+        </Link>
+
+        <Link
+          to="/app/referral"
+          className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success text-success-foreground">
+            <UserPlus className="h-6 w-6" />
+          </div>
+          <div>
+            <h3 className="font-bold text-foreground">ادعُ أصدقاءك</h3>
+            <p className="text-xs text-muted-foreground">واحصل على نقاط مجانية</p>
+          </div>
+        </Link>
+
+        <Link
+          to="/app/topup"
+          className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-gold text-gold-foreground">
+            <Coins className="h-6 w-6" />
+          </div>
+          <div>
+            <h3 className="font-bold text-foreground">شراء نقاط</h3>
+            <p className="text-xs text-muted-foreground">أو اشتراك Diamond</p>
+          </div>
+        </Link>
+      </motion.div>
+    </div>
+  );
+}
