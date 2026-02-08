@@ -82,3 +82,66 @@ export interface Country {
 }
 
 export type SessionType = 'simulation' | 'practice' | 'analysis';
+
+// ── Exam Template System ──
+
+export interface DifficultyMix {
+  easy: number;   // percentage 0-100
+  medium: number;
+  hard: number;
+}
+
+export interface ExamSection {
+  id: string;
+  examTemplateId: string;
+  order: number;
+  nameAr: string;
+  timeLimitSec: number | null;
+  questionCount: number;
+  topicFilterJson: string[] | null;
+  difficultyMixJson: DifficultyMix | null;
+  scoringRuleJson: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface ExamTemplate {
+  id: string;
+  countryId: string;
+  slug: string;
+  nameAr: string;
+  descriptionAr: string;
+  isActive: boolean;
+  defaultTimeLimitSec: number;
+  defaultQuestionCount: number;
+  simulationSessionCostPoints: number;
+  practiceSessionCostPoints: number;
+  analysisCostPoints: number;
+  sections: ExamSection[];
+  createdAt: string;
+}
+
+export interface QuestionPoolRule {
+  id: string;
+  examSectionId: string;
+  ruleJson: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type QuestionDifficulty = 'easy' | 'medium' | 'hard';
+
+export interface QuestionOption {
+  id: string;
+  textAr: string;
+}
+
+export interface Question {
+  id: string;
+  countryId: string;
+  topic: string;
+  difficulty: QuestionDifficulty;
+  textAr: string;
+  options: QuestionOption[];
+  correctOptionId: string;
+  isApproved: boolean;
+  createdAt: string;
+}

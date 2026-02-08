@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Coins } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ExamCatalog, SessionType } from '@/types';
+import type { ExamTemplate, SessionType } from '@/types';
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 interface SessionCostDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  exam: ExamCatalog | null;
+  exam: ExamTemplate | null;
   sessionType: SessionType;
   onConfirm: () => void;
 }
@@ -27,7 +27,7 @@ const sessionLabels: Record<SessionType, string> = {
   analysis: 'تحليل النتيجة',
 };
 
-function getCost(exam: ExamCatalog, type: SessionType): number {
+function getCost(exam: ExamTemplate, type: SessionType): number {
   switch (type) {
     case 'simulation':
       return exam.simulationSessionCostPoints;
@@ -76,7 +76,7 @@ export function SessionCostDialog({
             {sessionLabels[sessionType]}
           </DialogTitle>
           <DialogDescription className="text-right">
-            {exam.nameAr} ({exam.name})
+            {exam.nameAr}
           </DialogDescription>
         </DialogHeader>
 
