@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Layout } from "@/components/Layout";
 import Index from "./pages/Index";
@@ -13,6 +13,8 @@ import Referral from "./pages/Referral";
 import Exams from "./pages/Exams";
 import TopUp from "./pages/TopUp";
 import Admin from "./pages/Admin";
+import AdminExamsList from "./pages/admin/AdminExamsList";
+import AdminExamDetail from "./pages/admin/AdminExamDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -77,6 +79,22 @@ const App = () => (
               element={
                 <AppLayout>
                   <Admin />
+                </AppLayout>
+              }
+            />
+            <Route
+              path="/app/admin/exams"
+              element={
+                <AppLayout>
+                  <AdminExamsList />
+                </AppLayout>
+              }
+            />
+            <Route
+              path="/app/admin/exams/:id"
+              element={
+                <AppLayout>
+                  <AdminExamDetail />
                 </AppLayout>
               }
             />

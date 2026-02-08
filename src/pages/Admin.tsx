@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Settings, BookOpen, Users, Save, Coins } from 'lucide-react';
-import { mockSettings, mockExams, mockReferralEvents } from '@/data/mock';
+import { Link } from 'react-router-dom';
+import { Settings, BookOpen, Users, Save, Coins, Layers } from 'lucide-react';
+import { mockSettings, mockReferralEvents } from '@/data/mock';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,14 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Admin() {
   const [settings, setSettings] = useState(mockSettings);
-  const [exams, setExams] = useState(mockExams);
 
   const handleSaveSettings = () => {
     toast.success('تم حفظ الإعدادات بنجاح');
-  };
-
-  const handleSaveExamCosts = () => {
-    toast.success('تم حفظ تكاليف الاختبارات بنجاح');
   };
 
   return (
@@ -31,15 +27,36 @@ export default function Admin() {
         <p className="mt-1 text-muted-foreground">إعدادات المنصة وإدارة النقاط</p>
       </motion.div>
 
+      {/* Quick links */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+      >
+        <Link
+          to="/app/admin/exams"
+          className="flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card hover:shadow-card-hover transition-all group"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-primary text-primary-foreground">
+            <Layers className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-bold text-foreground group-hover:text-primary transition-colors">
+              هيكل الاختبارات
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              إدارة الاختبارات والأقسام حسب الدولة
+            </p>
+          </div>
+          <BookOpen className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+        </Link>
+      </motion.div>
+
       <Tabs defaultValue="settings" dir="rtl">
-        <TabsList className="w-full sm:w-auto grid grid-cols-3 sm:inline-grid">
+        <TabsList className="w-full sm:w-auto grid grid-cols-2 sm:inline-grid">
           <TabsTrigger value="settings" className="gap-2">
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">الإعدادات</span>
-          </TabsTrigger>
-          <TabsTrigger value="exams" className="gap-2">
-            <BookOpen className="h-4 w-4" />
-            <span className="hidden sm:inline">تكاليف الاختبارات</span>
           </TabsTrigger>
           <TabsTrigger value="referrals" className="gap-2">
             <Users className="h-4 w-4" />
@@ -127,99 +144,6 @@ export default function Admin() {
             >
               <Save className="h-4 w-4" />
               حفظ الإعدادات
-            </Button>
-          </motion.div>
-        </TabsContent>
-
-        {/* Exam costs */}
-        <TabsContent value="exams">
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-4"
-          >
-            {exams.map((exam, idx) => (
-              <div
-                key={exam.id}
-                className="rounded-2xl border bg-card p-5 shadow-card"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-primary text-primary-foreground">
-                    <BookOpen className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold">{exam.nameAr}</h3>
-                    <p className="text-xs text-muted-foreground font-mono" dir="ltr">
-                      {exam.name}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label className="text-xs">تكلفة جلسة المحاكاة</Label>
-                    <Input
-                      type="number"
-                      value={exam.simulationSessionCostPoints}
-                      onChange={(e) => {
-                        const updated = [...exams];
-                        updated[idx] = {
-                          ...exam,
-                          simulationSessionCostPoints: Number(e.target.value),
-                        };
-                        setExams(updated);
-                      }}
-                      min={0}
-                      dir="ltr"
-                      className="text-center"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">تكلفة جلسة التدريب</Label>
-                    <Input
-                      type="number"
-                      value={exam.practiceSessionCostPoints}
-                      onChange={(e) => {
-                        const updated = [...exams];
-                        updated[idx] = {
-                          ...exam,
-                          practiceSessionCostPoints: Number(e.target.value),
-                        };
-                        setExams(updated);
-                      }}
-                      min={0}
-                      dir="ltr"
-                      className="text-center"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">تكلفة التحليل</Label>
-                    <Input
-                      type="number"
-                      value={exam.analysisCostPoints}
-                      onChange={(e) => {
-                        const updated = [...exams];
-                        updated[idx] = {
-                          ...exam,
-                          analysisCostPoints: Number(e.target.value),
-                        };
-                        setExams(updated);
-                      }}
-                      min={0}
-                      dir="ltr"
-                      className="text-center"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            <Button
-              onClick={handleSaveExamCosts}
-              className="gradient-primary text-primary-foreground font-bold gap-2"
-            >
-              <Save className="h-4 w-4" />
-              حفظ التكاليف
             </Button>
           </motion.div>
         </TabsContent>
