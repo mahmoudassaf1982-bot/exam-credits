@@ -34,6 +34,7 @@ import {
 export default function AdminExamsList() {
   const [templates, setTemplates] = useState<ExamTemplate[]>(mockExamTemplates);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [filterCountry, setFilterCountry] = useState<string>('all');
   const [newTemplate, setNewTemplate] = useState({
     nameAr: '',
     slug: '',
@@ -77,11 +78,16 @@ export default function AdminExamsList() {
     return `${m} دقيقة`;
   };
 
-  // Group by country
+  // Filter templates by country
+  const filteredTemplates = filterCountry === 'all'
+    ? templates
+    : templates.filter((t) => t.countryId === filterCountry);
+
+  // Group filtered by country
   const grouped = countries
     .map((c) => ({
       country: c,
-      exams: templates.filter((t) => t.countryId === c.id),
+      exams: filteredTemplates.filter((t) => t.countryId === c.id),
     }))
     .filter((g) => g.exams.length > 0);
 
@@ -91,22 +97,32 @@ export default function AdminExamsList() {
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
+        className="flex flex-wrap items-center justify-between gap-3"
       >
-        <div className="flex items-center gap-3">
-          
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-black text-foreground">هيكل الاختبارات</h1>
-            <p className="mt-1 text-muted-foreground">إدارة الاختبارات والأقسام حسب الدولة</p>
-          </div>
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black text-foreground">هيكل الاختبارات</h1>
+          <p className="mt-1 text-muted-foreground">إدارة الاختبارات والأقسام حسب الدولة</p>
         </div>
-        <Button
-          onClick={() => setShowCreateDialog(true)}
-          className="gradient-primary text-primary-foreground font-bold gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">اختبار جديد</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={filterCountry} onValueChange={setFilterCountry}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="كل الدول" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل الدول</SelectItem>
+              {countries.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.flag} {c.nameAr}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={() => setShowCreateDialog(true)}
+            className="gradient-primary text-primary-foreground font-bold gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">اختبار جديد</span>
+          </Button>
+        </div>
       </motion.div>
 
       {/* Grouped by country */}
@@ -185,11 +201,13 @@ export default function AdminExamsList() {
         </motion.div>
       ))}
 
-      {templates.length === 0 && (
+      {filteredTemplates.length === 0 && (
         <div className="rounded-2xl border bg-card p-12 text-center">
           <BookOpen className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
           <p className="text-lg font-bold">لا توجد اختبارات</p>
-          <p className="text-sm text-muted-foreground mt-1">ابدأ بإنشاء اختبار جديد</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {filterCountry !== 'all' ? 'لا توجد اختبارات لهذه الدولة' : 'ابدأ بإنشاء اختبار جديد'}
+          </p>
         </div>
       )}
 
