@@ -15,7 +15,6 @@ import {
   Layers,
   Clock,
   HelpCircle,
-  ArrowRight,
 } from 'lucide-react';
 import {
   Dialog,
@@ -95,12 +94,7 @@ export default function AdminExamsList() {
         className="flex items-center justify-between"
       >
         <div className="flex items-center gap-3">
-          <Link
-            to="/app/admin"
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted hover:bg-muted/70 transition-colors"
-          >
-            <ArrowRight className="h-4 w-4" />
-          </Link>
+          
           <div>
             <h1 className="text-2xl sm:text-3xl font-black text-foreground">هيكل الاختبارات</h1>
             <p className="mt-1 text-muted-foreground">إدارة الاختبارات والأقسام حسب الدولة</p>

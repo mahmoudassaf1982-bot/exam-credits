@@ -66,6 +66,7 @@ export interface PointsPack {
   priceUSD: number;
   label: string;
   popular?: boolean;
+  isActive?: boolean;
 }
 
 export interface PlatformSettings {
@@ -79,6 +80,8 @@ export interface Country {
   name: string;
   nameAr: string;
   flag: string;
+  currency?: string;
+  isActive?: boolean;
 }
 
 export type SessionType = 'simulation' | 'practice' | 'analysis';
@@ -86,7 +89,7 @@ export type SessionType = 'simulation' | 'practice' | 'analysis';
 // ── Exam Template System ──
 
 export interface DifficultyMix {
-  easy: number;   // percentage 0-100
+  easy: number;
   medium: number;
   hard: number;
 }
@@ -137,11 +140,27 @@ export interface QuestionOption {
 export interface Question {
   id: string;
   countryId: string;
+  examTemplateId?: string;
+  sectionId?: string;
   topic: string;
   difficulty: QuestionDifficulty;
   textAr: string;
   options: QuestionOption[];
   correctOptionId: string;
+  explanation?: string;
   isApproved: boolean;
+  createdAt: string;
+}
+
+// ── Diamond Plan ──
+
+export interface DiamondPlan {
+  id: string;
+  countryId: string;
+  nameAr: string;
+  priceUSD: number;
+  currency: string;
+  durationMonths: number;
+  isActive: boolean;
   createdAt: string;
 }
