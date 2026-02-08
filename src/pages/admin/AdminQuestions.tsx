@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { HelpCircle, Plus, Pencil, Trash2, Check, Search, Filter } from 'lucide-react';
+import { HelpCircle, Plus, Pencil, Trash2, Check, Search, Upload } from 'lucide-react';
 import { mockQuestions as initialQuestions } from '@/data/examTemplates';
 import { mockExamTemplates } from '@/data/examTemplates';
 import { countries } from '@/data/mock';
-import type { Question, QuestionDifficulty, QuestionOption } from '@/types';
+import type { Question, QuestionDifficulty } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,6 +36,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { QuestionFormDialog } from '@/components/admin/QuestionFormDialog';
+import { QuestionImportDialog } from '@/components/admin/QuestionImportDialog';
 
 const difficultyLabels: Record<QuestionDifficulty, string> = {
   easy: 'سهل',
@@ -49,85 +51,63 @@ const difficultyColors: Record<QuestionDifficulty, string> = {
   hard: 'bg-destructive/10 text-destructive',
 };
 
-const emptyQuestion = (): Partial<Question> => ({
-  countryId: 'sa',
-  examTemplateId: '',
-  sectionId: '',
-  topic: '',
-  difficulty: 'medium',
-  textAr: '',
-  options: [
-    { id: `opt-${Date.now()}-a`, textAr: '' },
-    { id: `opt-${Date.now()}-b`, textAr: '' },
-    { id: `opt-${Date.now()}-c`, textAr: '' },
-    { id: `opt-${Date.now()}-d`, textAr: '' },
-  ],
-  correctOptionId: '',
-  explanation: '',
-  isApproved: false,
-});
-
 export default function AdminQuestions() {
   const [questions, setQuestions] = useState<Question[]>(initialQuestions);
-  const [showDialog, setShowDialog] = useState(false);
+  const [showFormDialog, setShowFormDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState<Partial<Question>>(emptyQuestion());
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCountry, setFilterCountry] = useState<string>('all');
+  const [filterExam, setFilterExam] = useState<string>('all');
   const [filterDifficulty, setFilterDifficulty] = useState<string>('all');
   const [filterApproved, setFilterApproved] = useState<string>('all');
+
+  const examsForFilter = useMemo(() => {
+    if (filterCountry === 'all') return mockExamTemplates;
+    return mockExamTemplates.filter((t) => t.countryId === filterCountry);
+  }, [filterCountry]);
 
   const filtered = useMemo(() => {
     return questions.filter((q) => {
       if (filterCountry !== 'all' && q.countryId !== filterCountry) return false;
+      if (filterExam !== 'all' && q.examTemplateId !== filterExam) return false;
       if (filterDifficulty !== 'all' && q.difficulty !== filterDifficulty) return false;
       if (filterApproved === 'approved' && !q.isApproved) return false;
       if (filterApproved === 'pending' && q.isApproved) return false;
       if (searchQuery && !q.textAr.includes(searchQuery) && !q.topic.includes(searchQuery)) return false;
       return true;
     });
-  }, [questions, filterCountry, filterDifficulty, filterApproved, searchQuery]);
+  }, [questions, filterCountry, filterExam, filterDifficulty, filterApproved, searchQuery]);
 
   const openCreate = () => {
     setEditingQuestion(null);
-    setForm(emptyQuestion());
-    setShowDialog(true);
+    setShowFormDialog(true);
   };
 
   const openEdit = (q: Question) => {
     setEditingQuestion(q);
-    setForm({ ...q });
-    setShowDialog(true);
+    setShowFormDialog(true);
   };
 
-  const updateOption = (idx: number, textAr: string) => {
-    const opts = [...(form.options || [])];
-    opts[idx] = { ...opts[idx], textAr };
-    setForm({ ...form, options: opts });
-  };
-
-  const handleSave = () => {
-    if (!form.textAr || !form.topic || !form.correctOptionId) {
-      toast.error('يرجى ملء جميع الحقول المطلوبة واختيار الإجابة الصحيحة');
-      return;
-    }
-
+  const handleSaveQuestion = (question: Question) => {
     if (editingQuestion) {
       setQuestions((prev) =>
-        prev.map((q) => (q.id === editingQuestion.id ? { ...q, ...form } as Question : q))
+        prev.map((q) => (q.id === editingQuestion.id ? question : q))
       );
       toast.success('تم تحديث السؤال');
     } else {
-      const newQ: Question = {
-        ...(form as Question),
-        id: `q-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-      };
-      setQuestions((prev) => [...prev, newQ]);
+      setQuestions((prev) => [...prev, question]);
       toast.success('تم إضافة السؤال');
     }
-    setShowDialog(false);
+    setShowFormDialog(false);
+    setEditingQuestion(null);
+  };
+
+  const handleImport = (imported: Question[]) => {
+    setQuestions((prev) => [...prev, ...imported]);
+    toast.success(`تم استيراد ${imported.length} سؤال بنجاح`);
+    setShowImportDialog(false);
   };
 
   const handleDelete = () => {
@@ -144,20 +124,28 @@ export default function AdminQuestions() {
     );
   };
 
-  const examsForCountry = mockExamTemplates.filter((t) => t.countryId === (form.countryId || 'sa'));
-  const selectedExam = mockExamTemplates.find((t) => t.id === form.examTemplateId);
+  const approvedCount = questions.filter((q) => q.isApproved).length;
+  const pendingCount = questions.length - approvedCount;
 
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black text-foreground">بنك الأسئلة</h1>
-          <p className="mt-1 text-muted-foreground">{questions.length} سؤال · {questions.filter((q) => q.isApproved).length} معتمد</p>
+          <p className="mt-1 text-muted-foreground">
+            {questions.length} سؤال · {approvedCount} معتمد · {pendingCount} قيد المراجعة
+          </p>
         </div>
-        <Button onClick={openCreate} className="gradient-primary text-primary-foreground font-bold gap-2">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">سؤال جديد</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setShowImportDialog(true)} className="gap-2">
+            <Upload className="h-4 w-4" />
+            <span className="hidden sm:inline">استيراد</span>
+          </Button>
+          <Button onClick={openCreate} className="gradient-primary text-primary-foreground font-bold gap-2">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">سؤال جديد</span>
+          </Button>
+        </div>
       </motion.div>
 
       {/* Filters */}
@@ -170,16 +158,25 @@ export default function AdminQuestions() {
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="بحث في الأسئلة..."
+              placeholder="بحث في الأسئلة أو الموضوع..."
               className="pr-9"
             />
           </div>
-          <Select value={filterCountry} onValueChange={setFilterCountry}>
+          <Select value={filterCountry} onValueChange={(v) => { setFilterCountry(v); setFilterExam('all'); }}>
             <SelectTrigger className="w-[130px]"><SelectValue placeholder="الدولة" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">كل الدول</SelectItem>
               {countries.map((c) => (
                 <SelectItem key={c.id} value={c.id}>{c.flag} {c.nameAr}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterExam} onValueChange={setFilterExam}>
+            <SelectTrigger className="w-[150px]"><SelectValue placeholder="الاختبار" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل الاختبارات</SelectItem>
+              {examsForFilter.map((e) => (
+                <SelectItem key={e.id} value={e.id}>{e.nameAr}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -218,6 +215,7 @@ export default function AdminQuestions() {
         ) : (
           filtered.map((q, i) => {
             const countryObj = countries.find((c) => c.id === q.countryId);
+            const examObj = mockExamTemplates.find((t) => t.id === q.examTemplateId);
             return (
               <div key={q.id} className="rounded-xl border bg-card shadow-sm overflow-hidden">
                 <div className="p-4">
@@ -231,6 +229,9 @@ export default function AdminQuestions() {
                       </p>
                       <div className="flex flex-wrap items-center gap-2 mt-2">
                         <span className="text-xs">{countryObj?.flag}</span>
+                        {examObj && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{examObj.slug.toUpperCase()}</Badge>
+                        )}
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0">{q.topic}</Badge>
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${difficultyColors[q.difficulty]}`}>
                           {difficultyLabels[q.difficulty]}
@@ -259,124 +260,27 @@ export default function AdminQuestions() {
         )}
       </motion.div>
 
-      {/* Create/Edit dialog */}
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="text-right">{editingQuestion ? 'تعديل السؤال' : 'إضافة سؤال جديد'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>الدولة</Label>
-                <Select value={form.countryId} onValueChange={(v) => setForm({ ...form, countryId: v, examTemplateId: '', sectionId: '' })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {countries.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.flag} {c.nameAr}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>الاختبار</Label>
-                <Select value={form.examTemplateId || 'none'} onValueChange={(v) => setForm({ ...form, examTemplateId: v === 'none' ? '' : v, sectionId: '' })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— عام —</SelectItem>
-                    {examsForCountry.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>{e.nameAr}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>القسم</Label>
-                <Select value={form.sectionId || 'none'} onValueChange={(v) => setForm({ ...form, sectionId: v === 'none' ? '' : v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— عام —</SelectItem>
-                    {(selectedExam?.sections || []).map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.nameAr}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+      {/* Question Form Dialog */}
+      <QuestionFormDialog
+        open={showFormDialog}
+        onOpenChange={(open) => { setShowFormDialog(open); if (!open) setEditingQuestion(null); }}
+        question={editingQuestion}
+        onSave={handleSaveQuestion}
+      />
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>الموضوع</Label>
-                <Input value={form.topic || ''} onChange={(e) => setForm({ ...form, topic: e.target.value })} placeholder="مثال: أمراض القلب" />
-              </div>
-              <div className="space-y-2">
-                <Label>الصعوبة</Label>
-                <Select value={form.difficulty || 'medium'} onValueChange={(v) => setForm({ ...form, difficulty: v as QuestionDifficulty })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="easy">سهل</SelectItem>
-                    <SelectItem value="medium">متوسط</SelectItem>
-                    <SelectItem value="hard">صعب</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>نص السؤال</Label>
-              <Textarea value={form.textAr || ''} onChange={(e) => setForm({ ...form, textAr: e.target.value })} className="min-h-[80px]" placeholder="اكتب نص السؤال هنا..." />
-            </div>
-
-            <div className="space-y-3">
-              <Label>الخيارات (اضغط لتحديد الإجابة الصحيحة)</Label>
-              {(form.options || []).map((opt, idx) => (
-                <div key={opt.id} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, correctOptionId: opt.id })}
-                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold flex-shrink-0 transition-all ${
-                      form.correctOptionId === opt.id
-                        ? 'bg-success text-success-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/70'
-                    }`}
-                  >
-                    {String.fromCharCode(65 + idx)}
-                  </button>
-                  <Input
-                    value={opt.textAr}
-                    onChange={(e) => updateOption(idx, e.target.value)}
-                    placeholder={`الخيار ${String.fromCharCode(65 + idx)}`}
-                    className="flex-1"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <Label>الشرح (اختياري)</Label>
-              <Textarea value={form.explanation || ''} onChange={(e) => setForm({ ...form, explanation: e.target.value })} placeholder="شرح الإجابة الصحيحة..." className="min-h-[60px]" />
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl bg-muted/50 p-3">
-              <Label className="cursor-pointer">سؤال معتمد</Label>
-              <Switch checked={form.isApproved ?? false} onCheckedChange={(v) => setForm({ ...form, isApproved: v })} />
-            </div>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="outline" onClick={() => setShowDialog(false)} className="flex-1">إلغاء</Button>
-            <Button onClick={handleSave} className="flex-1 gradient-primary text-primary-foreground font-bold">
-              {editingQuestion ? 'تحديث' : 'إضافة'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Import Dialog */}
+      <QuestionImportDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        onImport={handleImport}
+      />
 
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent dir="rtl">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-right">حذف السؤال</AlertDialogTitle>
-            <AlertDialogDescription className="text-right">هل أنت متأكد من حذف هذا السؤال؟</AlertDialogDescription>
+            <AlertDialogDescription className="text-right">هل أنت متأكد من حذف هذا السؤال؟ لا يمكن التراجع عن هذا الإجراء.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-2 flex-row-reverse">
             <AlertDialogCancel>إلغاء</AlertDialogCancel>
