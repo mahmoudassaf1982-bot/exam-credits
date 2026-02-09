@@ -53,9 +53,11 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const BASE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://exam-points-pro.lovable.app";
+
     // 1. Parse and validate request body
     const body = await req.json();
-    const { order_type, pack_id, plan_id, points_amount, price_usd, description, currency_code, user_id, return_url: clientReturnUrl } = body;
+    const { order_type, pack_id, plan_id, points_amount, price_usd, description, currency_code, user_id } = body;
 
     console.log("Request body:", JSON.stringify({
       order_type,
@@ -111,8 +113,8 @@ Deno.serve(async (req) => {
         locale: "ar-SA",
         landing_page: "NO_PREFERENCE",
         user_action: "PAY_NOW",
-        return_url: clientReturnUrl || `${req.headers.get("origin") || "https://example.com"}/app/topup?status=success`,
-        cancel_url: clientReturnUrl ? clientReturnUrl.replace("status=success", "status=cancelled") : `${req.headers.get("origin") || "https://example.com"}/app/topup?status=cancelled`,
+        return_url: `${BASE_URL}/payment/success`,
+        cancel_url: `${BASE_URL}/payment/cancel`,
       },
     };
 
