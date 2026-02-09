@@ -35,7 +35,6 @@ export function usePayPal() {
           body: {
             ...params,
             user_id: session?.user?.id || null,
-            return_url: `${window.location.origin}/app/topup?status=success`,
           },
         }
       );
