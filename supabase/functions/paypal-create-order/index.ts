@@ -53,36 +53,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // 1. Authenticate user
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      console.error("No Authorization header");
-      return new Response(
-        JSON.stringify({ error: "غير مصرح - يرجى تسجيل الدخول", code: "auth_missing" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      console.error("Auth error:", userError?.message || "No user found");
-      return new Response(
-        JSON.stringify({ error: "غير مصرح", code: "auth_invalid" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    console.log("Authenticated user:", user.id);
-
-    // 2. Parse and validate request body
+    // 1. Parse and validate request body
     const body = await req.json();
-    const { order_type, pack_id, plan_id, points_amount, price_usd, description, currency_code } = body;
+    const { order_type, pack_id, plan_id, points_amount, price_usd, description, currency_code, user_id, return_url: clientReturnUrl } = body;
 
     console.log("Request body:", JSON.stringify({
       order_type,
@@ -91,7 +64,7 @@ Deno.serve(async (req) => {
       points_amount,
       price_usd,
       currency_code: currency_code || "USD",
-      user_id: user.id,
+      user_id: user_id || "guest",
     }));
 
     if (!order_type || !price_usd) {
@@ -106,7 +79,7 @@ Deno.serve(async (req) => {
     const formattedAmount = Number(price_usd).toFixed(2);
     const finalCurrency = currency_code || "USD";
 
-    console.log(`Order details: type=${order_type}, amount=${formattedAmount} ${finalCurrency}, pack_id=${pack_id}, user=${user.id}`);
+    console.log(`Order details: type=${order_type}, amount=${formattedAmount} ${finalCurrency}, pack_id=${pack_id}, user=${user_id || "guest"}`);
 
     // 3. Get PayPal access token
     let accessToken: string;
@@ -138,8 +111,8 @@ Deno.serve(async (req) => {
         locale: "ar-SA",
         landing_page: "NO_PREFERENCE",
         user_action: "PAY_NOW",
-        return_url: `${req.headers.get("origin") || ""}/app/topup?status=success`,
-        cancel_url: `${req.headers.get("origin") || ""}/app/topup?status=cancelled`,
+        return_url: clientReturnUrl || `${req.headers.get("origin") || "https://example.com"}/app/topup?status=success`,
+        cancel_url: clientReturnUrl ? clientReturnUrl.replace("status=success", "status=cancelled") : `${req.headers.get("origin") || "https://example.com"}/app/topup?status=cancelled`,
       },
     };
 
@@ -168,7 +141,7 @@ Deno.serve(async (req) => {
     const paypalData = JSON.parse(paypalResText);
     console.log("PayPal order created successfully: id=", paypalData.id, "status=", paypalData.status);
 
-    // 5. Save order to database
+    // 5. Save order to database using service role
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -177,7 +150,7 @@ Deno.serve(async (req) => {
     const { error: insertError } = await supabaseAdmin
       .from("payment_orders")
       .insert({
-        user_id: user.id,
+        user_id: user_id || "00000000-0000-0000-0000-000000000000",
         order_type,
         paypal_order_id: paypalData.id,
         pack_id: pack_id || null,

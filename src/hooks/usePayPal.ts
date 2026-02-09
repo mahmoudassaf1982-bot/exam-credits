@@ -28,9 +28,16 @@ export function usePayPal() {
     setError(null);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const { data, error: fnError } = await supabase.functions.invoke(
         'paypal-create-order',
-        { body: params }
+        {
+          body: {
+            ...params,
+            user_id: session?.user?.id || null,
+            return_url: `${window.location.origin}/app/topup?status=success`,
+          },
+        }
       );
 
       if (fnError) {
