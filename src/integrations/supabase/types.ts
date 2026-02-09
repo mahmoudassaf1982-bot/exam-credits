@@ -14,7 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      payment_orders: {
+        Row: {
+          created_at: string
+          id: string
+          meta_json: Json | null
+          order_type: string
+          pack_id: string | null
+          paypal_order_id: string | null
+          plan_id: string | null
+          points_amount: number | null
+          price_usd: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          meta_json?: Json | null
+          order_type: string
+          pack_id?: string | null
+          paypal_order_id?: string | null
+          plan_id?: string | null
+          points_amount?: number | null
+          price_usd: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          meta_json?: Json | null
+          order_type?: string
+          pack_id?: string | null
+          paypal_order_id?: string | null
+          plan_id?: string | null
+          points_amount?: number | null
+          price_usd?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
