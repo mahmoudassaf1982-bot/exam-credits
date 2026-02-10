@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const BASE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://exam-points-pro.lovable.app";
+    const BASE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://exam-credits.lovable.app";
 
     // 1. Parse and validate request body
     const body = await req.json();
