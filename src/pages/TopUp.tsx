@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
 import { Check, Coins, Crown, Sparkles, Loader2, CreditCard } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { mockPointsPacks, mockDiamondPlans } from '@/data/mock';
@@ -10,8 +9,7 @@ import { usePayPal } from '@/hooks/usePayPal';
 
 export default function TopUp() {
   const { user, updateBalance } = useAuth();
-  const { createOrder, captureOrder, loading: paypalLoading } = usePayPal();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { createOrder, loading: paypalLoading } = usePayPal();
   const [processingPackId, setProcessingPackId] = useState<string | null>(null);
   const [processingDiamond, setProcessingDiamond] = useState(false);
 
@@ -23,27 +21,6 @@ export default function TopUp() {
     (p) => p.countryId === user?.countryId && p.isActive
   );
 
-  // Handle PayPal return
-  useEffect(() => {
-    const status = searchParams.get('status');
-    const token = searchParams.get('token'); // PayPal order ID
-
-    if (status === 'success' && token) {
-      // Capture the order
-      captureOrder(token).then((result) => {
-        if (result?.success) {
-          if (result.points_credited) {
-            updateBalance(result.points_credited);
-          }
-        }
-        // Clean URL params
-        setSearchParams({}, { replace: true });
-      });
-    } else if (status === 'cancelled') {
-      toast.error('تم إلغاء عملية الدفع');
-      setSearchParams({}, { replace: true });
-    }
-  }, [searchParams]);
 
   const handleBuyPack = async (pack: typeof mockPointsPacks[0]) => {
     setProcessingPackId(pack.id);

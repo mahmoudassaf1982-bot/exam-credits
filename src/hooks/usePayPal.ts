@@ -48,8 +48,8 @@ export function usePayPal() {
       }
 
       if (data?.approve_url) {
-        // Redirect user to PayPal for approval
-        window.location.href = data.approve_url;
+        // Open PayPal in a new tab to avoid iframe issues
+        window.open(data.approve_url, '_blank');
       }
 
       return data;

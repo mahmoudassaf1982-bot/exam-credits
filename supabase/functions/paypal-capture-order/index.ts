@@ -6,7 +6,14 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com";
+function getPayPalBaseUrl(): string {
+  const env = Deno.env.get("PAYPAL_ENV") || "sandbox";
+  return env === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
+}
+
+const PAYPAL_BASE_URL = getPayPalBaseUrl();
 
 async function getPayPalAccessToken(): Promise<string> {
   const clientId = Deno.env.get("PAYPAL_CLIENT_ID")!;
@@ -38,29 +45,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Authenticate user
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "غير مصرح" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "غير مصرح" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     const body = await req.json();
     const { paypal_order_id } = body;
 
@@ -71,20 +55,19 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Capturing PayPal order: ${paypal_order_id} for user: ${user.id}`);
+    console.log(`Capturing PayPal order: ${paypal_order_id}`);
 
-    // Use service role for DB operations
+    // Use service role for all DB operations
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Verify this order belongs to the user
+    // Find the order by PayPal order ID
     const { data: orderRecord, error: fetchError } = await supabaseAdmin
       .from("payment_orders")
       .select("*")
       .eq("paypal_order_id", paypal_order_id)
-      .eq("user_id", user.id)
       .single();
 
     if (fetchError || !orderRecord) {
@@ -156,11 +139,11 @@ Deno.serve(async (req) => {
     if (orderRecord.order_type === "points_pack") {
       result.points_credited = orderRecord.points_amount;
       result.message = `تم إضافة ${orderRecord.points_amount} نقطة إلى محفظتك بنجاح! 🎉`;
-      console.log(`Credited ${orderRecord.points_amount} points to user ${user.id}`);
+      console.log(`Credited ${orderRecord.points_amount} points to user ${orderRecord.user_id}`);
     } else if (orderRecord.order_type === "diamond_plan") {
       result.diamond_activated = true;
       result.message = "تم تفعيل اشتراك Diamond لمدة سنة! 💎";
-      console.log(`Activated Diamond plan for user ${user.id}`);
+      console.log(`Activated Diamond plan for user ${orderRecord.user_id}`);
     }
 
     return new Response(
