@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { Check, Coins, Crown, Sparkles, CreditCard } from 'lucide-react';
+import { Check, Coins, Crown, Sparkles, CreditCard, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { mockPointsPacks, mockDiamondPlans } from '@/data/mock';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
-import { PayPalCardPayment } from '@/components/PayPalCardPayment';
+import { usePayPal } from '@/hooks/usePayPal';
 
 export default function TopUp() {
   const { user } = useAuth();
-  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
-  const [showDiamondPayment, setShowDiamondPayment] = useState(false);
+  const { createOrder, loading } = usePayPal();
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [diamondLoading, setDiamondLoading] = useState(false);
 
   const userPacks = mockPointsPacks.filter(
     (p) => p.countryId === user?.countryId
@@ -19,8 +20,30 @@ export default function TopUp() {
     (p) => p.countryId === user?.countryId && p.isActive
   );
 
-  const selectedPack = userPacks.find((p) => p.id === selectedPackId);
   const diamondPrice = userDiamondPlan?.priceUSD ?? 99;
+
+  const handleBuyPack = async (pack: typeof userPacks[0]) => {
+    setLoadingId(pack.id);
+    await createOrder({
+      order_type: 'points_pack',
+      pack_id: pack.id,
+      points_amount: pack.points,
+      price_usd: pack.priceUSD,
+      description: `شراء ${pack.points} نقطة - حزمة ${pack.label}`,
+    });
+    setLoadingId(null);
+  };
+
+  const handleBuyDiamond = async () => {
+    setDiamondLoading(true);
+    await createOrder({
+      order_type: 'diamond_plan',
+      plan_id: userDiamondPlan?.id,
+      price_usd: diamondPrice,
+      description: userDiamondPlan?.nameAr ?? 'اشتراك Diamond سنوي',
+    });
+    setDiamondLoading(false);
+  };
 
   return (
     <div className="space-y-8">
@@ -75,30 +98,15 @@ export default function TopUp() {
             <p className="text-4xl font-black">${diamondPrice}</p>
             <p className="text-sm opacity-80">/ سنة</p>
             <Button
-              onClick={() => setShowDiamondPayment(!showDiamondPayment)}
+              onClick={handleBuyDiamond}
+              disabled={diamondLoading}
               className="mt-3 bg-white/20 hover:bg-white/30 text-diamond-foreground font-bold px-8"
             >
-              <CreditCard className="h-4 w-4 ml-2" />
-              {showDiamondPayment ? 'إخفاء الدفع' : 'اشترك الآن'}
+              {diamondLoading ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <CreditCard className="h-4 w-4 ml-2" />}
+              اشترك الآن
             </Button>
           </div>
         </div>
-        {showDiamondPayment && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="mt-6 rounded-xl bg-white/10 p-4"
-          >
-            <PayPalCardPayment
-              orderType="diamond_plan"
-              planId={userDiamondPlan?.id}
-              priceUSD={diamondPrice}
-              description={userDiamondPlan?.nameAr ?? 'اشتراك Diamond سنوي'}
-              onSuccess={() => setShowDiamondPayment(false)}
-              onCancel={() => setShowDiamondPayment(false)}
-            />
-          </motion.div>
-        )}
       </motion.div>
 
       {/* Divider */}
@@ -111,7 +119,7 @@ export default function TopUp() {
       {/* Points packs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {userPacks.map((pack, i) => {
-          const isSelected = selectedPackId === pack.id;
+          const isLoading = loadingId === pack.id;
           return (
             <motion.div
               key={pack.id}
@@ -120,7 +128,7 @@ export default function TopUp() {
               transition={{ delay: 0.15 + i * 0.05 }}
               className={`relative rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover ${
                 pack.popular ? 'ring-2 ring-gold' : ''
-              } ${isSelected ? 'ring-2 ring-primary' : ''}`}
+              }`}
             >
               {pack.popular && (
                 <div className="absolute -top-3 right-4 rounded-full gradient-gold px-3 py-1 text-xs font-bold text-gold-foreground shadow-gold">
@@ -142,29 +150,13 @@ export default function TopUp() {
                   ${pack.priceUSD}
                 </p>
                 <Button
-                  onClick={() => setSelectedPackId(isSelected ? null : pack.id)}
+                  onClick={() => handleBuyPack(pack)}
+                  disabled={isLoading || loading}
                   className="mt-4 w-full gradient-gold text-gold-foreground font-bold hover:opacity-90"
                 >
-                  <CreditCard className="h-4 w-4 ml-2" />
-                  {isSelected ? 'إخفاء الدفع' : 'شراء الآن'}
+                  {isLoading ? <Loader2 className="h-4 w-4 ml-2 animate-spin" /> : <CreditCard className="h-4 w-4 ml-2" />}
+                  شراء الآن
                 </Button>
-                {isSelected && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="mt-4"
-                  >
-                    <PayPalCardPayment
-                      orderType="points_pack"
-                      packId={pack.id}
-                      pointsAmount={pack.points}
-                      priceUSD={pack.priceUSD}
-                      description={`شراء ${pack.points} نقطة - حزمة ${pack.label}`}
-                      onSuccess={() => setSelectedPackId(null)}
-                      onCancel={() => setSelectedPackId(null)}
-                    />
-                  </motion.div>
-                )}
               </div>
             </motion.div>
           );
