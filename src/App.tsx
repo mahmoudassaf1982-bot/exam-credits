@@ -13,6 +13,8 @@ import Wallet from "./pages/Wallet";
 import Referral from "./pages/Referral";
 import Exams from "./pages/Exams";
 import TopUp from "./pages/TopUp";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentCancel from "./pages/PaymentCancel";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminCountries from "./pages/admin/AdminCountries";
 import AdminExamsList from "./pages/admin/AdminExamsList";
@@ -51,6 +53,10 @@ const App = () => (
             <Route path="/app/wallet" element={<AppLayout><Wallet /></AppLayout>} />
             <Route path="/app/referral" element={<AppLayout><Referral /></AppLayout>} />
             <Route path="/app/topup" element={<AppLayout><TopUp /></AppLayout>} />
+
+            {/* Payment callback routes */}
+            <Route path="/payment/success" element={<PaymentSuccess />} />
+            <Route path="/payment/cancel" element={<PaymentCancel />} />
 
             {/* Admin routes */}
             <Route path="/app/admin" element={<AdminAppLayout><AdminDashboard /></AdminAppLayout>} />
