@@ -52,7 +52,7 @@ export default function PaymentSuccess() {
         ) : (
           <>
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-foreground">تم الدفع بنجاح!</h1>
+            <h1 className="text-xl font-bold text-foreground">تمت عملية الدفع بنجاح 🎉</h1>
             <p className="text-sm text-muted-foreground mt-2">تمت إضافة النقاط إلى حسابك.</p>
             <Button onClick={() => navigate('/app/topup')} className="mt-6">
               العودة للصفحة الرئيسية
