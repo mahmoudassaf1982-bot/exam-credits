@@ -112,6 +112,7 @@ Deno.serve(async (req) => {
         brand_name: "Saris Exams",
         locale: "ar-SA",
         landing_page: "NO_PREFERENCE",
+        shipping_preference: "NO_SHIPPING",
         user_action: "PAY_NOW",
         return_url: `${BASE_URL}/payment/success`,
         cancel_url: `${BASE_URL}/payment/cancel`,
