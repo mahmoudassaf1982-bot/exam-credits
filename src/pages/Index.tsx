@@ -168,7 +168,7 @@ export default function Index() {
       {/* Footer */}
       <footer className="border-t py-8">
         <div className="container text-center text-sm text-muted-foreground">
-          <p>© 2024 Saris Exams. جميع الحقوق محفوظة.</p>
+          <p>© {new Date().getFullYear()} Saris Exams. جميع الحقوق محفوظة.</p>
         </div>
       </footer>
     </div>

@@ -13,10 +13,10 @@ import type {
 export const countries: Country[] = [
   { id: 'sa', name: 'Saudi Arabia', nameAr: 'السعودية', flag: '🇸🇦', currency: 'SAR', isActive: true },
   { id: 'ae', name: 'UAE', nameAr: 'الإمارات', flag: '🇦🇪', currency: 'AED', isActive: true },
-  { id: 'kw', name: 'Kuwait', nameAr: 'الكويت', flag: '🇰🇼', currency: 'KWD', isActive: false },
-  { id: 'bh', name: 'Bahrain', nameAr: 'البحرين', flag: '🇧🇭', currency: 'BHD', isActive: false },
-  { id: 'om', name: 'Oman', nameAr: 'عمان', flag: '🇴🇲', currency: 'OMR', isActive: false },
-  { id: 'qa', name: 'Qatar', nameAr: 'قطر', flag: '🇶🇦', currency: 'QAR', isActive: false },
+  { id: 'kw', name: 'Kuwait', nameAr: 'الكويت', flag: '🇰🇼', currency: 'KWD', isActive: true },
+  { id: 'bh', name: 'Bahrain', nameAr: 'البحرين', flag: '🇧🇭', currency: 'BHD', isActive: true },
+  { id: 'om', name: 'Oman', nameAr: 'عمان', flag: '🇴🇲', currency: 'OMR', isActive: true },
+  { id: 'qa', name: 'Qatar', nameAr: 'قطر', flag: '🇶🇦', currency: 'QAR', isActive: true },
 ];
 
 export const mockUser: User = {
