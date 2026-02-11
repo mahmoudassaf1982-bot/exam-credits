@@ -2,7 +2,8 @@ import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles } from 'luci
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/StatsCard';
-import { mockTransactions, mockReferralEvents, mockExams, reasonLabels } from '@/data/mock';
+import { mockTransactions, mockReferralEvents, reasonLabels } from '@/data/mock';
+import { mockExamTemplates } from '@/data/examTemplates';
 import { motion } from 'framer-motion';
 
 export default function Dashboard() {
@@ -15,7 +16,7 @@ export default function Dashboard() {
   const pendingReferrals = mockReferralEvents.filter(
     (r) => r.status === 'pending'
   ).length;
-  const userExams = mockExams.filter((e) => e.countryId === user?.countryId);
+  const userExams = mockExamTemplates.filter((t) => t.countryId === user?.countryId && t.isActive);
 
   return (
     <div className="space-y-8">

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import { Eye, EyeOff, UserPlus, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,12 +10,20 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 
 export default function Auth() {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const location = useLocation();
+  const initialMode = location.pathname === '/auth/register' ? 'register' : 'login';
+  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [showPassword, setShowPassword] = useState(false);
   const [searchParams] = useSearchParams();
   const refCode = searchParams.get('ref') || '';
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  useEffect(() => {
+    const modeParam = searchParams.get('mode');
+    if (modeParam === 'register') setMode('register');
+    else if (location.pathname === '/auth/register') setMode('register');
+  }, [location.pathname, searchParams]);
 
   const [form, setForm] = useState({
     name: '',
@@ -135,6 +143,17 @@ export default function Auth() {
                   )}
                 </button>
               </div>
+              {mode === 'login' && (
+                <div className="text-left">
+                  <button
+                    type="button"
+                    onClick={() => toast.info('سيتم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني')}
+                    className="text-xs text-primary hover:underline font-medium"
+                  >
+                    نسيت كلمة المرور؟
+                  </button>
+                </div>
+              )}
             </div>
 
             {mode === 'register' && (
