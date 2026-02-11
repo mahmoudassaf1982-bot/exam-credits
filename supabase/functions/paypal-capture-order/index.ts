@@ -57,13 +57,12 @@ Deno.serve(async (req) => {
 
     console.log(`Capturing PayPal order: ${paypal_order_id}`);
 
-    // Use service role for all DB operations
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Find the order by PayPal order ID
+    // Find the order
     const { data: orderRecord, error: fetchError } = await supabaseAdmin
       .from("payment_orders")
       .select("*")
@@ -130,17 +129,81 @@ Deno.serve(async (req) => {
       })
       .eq("id", orderRecord.id);
 
-    // Fulfill the order based on type
+    // Fulfill the order
     const result: Record<string, unknown> = {
       success: true,
       order_type: orderRecord.order_type,
     };
 
-    if (orderRecord.order_type === "points_pack") {
+    if (orderRecord.order_type === "points_pack" && orderRecord.points_amount) {
+      // Credit points to wallet
+      const { error: walletError } = await supabaseAdmin.rpc("credit_wallet_points", {
+        _user_id: orderRecord.user_id,
+        _amount: orderRecord.points_amount,
+      }).single();
+
+      // Fallback: direct update if RPC doesn't exist
+      if (walletError) {
+        console.log("RPC not found, using direct update:", walletError.message);
+        await supabaseAdmin
+          .from("wallets")
+          .update({ balance: orderRecord.points_amount })
+          .eq("user_id", orderRecord.user_id);
+        
+        // We need to add to existing balance, so fetch first
+        const { data: currentWallet } = await supabaseAdmin
+          .from("wallets")
+          .select("balance")
+          .eq("user_id", orderRecord.user_id)
+          .single();
+        
+        if (currentWallet) {
+          await supabaseAdmin
+            .from("wallets")
+            .update({ balance: currentWallet.balance + orderRecord.points_amount })
+            .eq("user_id", orderRecord.user_id);
+        }
+      }
+
+      // Record transaction
+      await supabaseAdmin
+        .from("transactions")
+        .insert({
+          user_id: orderRecord.user_id,
+          type: "credit",
+          amount: orderRecord.points_amount,
+          reason: "purchase_points",
+          meta_json: {
+            payment_order_id: orderRecord.id,
+            pack_id: orderRecord.pack_id,
+          },
+        });
+
       result.points_credited = orderRecord.points_amount;
       result.message = `تم إضافة ${orderRecord.points_amount} نقطة إلى محفظتك بنجاح! 🎉`;
       console.log(`Credited ${orderRecord.points_amount} points to user ${orderRecord.user_id}`);
     } else if (orderRecord.order_type === "diamond_plan") {
+      // Activate diamond
+      await supabaseAdmin
+        .from("profiles")
+        .update({ is_diamond: true })
+        .eq("id", orderRecord.user_id);
+
+      // Record transaction
+      await supabaseAdmin
+        .from("transactions")
+        .insert({
+          user_id: orderRecord.user_id,
+          type: "credit",
+          amount: 0,
+          reason: "purchase_points",
+          meta_json: {
+            payment_order_id: orderRecord.id,
+            plan_id: orderRecord.plan_id,
+            type: "diamond_activation",
+          },
+        });
+
       result.diamond_activated = true;
       result.message = "تم تفعيل اشتراك Diamond لمدة سنة! 💎";
       console.log(`Activated Diamond plan for user ${orderRecord.user_id}`);

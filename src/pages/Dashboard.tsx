@@ -1,21 +1,47 @@
-import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles } from 'lucide-react';
+import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/StatsCard';
-import { mockTransactions, mockReferralEvents, reasonLabels } from '@/data/mock';
+import { reasonLabels } from '@/data/mock';
 import { mockExamTemplates } from '@/data/examTemplates';
 import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import type { PointsTransaction } from '@/types';
 
 export default function Dashboard() {
   const { user, wallet } = useAuth();
+  const [recentTx, setRecentTx] = useState<PointsTransaction[]>([]);
+  const [txStats, setTxStats] = useState({ debitCount: 0 });
+  const [loading, setLoading] = useState(true);
 
-  const recentTransactions = mockTransactions.slice(-5).reverse();
-  const successfulReferrals = mockReferralEvents.filter(
-    (r) => r.status === 'rewarded'
-  ).length;
-  const pendingReferrals = mockReferralEvents.filter(
-    (r) => r.status === 'pending'
-  ).length;
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      const { data } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (data) {
+        setRecentTx(data.map(tx => ({
+          id: tx.id,
+          userId: tx.user_id,
+          type: tx.type as 'credit' | 'debit',
+          amount: tx.amount,
+          reason: tx.reason as PointsTransaction['reason'],
+          metaJson: tx.meta_json as Record<string, unknown> | undefined,
+          createdAt: tx.created_at,
+        })));
+        setTxStats({ debitCount: data.filter(t => t.type === 'debit').length });
+      }
+      setLoading(false);
+    };
+    load();
+  }, [user]);
+
   const userExams = mockExamTemplates.filter((t) => t.countryId === user?.countryId && t.isActive);
 
   return (
@@ -82,14 +108,14 @@ export default function Dashboard() {
         />
         <StatsCard
           title="دعوات ناجحة"
-          value={successfulReferrals}
-          subtitle={`${pendingReferrals} قيد الانتظار`}
+          value={0}
+          subtitle="0 قيد الانتظار"
           icon={UserPlus}
           variant="success"
         />
         <StatsCard
           title="الجلسات المستخدمة"
-          value={mockTransactions.filter((t) => t.type === 'debit').length}
+          value={txStats.debitCount}
           subtitle="جلسة مكتملة"
           icon={TrendingUp}
         />
@@ -112,38 +138,46 @@ export default function Dashboard() {
           </Link>
         </div>
         <div className="divide-y">
-          {recentTransactions.map((tx) => (
-            <div
-              key={tx.id}
-              className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
-            >
-              <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                  tx.type === 'credit'
-                    ? 'bg-success/10 text-success'
-                    : 'bg-destructive/10 text-destructive'
-                }`}
-              >
-                <Coins className="h-5 w-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  {reasonLabels[tx.reason] || tx.reason}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {new Date(tx.createdAt).toLocaleDateString('ar-SA')}
-                </p>
-              </div>
-              <span
-                className={`text-sm font-bold ${
-                  tx.type === 'credit' ? 'text-success' : 'text-destructive'
-                }`}
-              >
-                {tx.type === 'credit' ? '+' : '-'}
-                {tx.amount}
-              </span>
+          {loading ? (
+            <div className="p-8 text-center">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
             </div>
-          ))}
+          ) : recentTx.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">لا توجد حركات بعد</div>
+          ) : (
+            recentTx.map((tx) => (
+              <div
+                key={tx.id}
+                className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
+              >
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                    tx.type === 'credit'
+                      ? 'bg-success/10 text-success'
+                      : 'bg-destructive/10 text-destructive'
+                  }`}
+                >
+                  <Coins className="h-5 w-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    {reasonLabels[tx.reason] || tx.reason}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(tx.createdAt).toLocaleDateString('ar-SA')}
+                  </p>
+                </div>
+                <span
+                  className={`text-sm font-bold ${
+                    tx.type === 'credit' ? 'text-success' : 'text-destructive'
+                  }`}
+                >
+                  {tx.type === 'credit' ? '+' : '-'}
+                  {tx.amount}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </motion.div>
 

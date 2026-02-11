@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Layout } from "@/components/Layout";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import Index from "./pages/Index";
@@ -48,26 +49,26 @@ const App = () => (
             <Route path="/auth/login" element={<Auth />} />
             <Route path="/auth/register" element={<Auth />} />
 
-            {/* App routes */}
-            <Route path="/app" element={<AppLayout><Dashboard /></AppLayout>} />
-            <Route path="/app/exams" element={<AppLayout><Exams /></AppLayout>} />
-            <Route path="/app/wallet" element={<AppLayout><Wallet /></AppLayout>} />
-            <Route path="/app/referral" element={<AppLayout><Referral /></AppLayout>} />
-            <Route path="/app/topup" element={<AppLayout><TopUp /></AppLayout>} />
+            {/* App routes - protected */}
+            <Route path="/app" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
+            <Route path="/app/exams" element={<ProtectedRoute><AppLayout><Exams /></AppLayout></ProtectedRoute>} />
+            <Route path="/app/wallet" element={<ProtectedRoute><AppLayout><Wallet /></AppLayout></ProtectedRoute>} />
+            <Route path="/app/referral" element={<ProtectedRoute><AppLayout><Referral /></AppLayout></ProtectedRoute>} />
+            <Route path="/app/topup" element={<ProtectedRoute><AppLayout><TopUp /></AppLayout></ProtectedRoute>} />
 
             {/* Payment callback routes */}
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
 
-            {/* Admin routes */}
-            <Route path="/app/admin" element={<AdminAppLayout><AdminDashboard /></AdminAppLayout>} />
-            <Route path="/app/admin/countries" element={<AdminAppLayout><AdminCountries /></AdminAppLayout>} />
-            <Route path="/app/admin/exams" element={<AdminAppLayout><AdminExamsList /></AdminAppLayout>} />
-            <Route path="/app/admin/exams/:id" element={<AdminAppLayout><AdminExamDetail /></AdminAppLayout>} />
-            <Route path="/app/admin/questions" element={<AdminAppLayout><AdminQuestions /></AdminAppLayout>} />
-            <Route path="/app/admin/points-packs" element={<AdminAppLayout><AdminPointsPacks /></AdminAppLayout>} />
-            <Route path="/app/admin/plans" element={<AdminAppLayout><AdminPlans /></AdminAppLayout>} />
-            <Route path="/app/admin/settings" element={<AdminAppLayout><AdminSettings /></AdminAppLayout>} />
+            {/* Admin routes - protected */}
+            <Route path="/app/admin" element={<ProtectedRoute><AdminAppLayout><AdminDashboard /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/countries" element={<ProtectedRoute><AdminAppLayout><AdminCountries /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/exams" element={<ProtectedRoute><AdminAppLayout><AdminExamsList /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/exams/:id" element={<ProtectedRoute><AdminAppLayout><AdminExamDetail /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/questions" element={<ProtectedRoute><AdminAppLayout><AdminQuestions /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/points-packs" element={<ProtectedRoute><AdminAppLayout><AdminPointsPacks /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/plans" element={<ProtectedRoute><AdminAppLayout><AdminPlans /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/settings" element={<ProtectedRoute><AdminAppLayout><AdminSettings /></AdminAppLayout></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

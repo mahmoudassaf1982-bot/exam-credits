@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
-import { Eye, EyeOff, UserPlus, LogIn } from 'lucide-react';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { Eye, EyeOff, UserPlus, LogIn, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,16 +8,22 @@ import { countries } from '@/data/mock';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Auth() {
   const location = useLocation();
   const initialMode = location.pathname === '/auth/register' ? 'register' : 'login';
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [searchParams] = useSearchParams();
   const refCode = searchParams.get('ref') || '';
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, signup, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated) navigate('/app');
+  }, [isAuthenticated, navigate]);
 
   useEffect(() => {
     const modeParam = searchParams.get('mode');
@@ -33,15 +39,54 @@ export default function Auth() {
     referralCode: refCode,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
+
     if (mode === 'register' && !form.countryId) {
       toast.error('يرجى اختيار الدولة');
       return;
     }
-    login();
-    toast.success(mode === 'login' ? 'تم تسجيل الدخول بنجاح' : 'تم إنشاء الحساب بنجاح! حصلت على 20 نقطة هدية 🎉');
-    navigate('/app');
+
+    setSubmitting(true);
+    try {
+      if (mode === 'login') {
+        const result = await login(form.email, form.password);
+        if (result.error) {
+          toast.error(result.error);
+        } else {
+          toast.success('تم تسجيل الدخول بنجاح');
+          navigate('/app');
+        }
+      } else {
+        const country = countries.find(c => c.id === form.countryId);
+        const result = await signup(form.email, form.password, {
+          name: form.name,
+          country_id: form.countryId,
+          country_name: country?.nameAr || '',
+          referral_code: form.referralCode || undefined,
+        });
+        if (result.error) {
+          toast.error(result.error);
+        } else {
+          toast.success('تم إنشاء الحساب! تحقق من بريدك الإلكتروني لتأكيد الحساب 📧');
+        }
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!form.email) {
+      toast.error('أدخل بريدك الإلكتروني أولاً');
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(form.email, {
+      redirectTo: window.location.origin,
+    });
+    if (error) toast.error(error.message);
+    else toast.success('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني');
   };
 
   return (
@@ -130,6 +175,7 @@ export default function Auth() {
                   required
                   dir="ltr"
                   className="text-left pl-10"
+                  minLength={6}
                 />
                 <button
                   type="button"
@@ -147,7 +193,7 @@ export default function Auth() {
                 <div className="text-left">
                   <button
                     type="button"
-                    onClick={() => toast.info('سيتم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني')}
+                    onClick={handleForgotPassword}
                     className="text-xs text-primary hover:underline font-medium"
                   >
                     نسيت كلمة المرور؟
@@ -200,9 +246,16 @@ export default function Auth() {
 
             <Button
               type="submit"
+              disabled={submitting}
               className="w-full gradient-primary text-primary-foreground font-bold py-6 text-base"
             >
-              {mode === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب'}
+              {submitting ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : mode === 'login' ? (
+                'تسجيل الدخول'
+              ) : (
+                'إنشاء حساب'
+              )}
             </Button>
           </form>
 
