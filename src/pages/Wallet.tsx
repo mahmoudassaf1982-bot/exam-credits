@@ -1,31 +1,55 @@
-import { Coins, ArrowDown, ArrowUp, Filter } from 'lucide-react';
+import { Coins, ArrowDown, ArrowUp, Filter, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockTransactions, reasonLabels } from '@/data/mock';
+import { reasonLabels } from '@/data/mock';
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import type { PointsTransaction } from '@/types';
 
 export default function Wallet() {
   const { wallet, user } = useAuth();
   const [filter, setFilter] = useState<'all' | 'credit' | 'debit'>('all');
+  const [transactions, setTransactions] = useState<PointsTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const transactions = mockTransactions
-    .filter((tx) => filter === 'all' || tx.type === filter)
-    .reverse();
+  useEffect(() => {
+    if (!user) return;
+    const fetchTransactions = async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (data) {
+        setTransactions(data.map(tx => ({
+          id: tx.id,
+          userId: tx.user_id,
+          type: tx.type as 'credit' | 'debit',
+          amount: tx.amount,
+          reason: tx.reason as PointsTransaction['reason'],
+          metaJson: tx.meta_json as Record<string, unknown> | undefined,
+          createdAt: tx.created_at,
+        })));
+      }
+      setLoading(false);
+    };
+    fetchTransactions();
+  }, [user]);
 
-  const totalCredits = mockTransactions
+  const filtered = transactions.filter((tx) => filter === 'all' || tx.type === filter);
+
+  const totalCredits = transactions
     .filter((t) => t.type === 'credit')
     .reduce((sum, t) => sum + t.amount, 0);
-  const totalDebits = mockTransactions
+  const totalDebits = transactions
     .filter((t) => t.type === 'debit')
     .reduce((sum, t) => sum + t.amount, 0);
 
   return (
     <div className="space-y-8">
       {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl sm:text-3xl font-black text-foreground">المحفظة</h1>
         <p className="mt-1 text-muted-foreground">إدارة رصيد النقاط والحركات</p>
       </motion.div>
@@ -98,13 +122,17 @@ export default function Wallet() {
         </div>
 
         <div className="divide-y">
-          {transactions.length === 0 ? (
+          {loading ? (
+            <div className="p-8 text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
               <Filter className="h-8 w-8 mx-auto mb-2 opacity-40" />
               <p>لا توجد حركات</p>
             </div>
           ) : (
-            transactions.map((tx) => (
+            filtered.map((tx) => (
               <div
                 key={tx.id}
                 className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
