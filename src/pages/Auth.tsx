@@ -16,6 +16,8 @@ export default function Auth() {
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
   const [searchParams] = useSearchParams();
   const refCode = searchParams.get('ref') || '';
   const navigate = useNavigate();
@@ -68,8 +70,16 @@ export default function Auth() {
         });
         if (result.error) {
           toast.error(result.error);
+        } else if (result.needsConfirmation) {
+          setRegisteredEmail(form.email);
+          setShowEmailConfirmation(true);
+          toast.success('تم إنشاء حسابك بنجاح! يرجى التحقق من بريدك الإلكتروني لتفعيل الحساب');
+          setTimeout(() => {
+            setShowEmailConfirmation(false);
+            setMode('login');
+          }, 5000);
         } else {
-          toast.success('تم إنشاء الحساب! تحقق من بريدك الإلكتروني لتأكيد الحساب 📧');
+          toast.success('تم إنشاء الحساب بنجاح!');
         }
       }
     } finally {
@@ -106,7 +116,23 @@ export default function Auth() {
           <p className="text-sm text-muted-foreground mt-1">منصة الاختبارات المهنية</p>
         </div>
 
-        {/* Card */}
+        {/* Email Confirmation */}
+        {showEmailConfirmation ? (
+          <div className="rounded-2xl border bg-card p-8 shadow-card text-center space-y-4">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-3xl">
+              📧
+            </div>
+            <h2 className="text-xl font-bold text-foreground">تحقق من بريدك الإلكتروني</h2>
+            <p className="text-muted-foreground text-sm">
+              تم إرسال رابط التفعيل إلى <span className="font-semibold text-foreground" dir="ltr">{registeredEmail}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">سيتم تحويلك لصفحة تسجيل الدخول خلال ثوانٍ...</p>
+            <Button variant="outline" onClick={() => { setShowEmailConfirmation(false); setMode('login'); }} className="mt-2">
+              العودة لتسجيل الدخول
+            </Button>
+          </div>
+        ) : (
+        /* Card */
         <div className="rounded-2xl border bg-card p-6 shadow-card">
           {/* Toggle */}
           <div className="mb-6 flex rounded-xl bg-muted p-1">
@@ -267,6 +293,7 @@ export default function Auth() {
             </p>
           )}
         </div>
+        )}
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
           {mode === 'login' ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}{' '}

@@ -10,7 +10,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<{ error?: string }>;
-  signup: (email: string, password: string, meta: { name: string; country_id: string; country_name: string; referral_code?: string }) => Promise<{ error?: string }>;
+  signup: (email: string, password: string, meta: { name: string; country_id: string; country_name: string; referral_code?: string }) => Promise<{ error?: string; success?: boolean; needsConfirmation?: boolean }>;
   logout: () => Promise<void>;
   updateBalance: (delta: number) => void;
   refreshWallet: () => Promise<void>;
@@ -89,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string,
     meta: { name: string; country_id: string; country_name: string; referral_code?: string }
   ) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -97,7 +97,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         data: meta,
       },
     });
-    if (error) return { error: error.message };
+    if (error) {
+      if (error.status === 429) return { error: 'يرجى الانتظار قبل المحاولة مرة أخرى' };
+      return { error: error.message };
+    }
+    // Email confirmation required - user created but no session
+    if (data?.user && !data.session) {
+      return { success: true, needsConfirmation: true };
+    }
     return {};
   };
 
