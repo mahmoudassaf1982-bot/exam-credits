@@ -73,11 +73,7 @@ export default function Auth() {
         } else if (result.needsConfirmation) {
           setRegisteredEmail(form.email);
           setShowEmailConfirmation(true);
-          toast.success('تم إنشاء حسابك بنجاح! يرجى التحقق من بريدك الإلكتروني لتفعيل الحساب');
-          setTimeout(() => {
-            setShowEmailConfirmation(false);
-            setMode('login');
-          }, 5000);
+          toast.success('تم إنشاء حسابك بنجاح!');
         } else {
           toast.success('تم إنشاء الحساب بنجاح!');
         }
@@ -118,17 +114,18 @@ export default function Auth() {
 
         {/* Email Confirmation */}
         {showEmailConfirmation ? (
-          <div className="rounded-2xl border bg-card p-8 shadow-card text-center space-y-4">
+          <div className="rounded-2xl border bg-card p-8 shadow-card text-center space-y-5">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-3xl">
               📧
             </div>
-            <h2 className="text-xl font-bold text-foreground">تحقق من بريدك الإلكتروني</h2>
-            <p className="text-muted-foreground text-sm">
+            <h2 className="text-xl font-bold text-foreground">تم إنشاء حسابك بنجاح!</h2>
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              يرجى التحقق من بريدك الإلكتروني لتفعيل الحساب.
+              <br />
               تم إرسال رابط التفعيل إلى <span className="font-semibold text-foreground" dir="ltr">{registeredEmail}</span>
             </p>
-            <p className="text-xs text-muted-foreground">سيتم تحويلك لصفحة تسجيل الدخول خلال ثوانٍ...</p>
-            <Button variant="outline" onClick={() => { setShowEmailConfirmation(false); setMode('login'); }} className="mt-2">
-              العودة لتسجيل الدخول
+            <Button onClick={() => { setShowEmailConfirmation(false); setMode('login'); }} className="w-full gradient-primary text-primary-foreground font-bold py-5 text-base mt-2">
+              الانتقال لتسجيل الدخول
             </Button>
           </div>
         ) : (
