@@ -89,7 +89,7 @@ export default function Auth() {
       return;
     }
     const { error } = await supabase.auth.resetPasswordForEmail(form.email, {
-      redirectTo: window.location.origin,
+      redirectTo: `${window.location.origin}/auth/callback`,
     });
     if (error) toast.error(error.message);
     else toast.success('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني');
