@@ -9,6 +9,7 @@ import {
   Settings,
   Users,
   TrendingUp,
+  Sparkles,
 } from 'lucide-react';
 import { countries, mockPointsPacks, mockReferralEvents, mockDiamondPlans } from '@/data/mock';
 import { mockExamTemplates, mockQuestions } from '@/data/examTemplates';
@@ -77,6 +78,7 @@ const quickLinks = [
   { label: 'حزم النقاط', icon: Coins, href: '/app/admin/points-packs', desc: 'تسعير حزم النقاط' },
   { label: 'خطط Diamond', icon: Crown, href: '/app/admin/plans', desc: 'إدارة خطط الاشتراك' },
   { label: 'الإعدادات', icon: Settings, href: '/app/admin/settings', desc: 'إعدادات المنصة العامة' },
+  { label: 'توليد بالذكاء', icon: Sparkles, href: '/app/admin/ai-generator', desc: 'توليد أسئلة بالذكاء الاصطناعي' },
 ];
 
 export default function AdminDashboard() {

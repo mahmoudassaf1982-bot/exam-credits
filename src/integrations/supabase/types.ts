@@ -92,6 +92,54 @@ export type Database = {
         }
         Relationships: []
       }
+      questions: {
+        Row: {
+          correct_option_id: string
+          country_id: string
+          created_at: string
+          difficulty: string
+          exam_template_id: string | null
+          explanation: string | null
+          id: string
+          is_approved: boolean
+          options: Json
+          section_id: string | null
+          source: string
+          text_ar: string
+          topic: string
+        }
+        Insert: {
+          correct_option_id: string
+          country_id: string
+          created_at?: string
+          difficulty?: string
+          exam_template_id?: string | null
+          explanation?: string | null
+          id?: string
+          is_approved?: boolean
+          options?: Json
+          section_id?: string | null
+          source?: string
+          text_ar: string
+          topic: string
+        }
+        Update: {
+          correct_option_id?: string
+          country_id?: string
+          created_at?: string
+          difficulty?: string
+          exam_template_id?: string | null
+          explanation?: string | null
+          id?: string
+          is_approved?: boolean
+          options?: Json
+          section_id?: string | null
+          source?: string
+          text_ar?: string
+          topic?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
