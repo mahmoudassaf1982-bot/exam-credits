@@ -1,48 +1,60 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, CheckCircle, BookOpen, ChevronDown } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Link } from 'react-router-dom';
 
 interface GeneratedQuestion {
   id: string;
   text_ar: string;
-  topic: string;
-  difficulty: string;
   options: { id: string; textAr: string }[];
   correct_option_id: string;
   explanation: string | null;
 }
 
+const countries = [
+  { value: 'kw', label: 'الكويت' },
+  { value: 'sa', label: 'السعودية' },
+  { value: 'eg', label: 'مصر' },
+  { value: 'ae', label: 'الإمارات' },
+  { value: 'jo', label: 'الأردن' },
+  { value: 'ps', label: 'فلسطين' },
+];
+
+const examTypes = [
+  { value: 'aptitude', label: 'امتحان القدرات' },
+  { value: 'achievement', label: 'امتحان التحصيل الدراسي' },
+  { value: 'highschool', label: 'امتحان الثانوية العامة' },
+  { value: 'professional', label: 'امتحان الرخصة المهنية' },
+  { value: 'english', label: 'امتحان اللغة الإنجليزية' },
+];
+
+const optionLabels = ['أ', 'ب', 'ج', 'د'];
+
 export default function AdminAIGenerator() {
   const { toast } = useToast();
-  const [autoLoading, setAutoLoading] = useState(false);
-  const [customLoading, setCustomLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GeneratedQuestion[]>([]);
 
-  // Custom form state
-  const [subject, setSubject] = useState('mathematics');
-  const [topic, setTopic] = useState('');
+  const [country, setCountry] = useState('kw');
+  const [examType, setExamType] = useState('aptitude');
+  const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
-  const [count, setCount] = useState(5);
 
-  const handleGenerate = async (mode: 'automatic' | 'custom') => {
-    const setLoading = mode === 'automatic' ? setAutoLoading : setCustomLoading;
+  const handleGenerate = async () => {
     setLoading(true);
     setResults([]);
 
     try {
-      const body = mode === 'automatic'
-        ? { mode: 'automatic' as const, countryId: 'kw' }
-        : { mode: 'custom' as const, subject, topic: topic || undefined, difficulty, count, countryId: 'kw' };
-
-      const { data, error } = await supabase.functions.invoke('generate-questions', { body });
+      const { data, error } = await supabase.functions.invoke('generateQuestionsWithResearch', {
+        body: { country, examType, numberOfQuestions, difficulty },
+      });
 
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
@@ -53,101 +65,52 @@ export default function AdminAIGenerator() {
       }));
 
       setResults(questions);
-      toast({
-        title: 'تم التوليد بنجاح ✨',
-        description: `تم توليد ${questions.length} سؤال وحفظها في بنك الأسئلة`,
-      });
+      toast({ title: 'تم توليد الأسئلة بنجاح! ✨', description: `تم توليد ${questions.length} سؤال وحفظها في بنك الأسئلة` });
     } catch (e: any) {
-      toast({ title: 'خطأ', description: e.message || 'فشل في توليد الأسئلة', variant: 'destructive' });
+      toast({ title: 'خطأ', description: e.message || 'حدث خطأ أثناء توليد الأسئلة. يرجى المحاولة مرة أخرى.', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
-  const difficultyLabel: Record<string, string> = { easy: 'سهل', medium: 'متوسط', hard: 'صعب' };
-  const difficultyColor: Record<string, string> = {
-    easy: 'text-success bg-success/10',
-    medium: 'text-gold bg-gold/10',
-    hard: 'text-destructive bg-destructive/10',
-  };
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" dir="rtl">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl sm:text-3xl font-black text-foreground flex items-center gap-3">
           <Sparkles className="h-7 w-7 text-primary" />
-          توليد الأسئلة بالذكاء الاصطناعي
+          لوحة توليد الأسئلة الذكية
         </h1>
-        <p className="mt-1 text-muted-foreground">توليد أسئلة اختبارات أكاديمية عالية الجودة تلقائياً</p>
+        <p className="mt-1 text-muted-foreground">استخدم الذكاء الاصطناعي لتوليد أسئلة امتحانات احترافية</p>
       </motion.div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Automatic Generation */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle className="text-lg">توليد تلقائي</CardTitle>
-              <CardDescription>توليد امتحان كامل وفق معايير اختبار القدرات - جامعة الكويت</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                سيتم توليد 15 سؤال تلقائياً: 5 رياضيات، 5 إنجليزي، 5 عربي بمستويات صعوبة متنوعة.
-              </p>
-              <Button
-                onClick={() => handleGenerate('automatic')}
-                disabled={autoLoading || customLoading}
-                className="w-full gradient-primary text-primary-foreground"
-                size="lg"
-              >
-                {autoLoading ? (
-                  <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</>
-                ) : (
-                  <><Sparkles className="h-4 w-4 ml-2" />توليد امتحان كامل تلقائياً</>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Custom Generation */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle className="text-lg">توليد مخصص</CardTitle>
-              <CardDescription>حدد المادة والموضوع ومستوى الصعوبة</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>المادة</Label>
-                  <Select value={subject} onValueChange={setSubject}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="mathematics">الرياضيات</SelectItem>
-                      <SelectItem value="english">اللغة الإنجليزية</SelectItem>
-                      <SelectItem value="arabic">اللغة العربية</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>مستوى الصعوبة</Label>
-                  <Select value={difficulty} onValueChange={setDifficulty}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="easy">سهل</SelectItem>
-                      <SelectItem value="medium">متوسط</SelectItem>
-                      <SelectItem value="hard">صعب</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">إعدادات التوليد</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>الدولة</Label>
+                <Select value={country} onValueChange={setCountry}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {countries.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
-                <Label>الموضوع (اختياري)</Label>
-                <Input
-                  placeholder="مثال: المعادلات التربيعية"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                />
+                <Label>نوع الامتحان</Label>
+                <Select value={examType} onValueChange={setExamType}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {examTypes.map((e) => (
+                      <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>عدد الأسئلة</Label>
@@ -155,83 +118,91 @@ export default function AdminAIGenerator() {
                   type="number"
                   min={1}
                   max={50}
-                  value={count}
-                  onChange={(e) => setCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                  value={numberOfQuestions}
+                  onChange={(e) => setNumberOfQuestions(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
                 />
               </div>
-              <Button
-                onClick={() => handleGenerate('custom')}
-                disabled={autoLoading || customLoading}
-                className="w-full"
-                size="lg"
-              >
-                {customLoading ? (
-                  <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</>
-                ) : (
-                  'توليد أسئلة مخصصة'
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
+              <div className="space-y-2">
+                <Label>مستوى الصعوبة</Label>
+                <Select value={difficulty} onValueChange={setDifficulty}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">سهل</SelectItem>
+                    <SelectItem value="medium">متوسط</SelectItem>
+                    <SelectItem value="hard">صعب</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-      {/* Results */}
+            <Button
+              onClick={handleGenerate}
+              disabled={loading}
+              className="w-full gradient-primary text-primary-foreground"
+              size="lg"
+            >
+              {loading ? (
+                <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</>
+              ) : (
+                <><Sparkles className="h-4 w-4 ml-2" />توليد الأسئلة</>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Results Table */}
       {results.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-success" />
-              تم توليد {results.length} سؤال
-            </h2>
-            <Link to="/app/admin/questions">
-              <Button variant="outline" size="sm">
-                <BookOpen className="h-4 w-4 ml-2" />
-                عرض بنك الأسئلة
-              </Button>
-            </Link>
+          <div className="flex items-center gap-2 mb-4">
+            <CheckCircle className="h-5 w-5 text-success" />
+            <h2 className="text-lg font-bold">تم توليد {results.length} سؤال</h2>
           </div>
-          <div className="space-y-3">
-            {results.map((q, i) => (
-              <Card key={q.id} className="overflow-hidden">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary text-xs font-bold flex-shrink-0 mt-0.5">
-                      {i + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${difficultyColor[q.difficulty] || ''}`}>
-                          {difficultyLabel[q.difficulty] || q.difficulty}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">{q.topic}</span>
-                      </div>
-                      <p className="text-sm font-medium text-foreground mb-2">{q.text_ar}</p>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {(q.options || []).map((opt) => (
-                          <div
-                            key={opt.id}
-                            className={`text-xs px-3 py-1.5 rounded-lg border ${
-                              opt.id === q.correct_option_id
-                                ? 'border-success/50 bg-success/10 text-success font-semibold'
-                                : 'border-border bg-muted/30 text-muted-foreground'
-                            }`}
-                          >
-                            {opt.textAr}
-                          </div>
-                        ))}
-                      </div>
-                      {q.explanation && (
-                        <p className="text-xs text-muted-foreground mt-2 bg-muted/30 rounded-lg p-2">
-                          💡 {q.explanation}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-right w-12">#</TableHead>
+                      <TableHead className="text-right">السؤال</TableHead>
+                      <TableHead className="text-right">أ</TableHead>
+                      <TableHead className="text-right">ب</TableHead>
+                      <TableHead className="text-right">ج</TableHead>
+                      <TableHead className="text-right">د</TableHead>
+                      <TableHead className="text-right">الإجابة</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {results.map((q, i) => {
+                      const correctIdx = q.options.findIndex((o) => o.id === q.correct_option_id);
+                      return (
+                        <TableRow key={q.id}>
+                          <TableCell className="font-bold text-primary">{i + 1}</TableCell>
+                          <TableCell className="font-medium min-w-[200px]">{q.text_ar}</TableCell>
+                          {q.options.map((opt, oi) => (
+                            <TableCell
+                              key={opt.id}
+                              className={opt.id === q.correct_option_id ? 'text-success font-semibold' : ''}
+                            >
+                              {opt.textAr}
+                            </TableCell>
+                          ))}
+                          {/* Fill empty cells if less than 4 options */}
+                          {Array.from({ length: Math.max(0, 4 - q.options.length) }).map((_, fi) => (
+                            <TableCell key={`empty-${fi}`}>-</TableCell>
+                          ))}
+                          <TableCell className="font-bold text-success">
+                            {correctIdx >= 0 ? optionLabels[correctIdx] : '-'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
       )}
     </div>
