@@ -8,10 +8,6 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Layout } from "@/components/Layout";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import Index from "./pages/Index";
-import FreeTest from "./pages/FreeTest";
-import PlatformPreview from "./pages/PlatformPreview";
-import PricingPage from "./pages/Pricing";
-import FAQPage from "./pages/FAQ";
 import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
 import Dashboard from "./pages/Dashboard";
@@ -50,10 +46,6 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/free-test" element={<FreeTest />} />
-            <Route path="/platform-preview" element={<PlatformPreview />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/faq" element={<FAQPage />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/login" element={<Auth />} />
             <Route path="/auth/register" element={<Auth />} />
