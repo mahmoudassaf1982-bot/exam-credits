@@ -8,6 +8,7 @@ import {
   Coins,
   Crown,
   Settings,
+  Sparkles,
   ArrowRight,
   Menu,
   X,
@@ -24,6 +25,7 @@ const adminNavItems = [
   { path: '/app/admin/points-packs', label: 'حزم النقاط', icon: Coins },
   { path: '/app/admin/plans', label: 'الخطط', icon: Crown },
   { path: '/app/admin/settings', label: 'الإعدادات', icon: Settings },
+  { path: '/app/admin/ai-generator', label: 'توليد بالذكاء', icon: Sparkles },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
