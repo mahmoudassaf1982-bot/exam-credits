@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import {
   LayoutDashboard,
   Globe,
@@ -36,6 +37,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout } = useAuth();
   const location = useLocation();
+
+  // Real-time notifications for admins
+  useAdminNotifications(true);
 
   const isActive = (path: string, exact?: boolean) => {
     if (exact) return location.pathname === path;
