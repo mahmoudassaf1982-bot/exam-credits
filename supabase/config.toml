@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.generateQuestionsWithResearch]
 verify_jwt = false
+
+[functions.send-admin-notification]
+verify_jwt = false

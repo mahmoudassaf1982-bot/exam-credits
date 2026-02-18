@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, Coins, Users, Filter } from 'lucide-react';
+import { Settings, Save, Coins, Users, Filter, Bell, Loader2, Mail } from 'lucide-react';
 import { mockSettings, mockReferralEvents } from '@/data/mock';
 import type { PlatformSettings } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -15,10 +15,42 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState<PlatformSettings>(mockSettings);
   const [referralFilter, setReferralFilter] = useState<string>('all');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [loadingEmail, setLoadingEmail] = useState(true);
+  const [savingEmail, setSavingEmail] = useState(false);
+
+  // Load admin notification email from DB
+  useEffect(() => {
+    const fetchAdminEmail = async () => {
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'admin_notification_email')
+        .single();
+      if (data) setAdminEmail(data.value ?? '');
+      setLoadingEmail(false);
+    };
+    fetchAdminEmail();
+  }, []);
+
+  const handleSaveEmail = async () => {
+    setSavingEmail(true);
+    const { error } = await supabase
+      .from('platform_settings')
+      .update({ value: adminEmail })
+      .eq('key', 'admin_notification_email');
+    setSavingEmail(false);
+    if (error) {
+      toast.error('فشل حفظ البريد الإلكتروني');
+    } else {
+      toast.success('تم حفظ بريد التنبيهات بنجاح');
+    }
+  };
 
   const handleSave = () => {
     toast.success('تم حفظ الإعدادات بنجاح');
@@ -37,7 +69,7 @@ export default function AdminSettings() {
       </motion.div>
 
       <Tabs defaultValue="settings" dir="rtl">
-        <TabsList className="w-full sm:w-auto grid grid-cols-2 sm:inline-grid">
+        <TabsList className="w-full sm:w-auto grid grid-cols-3 sm:inline-grid">
           <TabsTrigger value="settings" className="gap-2">
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">الإعدادات</span>
@@ -45,6 +77,10 @@ export default function AdminSettings() {
           <TabsTrigger value="referrals" className="gap-2">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">الدعوات</span>
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="gap-2">
+            <Bell className="h-4 w-4" />
+            <span className="hidden sm:inline">التنبيهات</span>
           </TabsTrigger>
         </TabsList>
 
@@ -183,6 +219,87 @@ export default function AdminSettings() {
                 </div>
               </>
             )}
+          </motion.div>
+        </TabsContent>
+
+        {/* Notifications Tab */}
+        <TabsContent value="notifications">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border bg-card p-6 shadow-card space-y-6"
+          >
+            <div>
+              <h2 className="font-bold text-lg flex items-center gap-2 mb-1">
+                <Bell className="h-5 w-5 text-primary" />
+                إعدادات التنبيهات بالبريد الإلكتروني
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                سيتلقى هذا البريد إشعارات فورية عند تسجيل مستخدم جديد، أو إتمام عملية شراء نقاط، أو تفعيل اشتراك Diamond.
+              </p>
+            </div>
+
+            <div className="space-y-2 max-w-md">
+              <Label className="flex items-center gap-2">
+                <Mail className="h-4 w-4 text-muted-foreground" />
+                بريد التنبيهات الإداري
+              </Label>
+              {loadingEmail ? (
+                <div className="flex items-center gap-2 h-10 text-muted-foreground text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  جارٍ التحميل...
+                </div>
+              ) : (
+                <Input
+                  type="email"
+                  placeholder="admin@example.com"
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  dir="ltr"
+                  className="text-left"
+                />
+              )}
+              <p className="text-xs text-muted-foreground">
+                اتركه فارغاً لتعطيل التنبيهات الإلكترونية.
+              </p>
+            </div>
+
+            {/* What triggers notifications */}
+            <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
+              <p className="text-sm font-semibold text-foreground">الأحداث التي تُطلق التنبيهات:</p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-3">
+                  <span className="text-lg leading-none mt-0.5">🆕</span>
+                  <div>
+                    <p className="text-sm font-medium">تسجيل مستخدم جديد</p>
+                    <p className="text-xs text-muted-foreground">يحتوي على الاسم والدولة</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-lg leading-none mt-0.5">💰</span>
+                  <div>
+                    <p className="text-sm font-medium">شراء نقاط ناجح</p>
+                    <p className="text-xs text-muted-foreground">يحتوي على اسم المستخدم وعدد النقاط والمبلغ</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-lg leading-none mt-0.5">💎</span>
+                  <div>
+                    <p className="text-sm font-medium">تفعيل اشتراك Diamond</p>
+                    <p className="text-xs text-muted-foreground">يحتوي على تفاصيل المشترك والمبلغ</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <Button
+              onClick={handleSaveEmail}
+              disabled={savingEmail || loadingEmail}
+              className="gradient-primary text-primary-foreground font-bold gap-2"
+            >
+              {savingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              حفظ بريد التنبيهات
+            </Button>
           </motion.div>
         </TabsContent>
       </Tabs>
