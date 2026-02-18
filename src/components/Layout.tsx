@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   Sparkles,
   Users,
+  BarChart2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PointsBadge } from '@/components/PointsBadge';
@@ -26,6 +27,7 @@ const navItems = [
 ];
 
 const adminNavItems = [
+  { path: '/app/admin/stats', label: 'الإحصائيات المتقدمة', icon: BarChart2 },
   { path: '/app/admin/ai-generator', label: 'توليد الأسئلة بالذكاء الاصطناعي', icon: Sparkles },
   { path: '/app/admin/exams', label: 'إدارة الاختبارات', icon: BookOpen },
   { path: '/app/admin/users', label: 'إدارة المستخدمين', icon: Users },
