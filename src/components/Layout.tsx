@@ -6,11 +6,12 @@ import {
   Wallet,
   UserPlus,
   ShoppingCart,
-  Settings,
   Menu,
   X,
   LogOut,
   ChevronLeft,
+  Sparkles,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PointsBadge } from '@/components/PointsBadge';
@@ -24,8 +25,10 @@ const navItems = [
   { path: '/app/topup', label: 'شراء نقاط', icon: ShoppingCart },
 ];
 
-const adminItems = [
-  { path: '/app/admin', label: 'الإدارة', icon: Settings },
+const adminNavItems = [
+  { path: '/app/admin/ai-generator', label: 'توليد الأسئلة بالذكاء الاصطناعي', icon: Sparkles },
+  { path: '/app/admin/exams', label: 'إدارة الاختبارات', icon: BookOpen },
+  { path: '/app/admin', label: 'إدارة المستخدمين', icon: Users },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -103,8 +106,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {user?.isAdmin && (
             <>
               <div className="my-3 border-t border-sidebar-border" />
-              {adminItems.map((item) => {
-                const isActive = location.pathname.startsWith(item.path);
+              <p className="px-4 pb-1 text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">
+                الإدارة
+              </p>
+              {adminNavItems.map((item) => {
+                const isActive = item.path === '/app/admin'
+                  ? location.pathname === item.path
+                  : location.pathname.startsWith(item.path);
                 return (
                   <Link
                     key={item.path}
@@ -117,8 +125,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
                     )}
                   >
-                    <item.icon className="h-5 w-5" />
-                    <span>{item.label}</span>
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    <span className="truncate">{item.label}</span>
                   </Link>
                 );
               })}

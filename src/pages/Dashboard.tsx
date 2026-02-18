@@ -1,4 +1,4 @@
-import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles, Loader2 } from 'lucide-react';
+import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles, Loader2, Shield } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/StatsCard';
@@ -180,6 +180,39 @@ export default function Dashboard() {
           )}
         </div>
       </motion.div>
+
+      {/* Admin Quick Access */}
+      {user?.isAdmin && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.22 }}
+        >
+          <Link
+            to="/app/admin"
+            className="group flex items-center gap-4 rounded-2xl p-5 text-primary-foreground shadow-lg transition-all hover:scale-[1.01] gradient-primary"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20">
+              <Shield className="h-6 w-6" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-lg">لوحة الإدارة</h3>
+              <p className="text-sm opacity-90">إدارة الاختبارات، الأسئلة، والمستخدمين</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/app/admin/ai-generator"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-1.5 text-xs font-semibold hover:bg-white/30 transition-colors"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                توليد الأسئلة
+              </Link>
+              <ArrowLeft className="h-5 w-5 opacity-60 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </Link>
+        </motion.div>
+      )}
 
       {/* Quick actions */}
       <motion.div
