@@ -24,14 +24,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<PointsWallet | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch profile + wallet for a given user id
+  // Fetch profile + wallet + role for a given user id
   const fetchUserData = async (userId: string) => {
-    const [profileRes, walletRes] = await Promise.all([
+    const [profileRes, walletRes, roleRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('wallets').select('*').eq('user_id', userId).single(),
+      supabase.from('user_roles').select('role').eq('user_id', userId),
     ]);
 
     if (profileRes.data) {
+      const roles = roleRes.data?.map((r) => r.role) ?? [];
       setUser({
         id: profileRes.data.id,
         name: profileRes.data.name,
@@ -40,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         countryName: profileRes.data.country_name,
         isDiamond: profileRes.data.is_diamond,
         referralCode: profileRes.data.referral_code || '',
-        isAdmin: false, // checked via user_roles if needed
+        isAdmin: roles.includes('admin'),
         createdAt: profileRes.data.created_at,
       });
     }
