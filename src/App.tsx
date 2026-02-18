@@ -26,6 +26,7 @@ import AdminPointsPacks from "./pages/admin/AdminPointsPacks";
 import AdminPlans from "./pages/admin/AdminPlans";
 import AdminSettings from "./pages/admin/AdminSettings";
 import AdminAIGenerator from "./pages/admin/AdminAIGenerator";
+import AdminUsers from "./pages/admin/AdminUsers";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -73,6 +74,7 @@ const App = () => (
             <Route path="/app/admin/plans" element={<ProtectedRoute><AdminAppLayout><AdminPlans /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/settings" element={<ProtectedRoute><AdminAppLayout><AdminSettings /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/ai-generator" element={<ProtectedRoute><AdminAppLayout><AdminAIGenerator /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/users" element={<ProtectedRoute><AdminAppLayout><AdminUsers /></AdminAppLayout></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
