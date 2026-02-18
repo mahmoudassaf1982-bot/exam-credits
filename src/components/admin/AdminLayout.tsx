@@ -9,6 +9,7 @@ import {
   Crown,
   Settings,
   Sparkles,
+  Users,
   ArrowRight,
   Menu,
   X,
@@ -26,6 +27,7 @@ const adminNavItems = [
   { path: '/app/admin/plans', label: 'الخطط', icon: Crown },
   { path: '/app/admin/settings', label: 'الإعدادات', icon: Settings },
   { path: '/app/admin/ai-generator', label: 'توليد بالذكاء', icon: Sparkles },
+  { path: '/app/admin/users', label: 'إدارة المستخدمين', icon: Users },
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
