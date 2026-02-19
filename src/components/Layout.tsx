@@ -13,6 +13,7 @@ import {
   Sparkles,
   Users,
   BarChart2,
+  Settings,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PointsBadge } from '@/components/PointsBadge';
@@ -31,6 +32,7 @@ const adminNavItems = [
   { path: '/app/admin/ai-generator', label: 'توليد الأسئلة بالذكاء الاصطناعي', icon: Sparkles },
   { path: '/app/admin/exams', label: 'إدارة الاختبارات', icon: BookOpen },
   { path: '/app/admin/users', label: 'إدارة المستخدمين', icon: Users },
+  { path: '/app/admin/settings', label: 'إعدادات المنصة', icon: Settings },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
