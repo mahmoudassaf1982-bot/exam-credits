@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Save, Coins, Users, Filter, Bell, Loader2, Mail } from 'lucide-react';
-import { mockSettings, mockReferralEvents } from '@/data/mock';
+import { mockSettings } from '@/data/mock';
 import type { PlatformSettings } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,12 +17,23 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 
+interface ReferralRow {
+  id: string;
+  referrer_name: string;
+  referred_name: string;
+  referred_email: string;
+  status: string;
+  created_at: string;
+}
+
 export default function AdminSettings() {
   const [settings, setSettings] = useState<PlatformSettings>(mockSettings);
   const [referralFilter, setReferralFilter] = useState<string>('all');
   const [adminEmail, setAdminEmail] = useState('');
   const [loadingEmail, setLoadingEmail] = useState(true);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [referrals, setReferrals] = useState<ReferralRow[]>([]);
+  const [loadingReferrals, setLoadingReferrals] = useState(true);
 
   // Load admin notification email from DB
   useEffect(() => {
@@ -36,6 +47,43 @@ export default function AdminSettings() {
       setLoadingEmail(false);
     };
     fetchAdminEmail();
+  }, []);
+
+  // Load real referral data from transactions
+  useEffect(() => {
+    const fetchReferrals = async () => {
+      setLoadingReferrals(true);
+      // referral_bonus transactions for referrers have meta_json with referred_user_name
+      const { data } = await supabase
+        .from('transactions')
+        .select('id, user_id, amount, reason, meta_json, created_at, type')
+        .eq('reason', 'referral_bonus')
+        .eq('type', 'credit')
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        // Filter only referrer bonuses (amount=30, meta has referred_user_name)
+        const rows: ReferralRow[] = data
+          .filter((t) => {
+            const meta = t.meta_json as Record<string, string> | null;
+            return meta && meta['referred_user_name'];
+          })
+          .map((t) => {
+            const meta = t.meta_json as Record<string, string>;
+            return {
+              id: t.id,
+              referrer_name: '—',
+              referred_name: meta['referred_user_name'] ?? '—',
+              referred_email: '—',
+              status: 'rewarded',
+              created_at: t.created_at,
+            };
+          });
+        setReferrals(rows);
+      }
+      setLoadingReferrals(false);
+    };
+    fetchReferrals();
   }, []);
 
   const handleSaveEmail = async () => {
@@ -56,7 +104,7 @@ export default function AdminSettings() {
     toast.success('تم حفظ الإعدادات بنجاح');
   };
 
-  const filteredReferrals = mockReferralEvents.filter((e) => {
+  const filteredReferrals = referrals.filter((e) => {
     if (referralFilter === 'all') return true;
     return e.status === referralFilter;
   });
@@ -150,7 +198,9 @@ export default function AdminSettings() {
             <div className="p-5 border-b flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="font-bold text-lg">جميع أحداث الدعوات</h2>
-                <p className="text-sm text-muted-foreground mt-1">{filteredReferrals.length} دعوة {referralFilter !== 'all' ? `(${referralFilter === 'rewarded' ? 'مكافأة' : 'قيد الانتظار'})` : 'مسجلة'}</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {loadingReferrals ? 'جارٍ التحميل...' : `${filteredReferrals.length} دعوة مسجلة`}
+                </p>
               </div>
               <Select value={referralFilter} onValueChange={setReferralFilter}>
                 <SelectTrigger className="w-[140px]">
@@ -165,10 +215,14 @@ export default function AdminSettings() {
               </Select>
             </div>
 
-            {filteredReferrals.length === 0 ? (
+            {loadingReferrals ? (
+              <div className="p-12 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : filteredReferrals.length === 0 ? (
               <div className="p-12 text-center">
                 <Users className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="font-bold text-foreground">لا توجد دعوات</p>
+                <p className="font-bold text-foreground">لا توجد دعوات حالياً</p>
                 <p className="text-sm text-muted-foreground mt-1">لم يتم تسجيل أي دعوات بعد</p>
               </div>
             ) : (
@@ -178,9 +232,7 @@ export default function AdminSettings() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">الداعي</th>
                         <th className="p-3 text-right text-xs font-semibold text-muted-foreground">المدعو</th>
-                        <th className="p-3 text-right text-xs font-semibold text-muted-foreground">البريد</th>
                         <th className="p-3 text-right text-xs font-semibold text-muted-foreground">التاريخ</th>
                         <th className="p-3 text-right text-xs font-semibold text-muted-foreground">الحالة</th>
                       </tr>
@@ -188,13 +240,11 @@ export default function AdminSettings() {
                     <tbody className="divide-y">
                       {filteredReferrals.map((event) => (
                         <tr key={event.id} className="hover:bg-muted/50 transition-colors">
-                          <td className="p-3 text-sm font-medium">{event.referrerName}</td>
-                          <td className="p-3 text-sm">{event.referredUserName}</td>
-                          <td className="p-3 text-sm text-muted-foreground font-mono text-xs" dir="ltr">{event.referredUserEmail}</td>
-                          <td className="p-3 text-sm text-muted-foreground">{new Date(event.createdAt).toLocaleDateString('ar-SA')}</td>
+                          <td className="p-3 text-sm">{event.referred_name}</td>
+                          <td className="p-3 text-sm text-muted-foreground">{new Date(event.created_at).toLocaleDateString('ar-SA')}</td>
                           <td className="p-3">
-                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${event.status === 'rewarded' ? 'bg-success/10 text-success' : 'bg-gold/10 text-gold-foreground'}`}>
-                              {event.status === 'rewarded' ? 'مكافأة' : 'قيد الانتظار'}
+                            <span className="rounded-full px-3 py-1 text-xs font-bold bg-success/10 text-success">
+                              مكافأة مُنحت
                             </span>
                           </td>
                         </tr>
@@ -208,12 +258,12 @@ export default function AdminSettings() {
                   {filteredReferrals.map((event) => (
                     <div key={event.id} className="p-4 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{event.referrerName} → {event.referredUserName}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${event.status === 'rewarded' ? 'bg-success/10 text-success' : 'bg-gold/10 text-gold-foreground'}`}>
-                          {event.status === 'rewarded' ? 'مكافأة' : 'انتظار'}
+                        <span className="text-sm font-medium">{event.referred_name}</span>
+                        <span className="rounded-full px-2 py-0.5 text-xs font-bold bg-success/10 text-success">
+                          مكافأة
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground">{new Date(event.createdAt).toLocaleDateString('ar-SA')}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(event.created_at).toLocaleDateString('ar-SA')}</p>
                     </div>
                   ))}
                 </div>
@@ -263,6 +313,16 @@ export default function AdminSettings() {
                 اتركه فارغاً لتعطيل التنبيهات الإلكترونية.
               </p>
             </div>
+
+            {adminEmail && (
+              <div className="rounded-xl border border-success/30 bg-success/5 p-4 flex items-center gap-3">
+                <span className="text-success text-lg">✅</span>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">التنبيهات مفعّلة</p>
+                  <p className="text-xs text-muted-foreground" dir="ltr">{adminEmail}</p>
+                </div>
+              </div>
+            )}
 
             {/* What triggers notifications */}
             <div className="rounded-xl border bg-muted/30 p-4 space-y-3">

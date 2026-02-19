@@ -16,10 +16,10 @@ import {
   Loader2,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { countries, mockPointsPacks, mockReferralEvents, mockDiamondPlans } from '@/data/mock';
-import { mockExamTemplates, mockQuestions } from '@/data/examTemplates';
+import { countries } from '@/data/mock';
+import { mockExamTemplates } from '@/data/examTemplates';
 
-const stats = [
+const baseStats = [
   {
     label: 'الدول المفعّلة',
     value: countries.filter((c) => c.isActive).length,
@@ -37,42 +37,6 @@ const stats = [
     color: 'text-primary',
     bg: 'bg-primary/10',
     href: '/app/admin/exams',
-  },
-  {
-    label: 'الأسئلة',
-    value: mockQuestions.filter((q) => q.isApproved).length,
-    total: mockQuestions.length,
-    icon: HelpCircle,
-    color: 'text-success',
-    bg: 'bg-success/10',
-    href: '/app/admin/questions',
-  },
-  {
-    label: 'حزم النقاط',
-    value: mockPointsPacks.filter((p) => p.isActive).length,
-    total: mockPointsPacks.length,
-    icon: Coins,
-    color: 'text-gold',
-    bg: 'bg-gold/10',
-    href: '/app/admin/points-packs',
-  },
-  {
-    label: 'خطط Diamond',
-    value: mockDiamondPlans.filter((p) => p.isActive).length,
-    total: mockDiamondPlans.length,
-    icon: Crown,
-    color: 'text-diamond',
-    bg: 'bg-diamond/10',
-    href: '/app/admin/plans',
-  },
-  {
-    label: 'الدعوات',
-    value: mockReferralEvents.filter((e) => e.status === 'rewarded').length,
-    total: mockReferralEvents.length,
-    icon: Users,
-    color: 'text-primary',
-    bg: 'bg-primary/10',
-    href: '/app/admin/settings',
   },
 ];
 
@@ -243,7 +207,7 @@ export default function AdminDashboard() {
 
       {/* Stats grid */}
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-        {stats.map((stat, i) => (
+        {baseStats.map((stat, i) => (
           <motion.div
             key={stat.label}
             initial={{ opacity: 0, y: 12 }}
