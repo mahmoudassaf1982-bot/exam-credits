@@ -24,6 +24,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<PointsWallet | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Validate that the stored session user matches the current user
+  const validateSessionUser = async (sessionUserId: string): Promise<boolean> => {
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    return currentUser?.id === sessionUserId;
+  };
+
   // Fetch profile + wallet + role for a given user id
   const fetchUserData = async (userId: string) => {
     const [profileRes, walletRes, roleRes] = await Promise.all([
@@ -55,9 +61,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Set up auth listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
+      async (event, newSession) => {
         setSession(newSession);
         if (newSession?.user) {
+          // On every INITIAL_SESSION / TOKEN_REFRESHED, re-validate UUID against server
+          if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+            const valid = await validateSessionUser(newSession.user.id);
+            if (!valid) {
+              // UUID mismatch — force hard logout
+              await supabase.auth.signOut({ scope: 'global' });
+              setUser(null);
+              setWallet(null);
+              setSession(null);
+              setLoading(false);
+              return;
+            }
+          }
           // Use setTimeout to avoid potential deadlocks with Supabase client
           setTimeout(() => fetchUserData(newSession.user.id), 0);
         } else {
@@ -111,10 +130,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setWallet(null);
-    setSession(null);
+    // Hard logout: clear all local storage auth keys before signing out
+    try {
+      // Sign out from Supabase (clears session server-side & removes tokens)
+      await supabase.auth.signOut({ scope: 'global' });
+    } catch {
+      // Ignore errors and proceed with local cleanup
+    } finally {
+      // Clear all auth-related localStorage keys
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('sb-') || key.includes('supabase')) {
+          localStorage.removeItem(key);
+        }
+      });
+      // Clear session cookies if any
+      document.cookie.split(';').forEach((cookie) => {
+        const eqPos = cookie.indexOf('=');
+        const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+      });
+      setUser(null);
+      setWallet(null);
+      setSession(null);
+    }
   };
 
   const updateBalance = (delta: number) => {

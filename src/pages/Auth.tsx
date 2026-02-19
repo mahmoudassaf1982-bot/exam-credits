@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, UserPlus, LogIn, Loader2, CheckCircle } from 'lucide-react';
+import { Eye, EyeOff, UserPlus, LogIn, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -80,11 +80,23 @@ export default function Auth() {
   const [searchParams] = useSearchParams();
   const refCode = searchParams.get('ref') || '';
   const navigate = useNavigate();
-  const { login, signup, isAuthenticated } = useAuth();
+  const { login, signup, isAuthenticated, logout, user } = useAuth();
+
+  // Detect if there's already an active session for a different account
+  const [existingSessionEmail, setExistingSessionEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) navigate('/app');
   }, [isAuthenticated, navigate]);
+
+  useEffect(() => {
+    // Check for existing session to warn user about account conflict
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        setExistingSessionEmail(session.user.email);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const modeParam = searchParams.get('mode');
@@ -202,6 +214,36 @@ export default function Auth() {
         ) : (
         /* Card */
         <div className="rounded-2xl border bg-card p-6 shadow-card">
+
+          {/* Existing session warning */}
+          {existingSessionEmail && !isAuthenticated && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm"
+            >
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+              <div className="flex-1 text-right" dir="rtl">
+                <p className="font-semibold text-destructive">
+                  جلسة مفتوحة لحساب آخر
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  يوجد حساب مسجّل الدخول ({existingSessionEmail}). يرجى تسجيل الخروج أولاً للمتابعة.
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await logout();
+                    setExistingSessionEmail(null);
+                  }}
+                  className="mt-2 text-xs font-bold text-destructive underline hover:no-underline"
+                >
+                  تسجيل الخروج الآن
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {/* Toggle */}
           <div className="mb-6 flex rounded-xl bg-muted p-1">
             <button
