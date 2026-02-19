@@ -264,8 +264,11 @@ serve(async (req) => {
 
     let emailContent: { subject: string; html: string };
 
-    if (type === 'new_user') {
+    if (type === 'new_user' || type === 'test') {
       emailContent = buildNewUserEmail(data);
+      if (type === 'test') {
+        emailContent.subject = '🧪 إيميل تجريبي - SARIS Exams';
+      }
     } else if (type === 'points_pack') {
       emailContent = buildPointsPurchaseEmail(data);
     } else if (type === 'diamond_yearly' || type === 'subscription') {
