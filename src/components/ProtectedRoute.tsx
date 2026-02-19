@@ -1,9 +1,18 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
+import { useEffect } from 'react';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, session } = useAuth();
+  const navigate = useNavigate();
+
+  // Redirect to login immediately when session becomes null (after logout)
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/auth/login', { replace: true });
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   if (loading) {
     return (
