@@ -1,24 +1,64 @@
-import { useState } from 'react';
-import { Copy, Check, Gift, Users, Clock, Share2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Copy, Check, Gift, Users, Clock, Share2, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockReferralEvents, mockSettings } from '@/data/mock';
+import { mockSettings } from '@/data/mock';
 import { Button } from '@/components/ui/button';
 import { StatsCard } from '@/components/StatsCard';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+
+interface ReferralTransaction {
+  id: string;
+  referred_name: string;
+  created_at: string;
+  status: 'rewarded';
+}
 
 export default function Referral() {
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
+  const [referrals, setReferrals] = useState<ReferralTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const referralLink = `${window.location.origin}/auth/register?ref=${user?.referralCode}`;
-  const successfulReferrals = mockReferralEvents.filter(
-    (r) => r.status === 'rewarded'
-  );
-  const pendingReferrals = mockReferralEvents.filter(
-    (r) => r.status === 'pending'
-  );
-  const totalPoints = successfulReferrals.length * mockSettings.referrerBonusPoints;
+
+  useEffect(() => {
+    const fetchReferrals = async () => {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setLoading(false); return; }
+
+      // Get referral bonus transactions for this user (as referrer: amount=30)
+      const { data } = await supabase
+        .from('transactions')
+        .select('id, meta_json, created_at')
+        .eq('user_id', session.user.id)
+        .eq('reason', 'referral_bonus')
+        .eq('type', 'credit')
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        const rows: ReferralTransaction[] = data
+          .filter((t) => {
+            const meta = t.meta_json as Record<string, string> | null;
+            return meta && meta['referred_user_name'];
+          })
+          .map((t) => {
+            const meta = t.meta_json as Record<string, string>;
+            return {
+              id: t.id,
+              referred_name: meta['referred_user_name'] ?? '—',
+              created_at: t.created_at,
+              status: 'rewarded',
+            };
+          });
+        setReferrals(rows);
+      }
+      setLoading(false);
+    };
+    fetchReferrals();
+  }, []);
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(referralLink);
@@ -30,7 +70,7 @@ export default function Referral() {
   const shareLink = async () => {
     if (navigator.share) {
       await navigator.share({
-        title: 'Saris Exams - ادعوني أشتركت!',
+        title: 'Saris Exams - ادعوني اشتركت!',
         text: `سجّل في Saris Exams واحصل على ${mockSettings.referredBonusPoints} نقاط مجانية!`,
         url: referralLink,
       });
@@ -38,6 +78,8 @@ export default function Referral() {
       copyLink();
     }
   };
+
+  const totalPoints = referrals.length * mockSettings.referrerBonusPoints;
 
   return (
     <div className="space-y-8">
@@ -154,22 +196,17 @@ export default function Referral() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="grid gap-4 sm:grid-cols-3"
+        className="grid gap-4 sm:grid-cols-2"
       >
         <StatsCard
           title="دعوات ناجحة"
-          value={successfulReferrals.length}
+          value={loading ? '...' : referrals.length}
           icon={Users}
           variant="success"
         />
         <StatsCard
-          title="قيد الانتظار"
-          value={pendingReferrals.length}
-          icon={Clock}
-        />
-        <StatsCard
           title="نقاط مكتسبة"
-          value={totalPoints}
+          value={loading ? '...' : totalPoints}
           subtitle="من الدعوات"
           icon={Gift}
           variant="gold"
@@ -187,36 +224,35 @@ export default function Referral() {
           <h2 className="font-bold text-lg">سجل الدعوات</h2>
         </div>
         <div className="divide-y">
-          {mockReferralEvents.length === 0 ? (
+          {loading ? (
+            <div className="p-8 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : referrals.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
               <Users className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              <p>لم تتم أي دعوات بعد</p>
+              <p className="font-medium">لا توجد دعوات حالياً</p>
+              <p className="text-sm mt-1">شارك رابطك مع أصدقائك للبدء</p>
             </div>
           ) : (
-            mockReferralEvents.map((event) => (
+            referrals.map((event) => (
               <div
                 key={event.id}
                 className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm">
-                  {event.referredUserName.charAt(0)}
+                  {event.referred_name.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground">
-                    {event.referredUserName}
+                    {event.referred_name}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(event.createdAt).toLocaleDateString('ar-SA')}
+                    {new Date(event.created_at).toLocaleDateString('ar-SA')}
                   </p>
                 </div>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-bold ${
-                    event.status === 'rewarded'
-                      ? 'bg-success/10 text-success'
-                      : 'bg-gold/10 text-gold-foreground'
-                  }`}
-                >
-                  {event.status === 'rewarded' ? '✅ مكافأة مُنحت' : '⏳ قيد الانتظار'}
+                <span className="rounded-full px-3 py-1 text-xs font-bold bg-success/10 text-success">
+                  ✅ مكافأة مُنحت
                 </span>
               </div>
             ))

@@ -123,6 +123,17 @@
   }
 }
 
+/* ── White-label: hide Lovable badge ── */
+a[href*="lovable.dev"],
+div[class*="lovable-badge"],
+[data-lovable-badge],
+iframe[src*="lovable"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 @layer utilities {
   .gradient-gold {
     background: linear-gradient(135deg, hsl(38 92% 50%), hsl(28 90% 55%));
