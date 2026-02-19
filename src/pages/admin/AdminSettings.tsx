@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, Coins, Users, Filter, Bell, Loader2, Mail } from 'lucide-react';
+import { Settings, Save, Coins, Users, Filter, Bell, Loader2, Mail, Send, CheckCircle, XCircle } from 'lucide-react';
 import { mockSettings } from '@/data/mock';
 import type { PlatformSettings } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,8 @@ export default function AdminSettings() {
   const [adminEmail, setAdminEmail] = useState('');
   const [loadingEmail, setLoadingEmail] = useState(true);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [referrals, setReferrals] = useState<ReferralRow[]>([]);
   const [loadingReferrals, setLoadingReferrals] = useState(true);
 
@@ -97,6 +99,54 @@ export default function AdminSettings() {
       toast.error('فشل حفظ البريد الإلكتروني');
     } else {
       toast.success('تم حفظ بريد التنبيهات بنجاح');
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!adminEmail) {
+      toast.error('يرجى إدخال بريد إلكتروني أولاً');
+      return;
+    }
+    setTestingEmail(true);
+    setTestResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(
+        `https://pypkjchxhgjbzgkyskhj.supabase.co/functions/v1/send-admin-notification`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token ?? ''}`,
+            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5cGtqY2h4aGdqYnpna3lza2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MzEwMzgsImV4cCI6MjA4NjIwNzAzOH0.h-_HqgM39WlvTC9t2IsvCdIRWKaCSQPCfUdBzYJxSWo',
+          },
+          body: JSON.stringify({
+            type: 'test',
+            adminEmail,
+            data: {
+              name: 'اختبار النظام',
+              email: adminEmail,
+              countryName: 'المملكة العربية السعودية',
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        }
+      );
+      const result = await response.json();
+      if (response.ok && result.success) {
+        setTestResult({ success: true, message: `✅ تم إرسال الإيميل التجريبي بنجاح! (ID: ${result.id})` });
+        toast.success('تم إرسال الإيميل التجريبي بنجاح!');
+      } else {
+        const errMsg = result.error || JSON.stringify(result);
+        setTestResult({ success: false, message: `❌ فشل الإرسال: ${errMsg}` });
+        toast.error(`فشل الإرسال: ${errMsg}`);
+      }
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      setTestResult({ success: false, message: `❌ خطأ: ${errMsg}` });
+      toast.error(`خطأ: ${errMsg}`);
+    } finally {
+      setTestingEmail(false);
     }
   };
 
@@ -352,14 +402,38 @@ export default function AdminSettings() {
               </div>
             </div>
 
-            <Button
-              onClick={handleSaveEmail}
-              disabled={savingEmail || loadingEmail}
-              className="gradient-primary text-primary-foreground font-bold gap-2"
-            >
-              {savingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              حفظ بريد التنبيهات
-            </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                onClick={handleSaveEmail}
+                disabled={savingEmail || loadingEmail}
+                className="gradient-primary text-primary-foreground font-bold gap-2"
+              >
+                {savingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                حفظ بريد التنبيهات
+              </Button>
+
+              <Button
+                onClick={handleSendTestEmail}
+                disabled={testingEmail || loadingEmail || !adminEmail}
+                variant="outline"
+                className="font-bold gap-2 border-2 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+              >
+                {testingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                إرسال إيميل تجريبي الآن
+              </Button>
+            </div>
+
+            {testResult && (
+              <div className={`rounded-xl border p-4 flex items-start gap-3 ${testResult.success ? 'border-success/30 bg-success/5' : 'border-destructive/30 bg-destructive/5'}`}>
+                {testResult.success
+                  ? <CheckCircle className="h-5 w-5 text-success mt-0.5 shrink-0" />
+                  : <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+                }
+                <p className={`text-sm font-medium ${testResult.success ? 'text-success' : 'text-destructive'}`} dir="ltr">
+                  {testResult.message}
+                </p>
+              </div>
+            )}
           </motion.div>
         </TabsContent>
       </Tabs>
