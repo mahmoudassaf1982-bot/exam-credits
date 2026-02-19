@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, UserPlus, LogIn, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, UserPlus, LogIn, Loader2, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,14 +10,73 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
+// ---- Email Validation ----
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+
+const ALLOWED_DOMAINS = [
+  'gmail.com', 'googlemail.com',
+  'outlook.com', 'hotmail.com', 'hotmail.co.uk', 'live.com', 'live.co.uk', 'msn.com',
+  'yahoo.com', 'yahoo.co.uk', 'yahoo.fr', 'yahoo.de', 'yahoo.es', 'yahoo.it',
+  'icloud.com', 'me.com', 'mac.com',
+  'proton.me', 'protonmail.com',
+  'aol.com',
+  'zoho.com',
+  'yandex.com', 'yandex.ru',
+  'gmx.com', 'gmx.net', 'gmx.de',
+  'mail.com',
+  'tutanota.com',
+  'fastmail.com',
+  'pm.me',
+  // Arabic region common providers
+  'hotmail.com', 'outlook.sa',
+];
+
+const DISPOSABLE_DOMAINS = [
+  'mailinator.com', 'guerrillamail.com', 'temp-mail.org', 'throwam.com',
+  'yopmail.com', 'sharklasers.com', 'guerrillamailblock.com', 'grr.la',
+  'guerrillamail.info', 'guerrillamail.biz', 'guerrillamail.de', 'guerrillamail.net',
+  'guerrillamail.org', 'spam4.me', 'trashmail.com', 'trashmail.me', 'trashmail.net',
+  'dispostable.com', 'mailnull.com', 'maildrop.cc', 'spamgourmet.com', 'spamgourmet.net',
+  'tempmail.com', 'temp-mail.ru', 'tmpmail.org', 'tmpmail.net', 'throwam.com',
+  'fakeinbox.com', 'mailcatch.com', 'trashmail.at', 'discard.email', 'tempinbox.com',
+  'mailsiphon.com', 'spambog.com', 'spambog.de', 'spambog.ru', 'binkmail.com',
+  'safetymail.info', 'spamevader.com', 'spamfree24.org', 'spamthisplease.com',
+  'spamdecoy.net', 'spamherelots.com', 'hailmail.net', 'ieatspam.eu', 'ieatspam.info',
+  'jetable.fr.nf', 'kasmail.com', 'klassmaster.com', 'klzlk.com', 'kurzepost.de',
+  'lopl.co.cc', 'lortemail.dk', 'lol.ovpn.to', 'mail.mezimages.net', 'mailbidon.com',
+  'mailblocks.com', 'mailbucket.org', 'mailchop.com', 'mailexpire.com', 'mailme.lv',
+  'mailmetrash.com', 'mailnew.com', 'mailscrap.com', 'mailshuttle.com', 'mailsiphon.com',
+  'mailslapping.com', 'mailslite.com', 'mailtemporaire.fr', 'mailtrash.net', 'mailtv.tv',
+  'mailtv.net', 'mailzilla.com', 'mailzilla.org', 'monemail.fr.nf', 'monumentmail.com',
+  'mt2009.com', 'mt2014.com', 'mytrashmail.com', 'mytrashmail.net',
+  'noclickemail.com', 'nogmailspam.info', 'nospam.ze.tc', 'nospam4.us', 'notsharingmy.info',
+  'nowmymail.com', 'objectmail.com', 'obobbo.com', 'odaymail.com', 'onewaymail.com',
+  'rppkn.com', 'rtrtr.com', 's0ny.net', 'safe-mail.net', 'sandelf.de', 'saynotospams.com',
+  'shitmail.me', 'shitmail.org', 'shortmail.net', 'sibmail.com', 'sneakemail.com',
+  'sofimail.com', 'sogetthis.com', 'soodonims.com', 'spam.la', 'spamavert.com',
+  'spambox.info', 'spambox.us', 'spamcero.com', 'spamcon.org', 'spamcorptastic.com',
+  'spamcowboy.com', 'spamcowboy.net', 'spamcowboy.org', 'spamday.com', 'spamex.com',
+  'tempail.com', 'tempe-mail.com', 'tempemail.co.za', 'tempemail.com', 'tempemail.net',
+];
+
+function validateEmail(email: string): string | null {
+  const trimmed = email.trim().toLowerCase();
+  if (!EMAIL_REGEX.test(trimmed)) {
+    return 'صيغة البريد الإلكتروني غير صحيحة (مثال صحيح: name@gmail.com)';
+  }
+  const domain = trimmed.split('@')[1];
+  if (DISPOSABLE_DOMAINS.includes(domain)) {
+    return 'لا يُسمح باستخدام إيميلات مؤقتة أو وهمية';
+  }
+  return null;
+}
+
 export default function Auth() {
   const location = useLocation();
   const initialMode = location.pathname === '/auth/register' ? 'register' : 'login';
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState('');
   const [searchParams] = useSearchParams();
   const refCode = searchParams.get('ref') || '';
   const navigate = useNavigate();
@@ -33,6 +92,8 @@ export default function Auth() {
     else if (location.pathname === '/auth/register') setMode('register');
   }, [location.pathname, searchParams]);
 
+  const [showSuccess, setShowSuccess] = useState(false);
+
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -44,6 +105,13 @@ export default function Auth() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
+
+    // Email validation for both login and register
+    const emailError = validateEmail(form.email);
+    if (emailError) {
+      toast.error(emailError);
+      return;
+    }
 
     if (mode === 'register' && !form.countryId) {
       toast.error('يرجى اختيار الدولة');
@@ -70,12 +138,12 @@ export default function Auth() {
         });
         if (result.error) {
           toast.error(result.error);
-        } else if (result.needsConfirmation) {
-          setRegisteredEmail(form.email);
-          setShowEmailConfirmation(true);
-          toast.success('تم إنشاء حسابك بنجاح!');
         } else {
-          toast.success('تم إنشاء الحساب بنجاح!');
+          // Auto-confirm is enabled: show success screen then redirect
+          setShowSuccess(true);
+          setTimeout(() => {
+            navigate('/app');
+          }, 2500);
         }
       }
     } finally {
@@ -112,22 +180,25 @@ export default function Auth() {
           <p className="text-sm text-muted-foreground mt-1">منصة الاختبارات المهنية</p>
         </div>
 
-        {/* Email Confirmation */}
-        {showEmailConfirmation ? (
-          <div className="rounded-2xl border bg-card p-8 shadow-card text-center space-y-5">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-3xl">
-              📧
+        {/* Success Screen */}
+        {showSuccess ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-2xl border bg-card p-8 shadow-card text-center space-y-5"
+          >
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <CheckCircle className="h-8 w-8" />
             </div>
-            <h2 className="text-xl font-bold text-foreground">تم إنشاء حسابك بنجاح!</h2>
+            <h2 className="text-xl font-bold text-foreground">أهلاً بك في SARIS Exams!</h2>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              يرجى التحقق من بريدك الإلكتروني لتفعيل الحساب.
-              <br />
-              تم إرسال رابط التفعيل إلى <span className="font-semibold text-foreground" dir="ltr">{registeredEmail}</span>
+              تم إنشاء حسابك بنجاح، جاري تحويلك للوحة التحكم...
             </p>
-            <Button onClick={() => { setShowEmailConfirmation(false); setMode('login'); }} className="w-full gradient-primary text-primary-foreground font-bold py-5 text-base mt-2">
-              الانتقال لتسجيل الدخول
-            </Button>
-          </div>
+            <div className="flex items-center justify-center gap-2 text-primary text-sm font-medium">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>جاري التحويل...</span>
+            </div>
+          </motion.div>
         ) : (
         /* Card */
         <div className="rounded-2xl border bg-card p-6 shadow-card">
