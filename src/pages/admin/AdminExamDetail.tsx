@@ -11,6 +11,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { ArrowRight, Save, Plus, Coins, Clock, HelpCircle, Layers, BookOpen, Loader2, Trash2, Sparkles, ExternalLink, History, Shield } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import AiSyncReviewDialog, { type ProposedSection } from '@/components/admin/AiSyncReviewDialog';
 
 interface ExamTemplate {
   id: string; country_id: string; slug: string; name_ar: string; description_ar: string;
@@ -47,6 +48,8 @@ export default function AdminExamDetail() {
   const [saving, setSaving] = useState(false);
   const [deleteSecId, setDeleteSecId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [aiProposals, setAiProposals] = useState<ProposedSection[]>([]);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
 
   const handleAiSync = async () => {
     if (!template) return;
@@ -57,14 +60,35 @@ export default function AdminExamDetail() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      const count = data?.newSectionsAdded ?? 0;
-      toast.success(`✅ تم تحديث معايير الاختبار بنجاح! تم اكتشاف ${data?.sections?.length ?? 0} أقسام (${count} جديدة).`);
-      fetchData();
+      if (!data?.proposals || data.proposals.length === 0) {
+        toast.error('لم يتم العثور على أقسام مقترحة');
+        return;
+      }
+      setAiProposals(data.proposals);
+      setShowReviewDialog(true);
+      toast.success(`تم اكتشاف ${data.proposals.length} أقسام مقترحة — راجعها قبل الحفظ`);
     } catch (err: any) {
       console.error('AI Sync error:', err);
-      toast.error(err.message || 'فشل في تحديث المعايير');
+      toast.error(err.message || 'فشل في البحث عن المعايير');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleSaveProposals = async (reviewedSections: ProposedSection[]) => {
+    if (!template) return;
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-sync-exam', {
+        body: { examTemplateId: template.id, action: 'save', sections: reviewedSections },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success('✅ تم حفظ الأقسام بنجاح!');
+      fetchData();
+    } catch (err: any) {
+      console.error('Save proposals error:', err);
+      toast.error(err.message || 'فشل في حفظ الأقسام');
+      throw err;
     }
   };
 
@@ -399,6 +423,14 @@ export default function AdminExamDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AiSyncReviewDialog
+        open={showReviewDialog}
+        onOpenChange={setShowReviewDialog}
+        proposals={aiProposals}
+        examName={template.name_ar}
+        onSave={handleSaveProposals}
+      />
     </div>
   );
 }

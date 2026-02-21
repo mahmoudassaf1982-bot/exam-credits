@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { examTemplateId } = await req.json();
+    const { examTemplateId, action, sections: submittedSections } = await req.json();
     if (!examTemplateId) throw new Error("examTemplateId is required");
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -23,7 +23,6 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Get auth user for audit log
     const authHeader = req.headers.get("Authorization");
     let performedBy: string | null = null;
     if (authHeader) {
@@ -32,7 +31,68 @@ serve(async (req) => {
       performedBy = user?.id || null;
     }
 
-    // Fetch exam template + country
+    // ACTION: save — apply reviewed sections
+    if (action === "save") {
+      if (!submittedSections || !Array.isArray(submittedSections) || submittedSections.length === 0) {
+        throw new Error("يجب تقديم أقسام للحفظ");
+      }
+
+      // Delete all old sections
+      await supabase.from("exam_sections").delete().eq("exam_template_id", examTemplateId);
+
+      // Insert new sections
+      const sectionsToInsert = submittedSections.map((s: any, i: number) => ({
+        exam_template_id: examTemplateId,
+        name_ar: s.name_ar,
+        question_count: s.question_count || 20,
+        time_limit_sec: s.time_limit_sec || null,
+        order: i + 1,
+        difficulty_mix_json: s.difficulty_mix_json || { easy: 30, medium: 50, hard: 20 },
+        topic_filter_json: s.topic_filter_json || [],
+      }));
+
+      const { error: insertErr } = await supabase.from("exam_sections").insert(sectionsToInsert);
+      if (insertErr) throw new Error("فشل في حفظ الأقسام: " + insertErr.message);
+
+      // Update template totals
+      const totalQuestions = submittedSections.reduce((s: number, sec: any) => s + (sec.question_count || 0), 0);
+      const totalTimeSec = submittedSections.reduce((s: number, sec: any) => s + (sec.time_limit_sec || 0), 0);
+      await supabase.from("exam_templates").update({
+        default_question_count: totalQuestions,
+        default_time_limit_sec: totalTimeSec,
+      }).eq("id", examTemplateId);
+
+      // Delete old standards and insert new ones
+      await supabase.from("exam_standards").delete().eq("exam_template_id", examTemplateId);
+      const standardsToInsert = submittedSections.map((s: any) => ({
+        exam_template_id: examTemplateId,
+        section_name: s.name_ar,
+        question_count: s.question_count || 20,
+        time_limit_minutes: s.time_limit_sec ? Math.round(s.time_limit_sec / 60) : null,
+        difficulty_distribution: s.difficulty_mix_json || { easy: 30, medium: 50, hard: 20 },
+        topics: s.topic_filter_json || [],
+      }));
+      await supabase.from("exam_standards").insert(standardsToInsert);
+
+      // Audit log
+      await supabase.from("sync_audit_log").insert({
+        exam_template_id: examTemplateId,
+        action: "ai_sync_save",
+        details: {
+          sections_count: submittedSections.length,
+          total_questions: totalQuestions,
+          total_time_sec: totalTimeSec,
+        },
+        performed_by: performedBy,
+      });
+
+      return new Response(
+        JSON.stringify({ success: true, message: "تم حفظ الأقسام بنجاح" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ACTION: fetch (default) — AI research, return proposals without saving
     const { data: exam, error: examErr } = await supabase
       .from("exam_templates")
       .select("*, countries:country_id(name_ar, name)")
@@ -45,43 +105,39 @@ serve(async (req) => {
     const countryNameEn = (exam as any).countries?.name || "";
     const examName = exam.name_ar;
 
-    console.log(`[ai-sync-exam] Syncing: ${examName} (${countryName})`);
+    console.log(`[ai-sync-exam] Fetching proposals for: ${examName} (${countryName})`);
 
-    // Ask AI to research the official exam structure
     const prompt = `أنت خبير في أنظمة الاختبارات الأكاديمية في الدول العربية.
 
 أحتاج منك معلومات دقيقة ومحدثة عن هيكل اختبار "${examName}" في ${countryName}${countryNameEn ? ` (${countryNameEn})` : ""}.
 
 أريد المعلومات التالية:
-1. الأقسام الرسمية للاختبار (مثل: رياضيات، لغة عربية، إنجليزي، كيمياء، فيزياء، إلخ)
-2. عدد الأسئلة لكل قسم (إن وُجد)
-3. الوقت المخصص لكل قسم بالدقائق (إن وُجد)
-4. الوزن النسبي لكل قسم (نسبة مئوية تقريبية)
-5. إجمالي عدد الأسئلة في الاختبار كاملاً
-6. إجمالي وقت الاختبار بالدقائق
-7. توزيع الصعوبة المقترح لكل قسم (سهل، متوسط، صعب) كنسب مئوية
-8. المصادر الرسمية التي اعتمدت عليها (اسم المصدر ورابطه إن وُجد)
+1. الأقسام الرسمية للاختبار
+2. عدد الأسئلة لكل قسم
+3. الوقت المخصص لكل قسم بالدقائق
+4. توزيع الصعوبة المقترح لكل قسم (سهل، متوسط، صعب) كنسب مئوية
+5. المواضيع الرئيسية لكل قسم
+6. المصادر الرسمية
 
-أرجع النتيجة كـ JSON بالشكل التالي:
+أرجع النتيجة كـ JSON:
 {
   "total_questions": 100,
   "total_time_minutes": 120,
   "sources": [
-    { "name": "اسم المصدر", "url": "رابط المصدر", "description": "وصف قصير" }
+    { "name": "اسم المصدر", "url": "رابط", "description": "وصف" }
   ],
   "sections": [
     {
-      "name_ar": "اسم القسم بالعربية",
+      "name_ar": "اسم القسم",
       "question_count": 25,
       "time_limit_minutes": 30,
-      "weight_percent": 25,
       "difficulty_mix": { "easy": 30, "medium": 50, "hard": 20 },
       "topics": ["موضوع1", "موضوع2"]
     }
   ]
 }
 
-أرجع JSON فقط بدون أي نص إضافي. إذا لم تجد معلومات دقيقة، استخدم أفضل تقدير بناءً على معرفتك بالاختبارات المشابهة.`;
+أرجع JSON فقط بدون أي نص إضافي.`;
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -92,7 +148,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: "أنت مساعد متخصص في أنظمة التعليم والاختبارات الأكاديمية في الدول العربية. أرجع JSON فقط." },
+          { role: "system", content: "أنت مساعد متخصص في أنظمة التعليم والاختبارات الأكاديمية. أرجع JSON فقط." },
           { role: "user", content: prompt },
         ],
       }),
@@ -101,6 +157,12 @@ serve(async (req) => {
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
       console.error("[ai-sync-exam] AI error:", aiResponse.status, errText);
+      if (aiResponse.status === 429) {
+        throw new Error("تم تجاوز حد الطلبات، حاول لاحقاً");
+      }
+      if (aiResponse.status === 402) {
+        throw new Error("يرجى إضافة رصيد للذكاء الاصطناعي");
+      }
       throw new Error(`AI gateway error: ${aiResponse.status}`);
     }
 
@@ -123,20 +185,10 @@ serve(async (req) => {
       throw new Error("لم يتم العثور على أقسام للاختبار");
     }
 
-    // Update exam template totals
-    const updateData: any = {};
-    if (result.total_questions) updateData.default_question_count = result.total_questions;
-    if (result.total_time_minutes) updateData.default_time_limit_sec = result.total_time_minutes * 60;
-
-    if (Object.keys(updateData).length > 0) {
-      await supabase.from("exam_templates").update(updateData).eq("id", examTemplateId);
-    }
-
-    // Save trusted sources
-    const savedSources: any[] = [];
+    // Save trusted sources (these are informational, safe to save immediately)
     if (result.sources && Array.isArray(result.sources)) {
       for (const src of result.sources) {
-        const { data: srcData } = await supabase
+        await supabase
           .from("trusted_sources")
           .upsert({
             exam_template_id: examTemplateId,
@@ -144,84 +196,26 @@ serve(async (req) => {
             source_url: src.url || null,
             description: src.description || null,
             last_synced_at: new Date().toISOString(),
-          }, { onConflict: "exam_template_id,source_name", ignoreDuplicates: false })
-          .select()
-          .single();
-        if (srcData) savedSources.push(srcData);
+          }, { onConflict: "exam_template_id,source_name", ignoreDuplicates: false });
       }
     }
 
-    // Save exam_standards (replace existing for this exam)
-    await supabase.from("exam_standards").delete().eq("exam_template_id", examTemplateId);
-    const standardsToInsert = result.sections.map((s: any) => ({
-      exam_template_id: examTemplateId,
-      section_name: s.name_ar,
+    // Return proposals WITHOUT saving sections
+    const proposals = result.sections.map((s: any, i: number) => ({
+      name_ar: s.name_ar,
       question_count: s.question_count || 20,
-      time_limit_minutes: s.time_limit_minutes || null,
-      difficulty_distribution: s.difficulty_mix || { easy: 30, medium: 50, hard: 20 },
-      topics: s.topics || [],
-      source_id: savedSources[0]?.id || null,
+      time_limit_sec: s.time_limit_minutes ? s.time_limit_minutes * 60 : null,
+      order: i + 1,
+      difficulty_mix_json: s.difficulty_mix || { easy: 30, medium: 50, hard: 20 },
+      topic_filter_json: s.topics || [],
     }));
-    await supabase.from("exam_standards").insert(standardsToInsert);
-
-    // Fetch existing sections to avoid duplicates
-    const { data: existingSections } = await supabase
-      .from("exam_sections")
-      .select("id, name_ar")
-      .eq("exam_template_id", examTemplateId);
-
-    const existingNames = new Set((existingSections || []).map((s: any) => s.name_ar));
-
-    // Insert new sections only
-    const newSections = result.sections
-      .filter((s: any) => !existingNames.has(s.name_ar))
-      .map((s: any, i: number) => ({
-        exam_template_id: examTemplateId,
-        name_ar: s.name_ar,
-        question_count: s.question_count || 20,
-        time_limit_sec: s.time_limit_minutes ? s.time_limit_minutes * 60 : null,
-        order: (existingSections?.length || 0) + i + 1,
-        difficulty_mix_json: s.difficulty_mix || { easy: 30, medium: 50, hard: 20 },
-        topic_filter_json: s.topics || [],
-      }));
-
-    let insertedCount = 0;
-    if (newSections.length > 0) {
-      const { data: inserted, error: insertErr } = await supabase
-        .from("exam_sections")
-        .insert(newSections)
-        .select();
-      if (insertErr) {
-        console.error("[ai-sync-exam] Insert sections error:", insertErr);
-        throw new Error("فشل في حفظ الأقسام: " + insertErr.message);
-      }
-      insertedCount = inserted?.length || 0;
-    }
-
-    // Write audit log
-    await supabase.from("sync_audit_log").insert({
-      exam_template_id: examTemplateId,
-      action: "ai_sync",
-      details: {
-        total_questions: result.total_questions,
-        total_time_minutes: result.total_time_minutes,
-        sections_count: result.sections.length,
-        new_sections_added: insertedCount,
-        sources_count: savedSources.length,
-      },
-      performed_by: performedBy,
-    });
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: `تم تحديث معايير "${examName}" بنجاح`,
-        newSectionsAdded: insertedCount,
-        existingSectionsKept: existingSections?.length || 0,
+        proposals,
         totalQuestions: result.total_questions,
         totalTimeMinutes: result.total_time_minutes,
-        sections: result.sections,
-        sourcesCount: savedSources.length,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
