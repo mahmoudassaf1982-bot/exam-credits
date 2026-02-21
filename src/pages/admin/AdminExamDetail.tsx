@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { ArrowRight, Save, Plus, Coins, Clock, HelpCircle, Layers, BookOpen, Loader2, Trash2, GripVertical } from 'lucide-react';
+import { ArrowRight, Save, Plus, Coins, Clock, HelpCircle, Layers, BookOpen, Loader2, Trash2, GripVertical, Sparkles } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 interface ExamTemplate {
@@ -29,6 +29,26 @@ export default function AdminExamDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleteSecId, setDeleteSecId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleAiSync = async () => {
+    if (!template) return;
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-sync-exam', {
+        body: { exam_template_id: template.id, exam_name: template.name_ar, country_id: template.country_id },
+      });
+      if (error) throw error;
+      const count = data?.sections_added ?? data?.sections_count ?? 0;
+      toast.success(`✅ تم تحديث معايير الاختبار بنجاح! تم اكتشاف ${count} أقسام.`);
+      fetchData();
+    } catch (err) {
+      console.error('AI Sync error:', err);
+      toast.error('فشل في تحديث المعايير');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchData = async () => {
     if (!id) return;
@@ -123,9 +143,15 @@ export default function AdminExamDetail() {
             {template.slug && <p className="text-sm text-muted-foreground font-mono" dir="ltr">{template.slug.toUpperCase()}</p>}
           </div>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="gradient-primary text-primary-foreground font-bold gap-2">
-          <Save className="h-4 w-4" /><span className="hidden sm:inline">حفظ</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleAiSync} disabled={syncing} variant="outline" className="gap-2 text-sm">
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {syncing ? 'جاري البحث عن أحدث المعايير...' : '🔄 تحديث المعايير'}
+          </Button>
+          <Button onClick={handleSave} disabled={saving} className="gradient-primary text-primary-foreground font-bold gap-2">
+            <Save className="h-4 w-4" /><span className="hidden sm:inline">حفظ</span>
+          </Button>
+        </div>
       </motion.div>
 
       <div className="grid gap-6 lg:grid-cols-3">
