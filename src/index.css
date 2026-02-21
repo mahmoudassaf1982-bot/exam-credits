@@ -184,6 +184,11 @@ iframe[src*="lovable"] {
 
 /* ── Mobile responsive overrides ── */
 @media (max-width: 768px) {
+  body, html {
+    overflow-x: hidden !important;
+    width: 100% !important;
+  }
+
   /* Hide sidebar on mobile */
   aside {
     display: none !important;
@@ -191,9 +196,11 @@ iframe[src*="lovable"] {
   }
 
   /* Main content full width */
-  main {
+  .container, main, .content {
     width: 100% !important;
-    padding: 16px !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    padding: 0 12px !important;
   }
 
   /* Form inputs */
@@ -214,7 +221,8 @@ iframe[src*="lovable"] {
 
   /* Buttons */
   button:not([class*="absolute"]):not([class*="fixed"]) {
-    width: 100% !important;
+    max-width: 100% !important;
+    width: calc(100% - 24px) !important;
     height: 44px !important;
   }
 
