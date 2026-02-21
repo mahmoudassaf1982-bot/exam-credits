@@ -87,7 +87,7 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent dir="rtl" className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent dir="rtl" className="max-w-2xl max-h-[85vh] overflow-y-auto w-[calc(100%-1rem)] sm:w-full mx-auto">
         <DialogHeader>
           <DialogTitle className="text-right text-lg">
             مراجعة معايير: {examName}
@@ -132,7 +132,7 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">عدد الأسئلة</Label>
                   <Input
@@ -166,11 +166,11 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
           <Plus className="h-3.5 w-3.5" />إضافة قسم
         </Button>
 
-        <DialogFooter className="gap-2 sm:gap-2 mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+        <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving} className="w-full sm:w-auto">
             إلغاء
           </Button>
-          <Button onClick={handleSave} disabled={saving} className="gradient-primary text-primary-foreground font-bold gap-2">
+          <Button onClick={handleSave} disabled={saving} className="gradient-primary text-primary-foreground font-bold gap-2 w-full sm:w-auto">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             حفظ الأقسام ({sections.length})
           </Button>
