@@ -223,4 +223,11 @@ iframe[src*="lovable"] {
     direction: rtl !important;
     text-align: right !important;
   }
+
+  /* Allow text selection & screenshots */
+  * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default !important;
+  }
 }
