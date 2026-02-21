@@ -183,21 +183,44 @@ iframe[src*="lovable"] {
 }
 
 /* ── Mobile responsive overrides ── */
-@layer base {
-  @media (max-width: 639px) {
-    input,
-    textarea,
-    select,
-    [role="combobox"] {
-      min-height: 44px !important;
-      font-size: 14px !important;
-    }
+@media (max-width: 768px) {
+  /* Hide sidebar on mobile */
+  aside {
+    display: none !important;
+    transform: translateX(-100%) !important;
+  }
 
-    button,
-    [role="button"],
-    a[class*="btn"],
-    .btn {
-      min-height: 44px;
-    }
+  /* Main content full width */
+  main {
+    width: 100% !important;
+    padding: 16px !important;
+  }
+
+  /* Form inputs */
+  input,
+  textarea,
+  select,
+  [role="combobox"] {
+    width: 100% !important;
+    height: 44px !important;
+    padding: 12px !important;
+    font-size: 14px !important;
+  }
+
+  textarea {
+    height: auto !important;
+    min-height: 80px !important;
+  }
+
+  /* Buttons */
+  button:not([class*="absolute"]):not([class*="fixed"]) {
+    width: 100% !important;
+    height: 44px !important;
+  }
+
+  /* RTL direction */
+  body, p, span, label, h1, h2, h3, h4, h5, h6, div {
+    direction: rtl !important;
+    text-align: right !important;
   }
 }
