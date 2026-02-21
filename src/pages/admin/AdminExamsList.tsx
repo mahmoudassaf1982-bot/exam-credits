@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { BookOpen, Plus, ChevronLeft, Layers, Clock, HelpCircle, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { BookOpen, Plus, ChevronLeft, Layers, Clock, HelpCircle, Loader2, Pencil, Trash2, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -29,6 +29,7 @@ export default function AdminExamsList() {
   const [showDialog, setShowDialog] = useState(false);
   const [editing, setEditing] = useState<ExamTemplate | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name_ar: '', slug: '', country_id: '', description_ar: '', default_question_count: 100, default_time_limit_sec: 7200 });
 
   const fetchData = async () => {
@@ -98,6 +99,23 @@ export default function AdminExamsList() {
     setDeleteId(null);
   };
 
+  const handleAiSync = async (exam: ExamTemplate) => {
+    setSyncingId(exam.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-sync-exam', {
+        body: { examTemplateId: exam.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`${data.message} — أقسام جديدة: ${data.newSectionsAdded}`);
+      fetchData();
+    } catch (e: any) {
+      toast.error(e.message || 'فشل تحديث المعايير');
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
   const formatTime = (sec: number) => {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
@@ -154,6 +172,9 @@ export default function AdminExamsList() {
                       </div>
                     </Link>
                     <div className="flex items-center gap-1">
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" onClick={() => handleAiSync(exam)} disabled={syncingId === exam.id} title="تحديث المعايير بالذكاء الاصطناعي">
+                        {syncingId === exam.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      </Button>
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(exam)}><Pencil className="h-3.5 w-3.5" /></Button>
                       <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(exam.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
