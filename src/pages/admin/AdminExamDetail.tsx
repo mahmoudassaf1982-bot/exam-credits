@@ -58,12 +58,14 @@ export default function AdminExamDetail() {
       const { data, error } = await supabase.functions.invoke('ai-sync-exam', {
         body: { examTemplateId: template.id },
       });
+      console.log('[handleAiSync] Raw response:', JSON.stringify(data));
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       if (!data?.proposals || data.proposals.length === 0) {
         toast.error('لم يتم العثور على أقسام مقترحة');
         return;
       }
+      console.log('[handleAiSync] Proposals count:', data.proposals.length, data.proposals);
       setAiProposals(data.proposals);
       setShowReviewDialog(true);
       toast.success(`تم اكتشاف ${data.proposals.length} أقسام مقترحة — راجعها قبل الحفظ`);

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,10 +28,10 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
   const [sections, setSections] = useState<ProposedSection[]>(proposals);
   const [saving, setSaving] = useState(false);
 
-  // Reset sections when proposals change
-  useState(() => {
+  useEffect(() => {
+    console.log('[AiSyncReviewDialog] Received proposals:', proposals);
     setSections(proposals);
-  });
+  }, [proposals]);
 
   const totalQuestions = useMemo(() => sections.reduce((s, sec) => s + sec.question_count, 0), [sections]);
   const totalTimeSec = useMemo(() => sections.reduce((s, sec) => s + (sec.time_limit_sec || 0), 0), [sections]);
