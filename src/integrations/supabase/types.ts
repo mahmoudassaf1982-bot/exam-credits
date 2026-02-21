@@ -14,6 +14,89 @@ export type Database = {
   }
   public: {
     Tables: {
+      countries: {
+        Row: {
+          created_at: string
+          currency: string
+          flag: string
+          id: string
+          is_active: boolean
+          name: string
+          name_ar: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          flag?: string
+          id: string
+          is_active?: boolean
+          name?: string
+          name_ar: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          flag?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          name_ar?: string
+        }
+        Relationships: []
+      }
+      exam_templates: {
+        Row: {
+          analysis_cost_points: number
+          country_id: string
+          created_at: string
+          default_question_count: number
+          default_time_limit_sec: number
+          description_ar: string
+          id: string
+          is_active: boolean
+          name_ar: string
+          practice_cost_points: number
+          simulation_cost_points: number
+          slug: string
+        }
+        Insert: {
+          analysis_cost_points?: number
+          country_id: string
+          created_at?: string
+          default_question_count?: number
+          default_time_limit_sec?: number
+          description_ar?: string
+          id?: string
+          is_active?: boolean
+          name_ar: string
+          practice_cost_points?: number
+          simulation_cost_points?: number
+          slug?: string
+        }
+        Update: {
+          analysis_cost_points?: number
+          country_id?: string
+          created_at?: string
+          default_question_count?: number
+          default_time_limit_sec?: number
+          description_ar?: string
+          id?: string
+          is_active?: boolean
+          name_ar?: string
+          practice_cost_points?: number
+          simulation_cost_points?: number
+          slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_templates_country_id_fkey"
+            columns: ["country_id"]
+            isOneToOne: false
+            referencedRelation: "countries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_orders: {
         Row: {
           created_at: string

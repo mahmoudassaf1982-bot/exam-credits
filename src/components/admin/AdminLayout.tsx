@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 const adminNavItems = [
   { path: '/app/admin', label: 'لوحة التحكم', icon: LayoutDashboard, exact: true },
   { path: '/app/admin/stats', label: 'الإحصائيات', icon: BarChart2 },
+  { path: '/app/admin/content', label: 'المحتوى التعليمي', icon: BookOpen },
   { path: '/app/admin/countries', label: 'الدول', icon: Globe },
   { path: '/app/admin/exams', label: 'الاختبارات', icon: BookOpen },
   { path: '/app/admin/questions', label: 'بنك الأسئلة', icon: HelpCircle },
