@@ -44,6 +44,39 @@ export type Database = {
         }
         Relationships: []
       }
+      diamond_plans: {
+        Row: {
+          country_id: string
+          created_at: string
+          currency: string
+          duration_months: number
+          id: string
+          is_active: boolean
+          name_ar: string
+          price_usd: number
+        }
+        Insert: {
+          country_id: string
+          created_at?: string
+          currency?: string
+          duration_months?: number
+          id: string
+          is_active?: boolean
+          name_ar: string
+          price_usd: number
+        }
+        Update: {
+          country_id?: string
+          created_at?: string
+          currency?: string
+          duration_months?: number
+          id?: string
+          is_active?: boolean
+          name_ar?: string
+          price_usd?: number
+        }
+        Relationships: []
+      }
       exam_sections: {
         Row: {
           created_at: string
@@ -204,6 +237,39 @@ export type Database = {
           key?: string
           updated_at?: string
           value?: string | null
+        }
+        Relationships: []
+      }
+      points_packs: {
+        Row: {
+          country_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          points: number
+          popular: boolean
+          price_usd: number
+        }
+        Insert: {
+          country_id: string
+          created_at?: string
+          id: string
+          is_active?: boolean
+          label?: string
+          points: number
+          popular?: boolean
+          price_usd: number
+        }
+        Update: {
+          country_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          points?: number
+          popular?: boolean
+          price_usd?: number
         }
         Relationships: []
       }
