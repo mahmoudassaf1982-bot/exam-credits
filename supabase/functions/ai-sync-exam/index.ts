@@ -23,6 +23,15 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    // Get auth user for audit log
+    const authHeader = req.headers.get("Authorization");
+    let performedBy: string | null = null;
+    if (authHeader) {
+      const token = authHeader.replace("Bearer ", "");
+      const { data: { user } } = await supabase.auth.getUser(token);
+      performedBy = user?.id || null;
+    }
+
     // Fetch exam template + country
     const { data: exam, error: examErr } = await supabase
       .from("exam_templates")
@@ -51,11 +60,15 @@ serve(async (req) => {
 5. إجمالي عدد الأسئلة في الاختبار كاملاً
 6. إجمالي وقت الاختبار بالدقائق
 7. توزيع الصعوبة المقترح لكل قسم (سهل، متوسط، صعب) كنسب مئوية
+8. المصادر الرسمية التي اعتمدت عليها (اسم المصدر ورابطه إن وُجد)
 
 أرجع النتيجة كـ JSON بالشكل التالي:
 {
   "total_questions": 100,
   "total_time_minutes": 120,
+  "sources": [
+    { "name": "اسم المصدر", "url": "رابط المصدر", "description": "وصف قصير" }
+  ],
   "sections": [
     {
       "name_ar": "اسم القسم بالعربية",
@@ -119,6 +132,38 @@ serve(async (req) => {
       await supabase.from("exam_templates").update(updateData).eq("id", examTemplateId);
     }
 
+    // Save trusted sources
+    const savedSources: any[] = [];
+    if (result.sources && Array.isArray(result.sources)) {
+      for (const src of result.sources) {
+        const { data: srcData } = await supabase
+          .from("trusted_sources")
+          .upsert({
+            exam_template_id: examTemplateId,
+            source_name: src.name,
+            source_url: src.url || null,
+            description: src.description || null,
+            last_synced_at: new Date().toISOString(),
+          }, { onConflict: "exam_template_id,source_name", ignoreDuplicates: false })
+          .select()
+          .single();
+        if (srcData) savedSources.push(srcData);
+      }
+    }
+
+    // Save exam_standards (replace existing for this exam)
+    await supabase.from("exam_standards").delete().eq("exam_template_id", examTemplateId);
+    const standardsToInsert = result.sections.map((s: any) => ({
+      exam_template_id: examTemplateId,
+      section_name: s.name_ar,
+      question_count: s.question_count || 20,
+      time_limit_minutes: s.time_limit_minutes || null,
+      difficulty_distribution: s.difficulty_mix || { easy: 30, medium: 50, hard: 20 },
+      topics: s.topics || [],
+      source_id: savedSources[0]?.id || null,
+    }));
+    await supabase.from("exam_standards").insert(standardsToInsert);
+
     // Fetch existing sections to avoid duplicates
     const { data: existingSections } = await supabase
       .from("exam_sections")
@@ -127,7 +172,7 @@ serve(async (req) => {
 
     const existingNames = new Set((existingSections || []).map((s: any) => s.name_ar));
 
-    // Insert new sections only (don't touch existing ones)
+    // Insert new sections only
     const newSections = result.sections
       .filter((s: any) => !existingNames.has(s.name_ar))
       .map((s: any, i: number) => ({
@@ -153,6 +198,20 @@ serve(async (req) => {
       insertedCount = inserted?.length || 0;
     }
 
+    // Write audit log
+    await supabase.from("sync_audit_log").insert({
+      exam_template_id: examTemplateId,
+      action: "ai_sync",
+      details: {
+        total_questions: result.total_questions,
+        total_time_minutes: result.total_time_minutes,
+        sections_count: result.sections.length,
+        new_sections_added: insertedCount,
+        sources_count: savedSources.length,
+      },
+      performed_by: performedBy,
+    });
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -162,6 +221,7 @@ serve(async (req) => {
         totalQuestions: result.total_questions,
         totalTimeMinutes: result.total_time_minutes,
         sections: result.sections,
+        sourcesCount: savedSources.length,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

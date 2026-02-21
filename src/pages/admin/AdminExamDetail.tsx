@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { ArrowRight, Save, Plus, Coins, Clock, HelpCircle, Layers, BookOpen, Loader2, Trash2, GripVertical, Sparkles } from 'lucide-react';
+import { ArrowRight, Save, Plus, Coins, Clock, HelpCircle, Layers, BookOpen, Loader2, Trash2, Sparkles, ExternalLink, History, Shield } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 interface ExamTemplate {
@@ -22,10 +23,26 @@ interface ExamSection {
   time_limit_sec: number | null; question_count: number;
 }
 
+interface TrustedSource {
+  id: string; source_name: string; source_url: string | null; description: string | null; last_synced_at: string | null;
+}
+
+interface ExamStandard {
+  id: string; section_name: string; question_count: number; time_limit_minutes: number | null;
+  difficulty_distribution: any; topics: any;
+}
+
+interface AuditEntry {
+  id: string; action: string; details: any; created_at: string; performed_by: string | null;
+}
+
 export default function AdminExamDetail() {
   const { id } = useParams<{ id: string }>();
   const [template, setTemplate] = useState<ExamTemplate | null>(null);
   const [sections, setSections] = useState<ExamSection[]>([]);
+  const [sources, setSources] = useState<TrustedSource[]>([]);
+  const [standards, setStandards] = useState<ExamStandard[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleteSecId, setDeleteSecId] = useState<string | null>(null);
@@ -36,15 +53,16 @@ export default function AdminExamDetail() {
     setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke('ai-sync-exam', {
-        body: { exam_template_id: template.id, exam_name: template.name_ar, country_id: template.country_id },
+        body: { examTemplateId: template.id },
       });
       if (error) throw error;
-      const count = data?.sections_added ?? data?.sections_count ?? 0;
-      toast.success(`✅ تم تحديث معايير الاختبار بنجاح! تم اكتشاف ${count} أقسام.`);
+      if (data?.error) throw new Error(data.error);
+      const count = data?.newSectionsAdded ?? 0;
+      toast.success(`✅ تم تحديث معايير الاختبار بنجاح! تم اكتشاف ${data?.sections?.length ?? 0} أقسام (${count} جديدة).`);
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('AI Sync error:', err);
-      toast.error('فشل في تحديث المعايير');
+      toast.error(err.message || 'فشل في تحديث المعايير');
     } finally {
       setSyncing(false);
     }
@@ -53,12 +71,18 @@ export default function AdminExamDetail() {
   const fetchData = async () => {
     if (!id) return;
     setLoading(true);
-    const [tRes, sRes] = await Promise.all([
+    const [tRes, sRes, srcRes, stdRes, logRes] = await Promise.all([
       supabase.from('exam_templates').select('*').eq('id', id).single(),
       supabase.from('exam_sections').select('*').eq('exam_template_id', id).order('order'),
+      supabase.from('trusted_sources').select('*').eq('exam_template_id', id).order('created_at'),
+      supabase.from('exam_standards').select('*').eq('exam_template_id', id).order('created_at'),
+      supabase.from('sync_audit_log').select('*').eq('exam_template_id', id).order('created_at', { ascending: false }).limit(10),
     ]);
     if (tRes.data) setTemplate(tRes.data as unknown as ExamTemplate);
     setSections((sRes.data || []) as unknown as ExamSection[]);
+    setSources((srcRes.data || []) as unknown as TrustedSource[]);
+    setStandards((stdRes.data || []) as unknown as ExamStandard[]);
+    setAuditLog((logRes.data || []) as unknown as AuditEntry[]);
     setLoading(false);
   };
 
@@ -114,6 +138,11 @@ export default function AdminExamDetail() {
     if (h > 0 && m > 0) return `${h} ساعة ${m} دقيقة`;
     if (h > 0) return `${h} ساعة`;
     return `${m} دقيقة`;
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -241,6 +270,45 @@ export default function AdminExamDetail() {
               </div>
             )}
           </motion.div>
+
+          {/* Exam Standards Table */}
+          {standards.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+              className="rounded-2xl border bg-card p-5 shadow-card space-y-4">
+              <h2 className="font-bold text-lg flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />معايير الاختبار الرسمية</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-muted-foreground">
+                      <th className="text-right py-2 px-3 font-medium">القسم</th>
+                      <th className="text-center py-2 px-3 font-medium">الأسئلة</th>
+                      <th className="text-center py-2 px-3 font-medium">المدة (دقيقة)</th>
+                      <th className="text-center py-2 px-3 font-medium">الصعوبة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {standards.map((std) => {
+                      const diff = std.difficulty_distribution || {};
+                      return (
+                        <tr key={std.id} className="border-b last:border-0">
+                          <td className="py-2.5 px-3 font-medium">{std.section_name}</td>
+                          <td className="py-2.5 px-3 text-center">{std.question_count}</td>
+                          <td className="py-2.5 px-3 text-center">{std.time_limit_minutes ?? '—'}</td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1 text-xs">
+                              {diff.easy && <Badge variant="secondary" className="text-[10px] px-1.5">سهل {diff.easy}%</Badge>}
+                              {diff.medium && <Badge variant="secondary" className="text-[10px] px-1.5">متوسط {diff.medium}%</Badge>}
+                              {diff.hard && <Badge variant="secondary" className="text-[10px] px-1.5">صعب {diff.hard}%</Badge>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -264,6 +332,58 @@ export default function AdminExamDetail() {
               <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />إجمالي الزمن</span><span className="font-bold">{totalTime > 0 ? formatTime(totalTime) : '—'}</span></div>
             </div>
           </motion.div>
+
+          {/* Trusted Sources */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+            className="rounded-2xl border bg-card p-5 shadow-card space-y-3">
+            <h2 className="font-bold text-sm flex items-center gap-2"><ExternalLink className="h-4 w-4 text-primary" />المصادر الموثوقة</h2>
+            {sources.length === 0 ? (
+              <p className="text-xs text-muted-foreground">لا توجد مصادر بعد. اضغط "تحديث المعايير" لاكتشافها تلقائياً.</p>
+            ) : (
+              <div className="space-y-2">
+                {sources.map((src) => (
+                  <div key={src.id} className="rounded-xl bg-muted/50 p-3 space-y-1">
+                    <p className="text-sm font-medium">{src.source_name}</p>
+                    {src.description && <p className="text-xs text-muted-foreground">{src.description}</p>}
+                    {src.source_url && (
+                      <a href={src.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                        <ExternalLink className="h-3 w-3" />زيارة المصدر
+                      </a>
+                    )}
+                    {src.last_synced_at && (
+                      <p className="text-[10px] text-muted-foreground">آخر تحديث: {formatDate(src.last_synced_at)}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+
+          {/* Audit Log */}
+          {auditLog.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
+              className="rounded-2xl border bg-card p-5 shadow-card space-y-3">
+              <h2 className="font-bold text-sm flex items-center gap-2"><History className="h-4 w-4 text-primary" />سجل التحديثات</h2>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {auditLog.map((entry) => (
+                  <div key={entry.id} className="rounded-xl bg-muted/50 p-2.5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <Badge variant="secondary" className="text-[10px]">
+                        {entry.action === 'ai_sync' ? 'مزامنة ذكاء اصطناعي' : entry.action}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">{formatDate(entry.created_at)}</span>
+                    </div>
+                    {entry.details && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {entry.details.sections_count && <span>أقسام: {entry.details.sections_count}</span>}
+                        {entry.details.new_sections_added > 0 && <span className="mr-2">• جديدة: {entry.details.new_sections_added}</span>}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
         </div>
       </div>
 
