@@ -44,6 +44,50 @@ export type Database = {
         }
         Relationships: []
       }
+      exam_sections: {
+        Row: {
+          created_at: string
+          difficulty_mix_json: Json | null
+          exam_template_id: string
+          id: string
+          name_ar: string
+          order: number
+          question_count: number
+          time_limit_sec: number | null
+          topic_filter_json: Json | null
+        }
+        Insert: {
+          created_at?: string
+          difficulty_mix_json?: Json | null
+          exam_template_id: string
+          id?: string
+          name_ar: string
+          order?: number
+          question_count?: number
+          time_limit_sec?: number | null
+          topic_filter_json?: Json | null
+        }
+        Update: {
+          created_at?: string
+          difficulty_mix_json?: Json | null
+          exam_template_id?: string
+          id?: string
+          name_ar?: string
+          order?: number
+          question_count?: number
+          time_limit_sec?: number | null
+          topic_filter_json?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_sections_exam_template_id_fkey"
+            columns: ["exam_template_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exam_templates: {
         Row: {
           analysis_cost_points: number

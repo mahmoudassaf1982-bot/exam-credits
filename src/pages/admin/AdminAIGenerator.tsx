@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Loader2, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,22 +18,8 @@ interface GeneratedQuestion {
   explanation: string | null;
 }
 
-const countries = [
-  { value: 'kw', label: 'الكويت' },
-  { value: 'sa', label: 'السعودية' },
-  { value: 'eg', label: 'مصر' },
-  { value: 'ae', label: 'الإمارات' },
-  { value: 'jo', label: 'الأردن' },
-  { value: 'ps', label: 'فلسطين' },
-];
-
-const examTypes = [
-  { value: 'aptitude', label: 'امتحان القدرات' },
-  { value: 'achievement', label: 'امتحان التحصيل الدراسي' },
-  { value: 'highschool', label: 'امتحان الثانوية العامة' },
-  { value: 'professional', label: 'امتحان الرخصة المهنية' },
-  { value: 'english', label: 'امتحان اللغة الإنجليزية' },
-];
+interface Country { id: string; name_ar: string; flag: string; }
+interface ExamTemplate { id: string; country_id: string; name_ar: string; }
 
 const optionLabels = ['أ', 'ب', 'ج', 'د'];
 
@@ -41,19 +27,45 @@ export default function AdminAIGenerator() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GeneratedQuestion[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [exams, setExams] = useState<ExamTemplate[]>([]);
 
-  const [country, setCountry] = useState('kw');
-  const [examType, setExamType] = useState('aptitude');
+  const [country, setCountry] = useState('');
+  const [examTemplateId, setExamTemplateId] = useState('');
   const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
 
+  useEffect(() => {
+    const fetchData = async () => {
+      const [cRes, eRes] = await Promise.all([
+        supabase.from('countries').select('id, name_ar, flag').eq('is_active', true).order('created_at'),
+        supabase.from('exam_templates').select('id, country_id, name_ar').eq('is_active', true).order('created_at'),
+      ]);
+      const countriesList = cRes.data || [];
+      setCountries(countriesList);
+      setExams(eRes.data || []);
+      if (countriesList.length > 0 && !country) setCountry(countriesList[0].id);
+    };
+    fetchData();
+  }, []);
+
+  const filteredExams = exams.filter(e => e.country_id === country);
+
+  useEffect(() => {
+    // Reset exam when country changes
+    if (!filteredExams.find(e => e.id === examTemplateId)) {
+      setExamTemplateId(filteredExams[0]?.id || '');
+    }
+  }, [country, filteredExams]);
+
   const handleGenerate = async () => {
+    if (!country) { toast({ title: 'يرجى اختيار الدولة', variant: 'destructive' }); return; }
     setLoading(true);
     setResults([]);
 
     try {
       const { data, error } = await supabase.functions.invoke('generateQuestionsWithResearch', {
-        body: { country, examType, numberOfQuestions, difficulty },
+        body: { country, examTemplateId: examTemplateId || null, numberOfQuestions, difficulty },
       });
 
       if (error) throw new Error(error.message);
@@ -67,7 +79,7 @@ export default function AdminAIGenerator() {
       setResults(questions);
       toast({ title: 'تم توليد الأسئلة بنجاح! ✨', description: `تم توليد ${questions.length} سؤال وحفظها في بنك الأسئلة` });
     } catch (e: any) {
-      toast({ title: 'خطأ', description: e.message || 'حدث خطأ أثناء توليد الأسئلة. يرجى المحاولة مرة أخرى.', variant: 'destructive' });
+      toast({ title: 'خطأ', description: e.message || 'حدث خطأ', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -77,50 +89,40 @@ export default function AdminAIGenerator() {
     <div className="space-y-8" dir="rtl">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl sm:text-3xl font-black text-foreground flex items-center gap-3">
-          <Sparkles className="h-7 w-7 text-primary" />
-          لوحة توليد الأسئلة الذكية
+          <Sparkles className="h-7 w-7 text-primary" />لوحة توليد الأسئلة الذكية
         </h1>
         <p className="mt-1 text-muted-foreground">استخدم الذكاء الاصطناعي لتوليد أسئلة امتحانات احترافية</p>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">إعدادات التوليد</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-lg">إعدادات التوليد</CardTitle></CardHeader>
           <CardContent className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>الدولة</Label>
                 <Select value={country} onValueChange={setCountry}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="اختر الدولة" /></SelectTrigger>
                   <SelectContent>
-                    {countries.map((c) => (
-                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                    ))}
+                    {countries.map(c => <SelectItem key={c.id} value={c.id}>{c.flag} {c.name_ar}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>نوع الامتحان</Label>
-                <Select value={examType} onValueChange={setExamType}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Label>الاختبار</Label>
+                <Select value={examTemplateId} onValueChange={setExamTemplateId}>
+                  <SelectTrigger><SelectValue placeholder="اختر الاختبار" /></SelectTrigger>
                   <SelectContent>
-                    {examTypes.map((e) => (
-                      <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>
-                    ))}
+                    {filteredExams.length === 0 ? (
+                      <SelectItem value="none" disabled>لا توجد اختبارات لهذه الدولة</SelectItem>
+                    ) : filteredExams.map(e => <SelectItem key={e.id} value={e.id}>{e.name_ar}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>عدد الأسئلة</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={numberOfQuestions}
-                  onChange={(e) => setNumberOfQuestions(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
-                />
+                <Input type="number" min={1} max={50} value={numberOfQuestions}
+                  onChange={(e) => setNumberOfQuestions(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} />
               </div>
               <div className="space-y-2">
                 <Label>مستوى الصعوبة</Label>
@@ -134,24 +136,13 @@ export default function AdminAIGenerator() {
                 </Select>
               </div>
             </div>
-
-            <Button
-              onClick={handleGenerate}
-              disabled={loading}
-              className="w-full gradient-primary text-primary-foreground"
-              size="lg"
-            >
-              {loading ? (
-                <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</>
-              ) : (
-                <><Sparkles className="h-4 w-4 ml-2" />توليد الأسئلة</>
-              )}
+            <Button onClick={handleGenerate} disabled={loading || !country} className="w-full gradient-primary text-primary-foreground" size="lg">
+              {loading ? <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</> : <><Sparkles className="h-4 w-4 ml-2" />توليد الأسئلة</>}
             </Button>
           </CardContent>
         </Card>
       </motion.div>
 
-      {/* Results Table */}
       {results.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center gap-2 mb-4">
@@ -175,26 +166,16 @@ export default function AdminAIGenerator() {
                   </TableHeader>
                   <TableBody>
                     {results.map((q, i) => {
-                      const correctIdx = q.options.findIndex((o) => o.id === q.correct_option_id);
+                      const correctIdx = q.options.findIndex(o => o.id === q.correct_option_id);
                       return (
                         <TableRow key={q.id}>
                           <TableCell className="font-bold text-primary">{i + 1}</TableCell>
                           <TableCell className="font-medium min-w-[200px]">{q.text_ar}</TableCell>
-                          {q.options.map((opt, oi) => (
-                            <TableCell
-                              key={opt.id}
-                              className={opt.id === q.correct_option_id ? 'text-success font-semibold' : ''}
-                            >
-                              {opt.textAr}
-                            </TableCell>
+                          {q.options.map(opt => (
+                            <TableCell key={opt.id} className={opt.id === q.correct_option_id ? 'text-success font-semibold' : ''}>{opt.textAr}</TableCell>
                           ))}
-                          {/* Fill empty cells if less than 4 options */}
-                          {Array.from({ length: Math.max(0, 4 - q.options.length) }).map((_, fi) => (
-                            <TableCell key={`empty-${fi}`}>-</TableCell>
-                          ))}
-                          <TableCell className="font-bold text-success">
-                            {correctIdx >= 0 ? optionLabels[correctIdx] : '-'}
-                          </TableCell>
+                          {Array.from({ length: Math.max(0, 4 - q.options.length) }).map((_, fi) => <TableCell key={`e-${fi}`}>-</TableCell>)}
+                          <TableCell className="font-bold text-success">{correctIdx >= 0 ? optionLabels[correctIdx] : '-'}</TableCell>
                         </TableRow>
                       );
                     })}
