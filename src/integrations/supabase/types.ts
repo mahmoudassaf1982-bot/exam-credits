@@ -121,6 +121,60 @@ export type Database = {
           },
         ]
       }
+      exam_standards: {
+        Row: {
+          created_at: string
+          difficulty_distribution: Json | null
+          exam_template_id: string
+          id: string
+          question_count: number
+          section_name: string
+          source_id: string | null
+          time_limit_minutes: number | null
+          topics: Json | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          difficulty_distribution?: Json | null
+          exam_template_id: string
+          id?: string
+          question_count?: number
+          section_name: string
+          source_id?: string | null
+          time_limit_minutes?: number | null
+          topics?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          difficulty_distribution?: Json | null
+          exam_template_id?: string
+          id?: string
+          question_count?: number
+          section_name?: string
+          source_id?: string | null
+          time_limit_minutes?: number | null
+          topics?: Json | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_standards_exam_template_id_fkey"
+            columns: ["exam_template_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exam_standards_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "trusted_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exam_templates: {
         Row: {
           analysis_cost_points: number
@@ -354,6 +408,41 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          details: Json | null
+          exam_template_id: string
+          id: string
+          performed_by: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: Json | null
+          exam_template_id: string
+          id?: string
+          performed_by?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: Json | null
+          exam_template_id?: string
+          id?: string
+          performed_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_audit_log_exam_template_id_fkey"
+            columns: ["exam_template_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           amount: number
@@ -383,6 +472,47 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      trusted_sources: {
+        Row: {
+          created_at: string
+          description: string | null
+          exam_template_id: string
+          id: string
+          last_synced_at: string | null
+          source_name: string
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          exam_template_id: string
+          id?: string
+          last_synced_at?: string | null
+          source_name: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          exam_template_id?: string
+          id?: string
+          last_synced_at?: string | null
+          source_name?: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trusted_sources_exam_template_id_fkey"
+            columns: ["exam_template_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
