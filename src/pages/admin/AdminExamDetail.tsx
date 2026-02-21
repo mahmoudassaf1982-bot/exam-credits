@@ -187,23 +187,23 @@ export default function AdminExamDetail() {
   const totalTime = sections.reduce((s, sec) => s + (sec.time_limit_sec || 0), 0);
 
   return (
-    <div className="space-y-8">
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/app/admin/exams" className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted hover:bg-muted/70 transition-colors">
+    <div className="space-y-6 sm:space-y-8 max-w-full overflow-x-hidden">
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link to="/app/admin/exams" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted hover:bg-muted/70 transition-colors">
             <ArrowRight className="h-4 w-4" />
           </Link>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black text-foreground">{template.name_ar}</h1>
-            {template.slug && <p className="text-sm text-muted-foreground font-mono" dir="ltr">{template.slug.toUpperCase()}</p>}
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-2xl font-black text-foreground truncate">{template.name_ar}</h1>
+            {template.slug && <p className="text-xs sm:text-sm text-muted-foreground font-mono truncate" dir="ltr">{template.slug.toUpperCase()}</p>}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={handleAiSync} disabled={syncing} variant="outline" className="gap-2 text-sm">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button onClick={handleAiSync} disabled={syncing} variant="outline" className="gap-2 text-xs sm:text-sm flex-1 sm:flex-none">
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {syncing ? 'جاري البحث عن أحدث المعايير...' : '🔄 تحديث المعايير'}
+            <span className="truncate">{syncing ? 'جاري البحث...' : '🔄 تحديث المعايير'}</span>
           </Button>
-          <Button onClick={handleSave} disabled={saving} className="gradient-primary text-primary-foreground font-bold gap-2">
+          <Button onClick={handleSave} disabled={saving} className="gradient-primary text-primary-foreground font-bold gap-2 shrink-0">
             <Save className="h-4 w-4" /><span className="hidden sm:inline">حفظ</span>
           </Button>
         </div>
@@ -266,7 +266,7 @@ export default function AdminExamDetail() {
                           const updated = { ...sec, name_ar: e.target.value };
                           setSections(prev => prev.map(s => s.id === sec.id ? updated : s));
                           updateSection(updated);
-                        }} className="font-bold h-9 w-48" />
+                        }} className="font-bold h-9 flex-1 min-w-0" />
                       </div>
                       <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setDeleteSecId(sec.id)}>
                         <Trash2 className="h-3.5 w-3.5" />
