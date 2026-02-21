@@ -238,4 +238,23 @@ iframe[src*="lovable"] {
     user-select: text !important;
     -webkit-touch-callout: default !important;
   }
+
+  /* إزالة الغباشة */
+  .modal-overlay, .overlay {
+    display: none !important;
+  }
+
+  /* إصلاح صفحة الاختبار */
+  .exam-page, .exam-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    padding: 0 12px !important;
+  }
+
+  /* إصلاح الزر الأزرق */
+  .exam-page button, .exam-container button {
+    max-width: 100% !important;
+    width: calc(100% - 24px) !important;
+  }
 }
