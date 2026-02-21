@@ -48,7 +48,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen" dir="rtl">
+    <div className="flex min-h-screen overflow-x-hidden" dir="rtl">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div

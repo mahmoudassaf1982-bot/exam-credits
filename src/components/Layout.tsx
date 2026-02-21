@@ -41,7 +41,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen overflow-x-hidden" dir="rtl">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
