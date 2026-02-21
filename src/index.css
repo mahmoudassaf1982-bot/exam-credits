@@ -203,27 +203,17 @@ iframe[src*="lovable"] {
     padding: 0 12px !important;
   }
 
-  /* Form inputs */
-  input,
+  /* Form inputs - only standalone form inputs, not inside buttons/badges */
+  input:not([type="checkbox"]):not([type="radio"]),
   textarea,
-  select,
-  [role="combobox"] {
-    width: 100% !important;
-    height: 44px !important;
-    padding: 12px !important;
+  select {
+    max-width: 100% !important;
     font-size: 14px !important;
   }
 
   textarea {
     height: auto !important;
     min-height: 80px !important;
-  }
-
-  /* Buttons */
-  button:not([class*="absolute"]):not([class*="fixed"]) {
-    max-width: 100% !important;
-    width: calc(100% - 24px) !important;
-    height: 44px !important;
   }
 
   /* RTL direction */
@@ -237,24 +227,5 @@ iframe[src*="lovable"] {
     -webkit-user-select: text !important;
     user-select: text !important;
     -webkit-touch-callout: default !important;
-  }
-
-  /* إزالة الغباشة */
-  .modal-overlay, .overlay {
-    display: none !important;
-  }
-
-  /* إصلاح صفحة الاختبار */
-  .exam-page, .exam-container {
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow-x: hidden !important;
-    padding: 0 12px !important;
-  }
-
-  /* إصلاح الزر الأزرق */
-  .exam-page button, .exam-container button {
-    max-width: 100% !important;
-    width: calc(100% - 24px) !important;
   }
 }
