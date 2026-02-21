@@ -18,11 +18,10 @@ async function getPayPalAccessToken(): Promise<string> {
   const clientSecret = Deno.env.get("PAYPAL_CLIENT_SECRET");
 
   if (!clientId || !clientSecret) {
-    console.error("Missing PayPal credentials: clientId=", !!clientId, "clientSecret=", !!clientSecret);
+    console.error("Missing PayPal credentials");
     throw new Error("PayPal credentials not configured");
   }
 
-  console.log("Requesting PayPal access token...");
   const auth = btoa(`${clientId}:${clientSecret}`);
   const baseUrl = getPayPalBaseUrl();
 
@@ -38,12 +37,11 @@ async function getPayPalAccessToken(): Promise<string> {
   const responseText = await res.text();
 
   if (!res.ok) {
-    console.error("PayPal auth failed:", res.status, responseText);
+    console.error("PayPal auth failed:", res.status);
     throw new Error(`PayPal auth failed: ${res.status}`);
   }
 
   const data = JSON.parse(responseText);
-  console.log("PayPal access token obtained successfully, expires_in:", data.expires_in);
   return data.access_token;
 }
 
@@ -55,35 +53,90 @@ Deno.serve(async (req) => {
   try {
     const BASE_URL = Deno.env.get("PUBLIC_SITE_URL") || "https://exam-credits.lovable.app";
 
-    // 1. Parse and validate request body
     const body = await req.json();
     const { order_type, pack_id, plan_id, points_amount, price_usd, description, currency_code, user_id } = body;
 
-    console.log("Request body:", JSON.stringify({
-      order_type,
-      pack_id,
-      plan_id,
-      points_amount,
-      price_usd,
-      currency_code: currency_code || "USD",
-      user_id: user_id || "guest",
-    }));
-
     if (!order_type || !price_usd) {
-      console.error("Missing required fields: order_type=", order_type, "price_usd=", price_usd);
       return new Response(
         JSON.stringify({ error: "بيانات ناقصة", code: "validation_error" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Format amount as string with 2 decimal places
-    const formattedAmount = Number(price_usd).toFixed(2);
+    // Server-side price validation against database
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    let serverPrice: number | null = null;
+    let serverPoints: number | null = null;
+
+    if (order_type === "points_pack" && pack_id) {
+      const { data: pack, error: packErr } = await supabaseAdmin
+        .from("points_packs")
+        .select("price_usd, points, is_active")
+        .eq("id", pack_id)
+        .single();
+
+      if (packErr || !pack) {
+        console.error("Pack not found:", pack_id);
+        return new Response(
+          JSON.stringify({ error: "الحزمة غير موجودة", code: "invalid_pack" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!pack.is_active) {
+        return new Response(
+          JSON.stringify({ error: "هذه الحزمة غير متاحة حالياً", code: "inactive_pack" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      serverPrice = parseFloat(String(pack.price_usd));
+      serverPoints = pack.points;
+    } else if (order_type === "diamond_plan" && plan_id) {
+      const { data: plan, error: planErr } = await supabaseAdmin
+        .from("diamond_plans")
+        .select("price_usd, is_active")
+        .eq("id", plan_id)
+        .single();
+
+      if (planErr || !plan) {
+        console.error("Plan not found:", plan_id);
+        return new Response(
+          JSON.stringify({ error: "الخطة غير موجودة", code: "invalid_plan" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!plan.is_active) {
+        return new Response(
+          JSON.stringify({ error: "هذه الخطة غير متاحة حالياً", code: "inactive_plan" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      serverPrice = parseFloat(String(plan.price_usd));
+    }
+
+    // If we found a server-side price, validate against client-supplied price
+    if (serverPrice !== null && Math.abs(serverPrice - Number(price_usd)) > 0.01) {
+      console.error(`Price mismatch! client=${price_usd}, server=${serverPrice}`);
+      return new Response(
+        JSON.stringify({ error: "السعر غير صحيح", code: "price_mismatch" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Use server-side price and points if available
+    const finalPrice = serverPrice ?? Number(price_usd);
+    const finalPoints = serverPoints ?? points_amount;
+    const formattedAmount = finalPrice.toFixed(2);
     const finalCurrency = currency_code || "USD";
 
-    console.log(`Order details: type=${order_type}, amount=${formattedAmount} ${finalCurrency}, pack_id=${pack_id}, user=${user_id || "guest"}`);
-
-    // 3. Get PayPal access token
+    // Get PayPal access token
     let accessToken: string;
     try {
       accessToken = await getPayPalAccessToken();
@@ -95,7 +148,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4. Create PayPal order
+    // Create PayPal order
     const baseUrl = getPayPalBaseUrl();
     const orderPayload = {
       intent: "CAPTURE",
@@ -105,7 +158,7 @@ Deno.serve(async (req) => {
             currency_code: finalCurrency,
             value: formattedAmount,
           },
-          description: description || (order_type === "points_pack" ? `شراء ${points_amount} نقطة` : "اشتراك Diamond سنوي"),
+          description: description || (order_type === "points_pack" ? `شراء ${finalPoints} نقطة` : "اشتراك Diamond سنوي"),
         },
       ],
       application_context: {
@@ -119,8 +172,6 @@ Deno.serve(async (req) => {
       },
     };
 
-    console.log("Creating PayPal order with payload:", JSON.stringify(orderPayload));
-
     const paypalRes = await fetch(`${baseUrl}/v2/checkout/orders`, {
       method: "POST",
       headers: {
@@ -131,25 +182,18 @@ Deno.serve(async (req) => {
     });
 
     const paypalResText = await paypalRes.text();
-    console.log("PayPal create order response: status=", paypalRes.status, "body=", paypalResText);
 
     if (!paypalRes.ok) {
-      console.error("PayPal create order failed:", paypalRes.status, paypalResText);
+      console.error("PayPal create order failed:", paypalRes.status);
       return new Response(
-        JSON.stringify({ error: "فشل إنشاء طلب PayPal", code: "paypal_create_order_error", details: paypalResText }),
+        JSON.stringify({ error: "فشل إنشاء طلب PayPal", code: "paypal_create_order_error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const paypalData = JSON.parse(paypalResText);
-    console.log("PayPal order created successfully: id=", paypalData.id, "status=", paypalData.status);
 
-    // 5. Save order to database using service role
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
+    // Save order to database using server-validated price
     const { error: insertError } = await supabaseAdmin
       .from("payment_orders")
       .insert({
@@ -158,8 +202,8 @@ Deno.serve(async (req) => {
         paypal_order_id: paypalData.id,
         pack_id: pack_id || null,
         plan_id: plan_id || null,
-        points_amount: points_amount || null,
-        price_usd,
+        points_amount: finalPoints || null,
+        price_usd: finalPrice,
         status: "pending",
         meta_json: { description },
       });
@@ -167,19 +211,15 @@ Deno.serve(async (req) => {
     if (insertError) {
       console.error("DB insert error:", insertError);
       return new Response(
-        JSON.stringify({ error: "فشل حفظ الطلب في قاعدة البيانات", code: "db_insert_error", details: insertError.message }),
+        JSON.stringify({ error: "فشل حفظ الطلب في قاعدة البيانات", code: "db_insert_error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("Order saved to DB successfully");
-
-    // 6. Return approve URL
+    // Return approve URL
     const approveLink = paypalData.links?.find(
       (link: { rel: string; href: string }) => link.rel === "approve"
     );
-
-    console.log("Returning approve URL:", approveLink?.href);
 
     return new Response(
       JSON.stringify({
