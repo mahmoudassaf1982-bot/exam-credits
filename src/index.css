@@ -187,39 +187,7 @@ iframe[src*="lovable"] {
   body, html {
     overflow-x: hidden !important;
     width: 100% !important;
-  }
-
-  /* Hide sidebar on mobile */
-  aside {
-    display: none !important;
-    transform: translateX(-100%) !important;
-  }
-
-  /* Main content full width */
-  .container, main, .content {
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow-x: hidden !important;
-    padding: 0 12px !important;
-  }
-
-  /* Form inputs - only standalone form inputs, not inside buttons/badges */
-  input:not([type="checkbox"]):not([type="radio"]),
-  textarea,
-  select {
-    max-width: 100% !important;
-    font-size: 14px !important;
-  }
-
-  textarea {
-    height: auto !important;
-    min-height: 80px !important;
-  }
-
-  /* RTL direction */
-  body, p, span, label, h1, h2, h3, h4, h5, h6, div {
-    direction: rtl !important;
-    text-align: right !important;
+    direction: rtl;
   }
 
   /* Allow text selection & screenshots */
