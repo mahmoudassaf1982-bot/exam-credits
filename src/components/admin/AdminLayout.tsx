@@ -158,7 +158,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </button>
         </header>
 
-        <div className="p-4 sm:p-6 lg:p-8">
+        <div className="p-3 sm:p-6 lg:p-8 m-2 sm:m-0">
           {children}
         </div>
       </main>

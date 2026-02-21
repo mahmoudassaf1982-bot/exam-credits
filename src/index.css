@@ -181,3 +181,23 @@ iframe[src*="lovable"] {
     box-shadow: 0 4px 12px hsl(215 20% 50% / 0.1), 0 16px 40px hsl(215 20% 50% / 0.08);
   }
 }
+
+/* ── Mobile responsive overrides ── */
+@layer base {
+  @media (max-width: 639px) {
+    input,
+    textarea,
+    select,
+    [role="combobox"] {
+      min-height: 44px !important;
+      font-size: 14px !important;
+    }
+
+    button,
+    [role="button"],
+    a[class*="btn"],
+    .btn {
+      min-height: 44px;
+    }
+  }
+}
