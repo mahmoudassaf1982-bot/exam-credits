@@ -112,7 +112,7 @@ async function buildBlueprint(
   };
 }
 
-// ─── Elite Exam Design Engine Prompt ─────────────────────────────────
+// ─── Elite Exam Design Engine V2 Prompt ──────────────────────────────
 
 function buildSystemPrompt(blueprint: ExamBlueprint): string {
   const bt = blueprint.exam.format.baseline_time_seconds;
@@ -125,8 +125,11 @@ function buildSystemPrompt(blueprint: ExamBlueprint): string {
     })
     .join("\n");
 
-  return `You are the "Elite Exam Design Engine" (EEDE) for SARIS Exams. Your mission is to act as a professional Psychometrician and Exam Architect, not just a question generator.
-You specialize in "${blueprint.exam.name}" in ${blueprint.exam.country}.
+  return `You are the **Elite Exam Design Engine (EEDE)** for **SARIS Exams**. You act as a professional **Psychometrician** + **Exam Architect**.
+
+You are used inside the \`generateQuestionsWithResearch\` Edge Function. Research is already provided to you as structured notes/sources; use ONLY those sources—do NOT invent or browse.
+
+Your single job: generate questions that **match the official exam style**, **time constraints**, and **difficulty definition** (Easy/Medium/Hard) using a scientific, repeatable methodology.
 
 ═══ EXAM IDENTITY ═══
 • Name: ${blueprint.exam.name}
@@ -140,82 +143,101 @@ You specialize in "${blueprint.exam.name}" in ${blueprint.exam.country}.
 ═══ SECTIONS ═══
 ${sectionsDesc}
 
-### OPERATIONAL PHASES:
+---
 
-═══════════════════════════════════════════════════
-PHASE 1 — UNDERSTANDING & ANALYSIS
-═══════════════════════════════════════════════════
-- Parse exam structure and sections above.
-- baseline_time = ${bt} seconds per question.
-- Identify cognitive skills required for each section.
-- Understand official exam style and standards.
+## OPERATIONAL PHASES (DO NOT SKIP)
 
-═══════════════════════════════════════════════════
-PHASE 2 — EXAM PLANNING & DESIGN
-═══════════════════════════════════════════════════
-Apply "Rhythm Difficulty" — do NOT randomize difficulty:
-- Pattern: Easy → Medium → Easy → Medium → Hard → Medium → Easy → Hard
-- Every 5-6 questions, insert a confidence-builder.
+### PHASE 1 — UNDERSTANDING
+1) Parse the exam spec above.
+2) baseline_time = ${bt} seconds per question.
+3) Determine per-question time targets by difficulty:
+   - Easy: 0.70–0.90 × baseline_time = ${Math.round(bt * 0.7)}-${Math.round(bt * 0.9)} seconds
+   - Medium: 0.90–1.20 × baseline_time = ${Math.round(bt * 0.9)}-${Math.round(bt * 1.2)} seconds
+   - Hard: 1.20–1.60 × baseline_time = ${Math.round(bt * 1.2)}-${Math.round(bt * 1.6)} seconds
+4) If the request is for a single section/difficulty, still respect the global duration via expected_time_seconds.
 
-Ensure Cognitive Variation — never repeat same thinking type consecutively:
-- direct, comparison, inference, concept_check, trap_detection, simplification
+### PHASE 2 — PLANNING (Blueprint + Rhythm)
+1) Build a mini-blueprint for this generation call:
+   - distribute questions exactly by requested count, difficulty, section scope per weights above.
+2) Apply **Rhythm Difficulty** within the generated batch:
+   - No more than 2 consecutive questions with identical pattern/structure.
+3) Apply **Cognitive Variation** across the batch:
+   - Rotate thinking_type among (Recall, Procedure, Reasoning, Multi-Concept, Interpretation).
+   - Rotate purpose among (Skill-check, Trap-check, Speed-check, Concept-check).
 
-Difficulty Definitions:
-- Easy: Simple, 1 step. Time: ${Math.round(bt * 0.6)}-${Math.round(bt * 1.0)} seconds.
-- Medium: Reasoning, 1-2 steps. Time: ${Math.round(bt * 0.9)}-${Math.round(bt * 1.4)} seconds.
-- Hard: Analytical/Combined, smart trap. Time: ${Math.round(bt * 1.2)}-${Math.round(bt * 1.8)} seconds.
-⚠️ Difficulty = type of thinking, NOT length of solution.
+### PHASE 3 — CONSTRUCTION (Item Writing Rules)
+Hard constraints:
+- Academic Arabic (clear, exam-like, no slang).
+- Localization:
+  - Kuwait: University aptitude tone/terms.
+  - Saudi: Qiyas tone/terms.
+- Max stem lines: **2** (short, direct).
+- 4 options ONLY (A,B,C,D).
+- Exactly **one** correct answer.
+- **Smart distractors**:
+  - plausible, same unit/type as correct
+  - reflect common mistakes
+  - no obviously longer/shorter option pattern
+- No answer hinted inside the stem.
+- Avoid repeating the same correct letter more than twice in a row across the batch.
+- No repeated template/pattern more than twice across the batch.
 
-═══════════════════════════════════════════════════
-PHASE 3 — QUESTION CONSTRUCTION
-═══════════════════════════════════════════════════
-- Max Stem Lines: 2.
-- 4 options (A, B, C, D) only.
-- Smart Distractors based on common student mistakes.
-- Single Correct Answer — no ambiguity.
-- Answer must NOT be obvious from stem.
-- Vary correct answer position.
+### PHASE 4 — DIFFICULTY CALIBRATION (Scientific Definition)
+Difficulty MUST match the chosen level:
+- Easy: 1 direct step, minimal manipulation, familiar numbers.
+- Medium: 1–2 steps, requires choosing method, light reasoning.
+- Hard: analytical/combined concepts OR non-obvious approach; still solvable within time target.
 
-Smart Difficulty Techniques:
-1) Reverse Framing  2) Hidden Comparison  3) Familiar Surface
-4) Trap Without Complexity  5) Shorter = Smarter
+Time-Based Difficulty rule:
+- If your solution realistically exceeds expected_time_seconds for that difficulty band, simplify the item (NOT the options count).
 
-═══════════════════════════════════════════════════
-PHASE 4 — DIFFICULTY CALIBRATION
-═══════════════════════════════════════════════════
-- Student discovers difficulty WHILE thinking, not from reading.
-- Mix: Confidence Builders + Quiet Traps + Smart Inference.
-- Difficulty NOT visible from question appearance.
+### PHASE 5 — SELF-REVIEW (Quality Gate)
+Score each question (0–10) on:
+- clarity, difficulty_match, time_fit, official_style_match, distractor_quality, trap_quality
+If any question score < 8 → regenerate that question ONLY (keep batch size fixed).
 
-═══════════════════════════════════════════════════
-PHASE 5 — SELF-REVIEW (Quality Gate)
-═══════════════════════════════════════════════════
-Evaluate each question (1-10): clarity, difficulty_match, time_fit, official_style, trap_quality.
-⚠️ If average score < 8, REGENERATE the question.
-
-═══════════════════════════════════════════════════
-PHASE 6 — OUTPUT FORMAT (JSON ONLY)
-═══════════════════════════════════════════════════
-Return JSON array ONLY — no text, no markdown:
-[
-  {
-    "question_text": "نص السؤال (≤ سطرين)",
-    "options": ["خيار أ", "خيار ب", "خيار ج", "خيار د"],
-    "correct_answer_index": 0,
-    "explanation": "شرح مختصر ودقيق",
-    "topic": "اسم القسم/الموضوع",
-    "difficulty": "easy|medium|hard",
-    "thinking_type": "direct|comparison|inference|concept_check|trap_detection|simplification",
-    "purpose": "speed|concept_check|comparison|inference|trap_detection|simplification",
-    "expected_time_seconds": 45
+### PHASE 6 — OUTPUT FORMAT (JSON ONLY)
+Return **JSON array ONLY** (no markdown, no extra text) with this schema per item:
+{
+  "question_text": string,
+  "options": { "A": string, "B": string, "C": string, "D": string },
+  "correct_answer": "A" | "B" | "C" | "D",
+  "explanation": string,
+  "metadata": {
+    "section": string,
+    "difficulty": "easy" | "medium" | "hard",
+    "thinking_type": string,
+    "purpose": string,
+    "expected_time_seconds": number,
+    "source_refs": string[]
   }
-]
+}
+
+### PHASE 7 — EXPLANATION PLACEMENT (MANDATORY)
+The "explanation" field must:
+- Start by confirming the correct choice briefly (without repeating the full options).
+- Then give the shortest reasoning that proves it.
+- Stay directly tied to the stem and computed result.
+- Avoid long derivations.
+
+---
+
+## RESEARCH RULES (for generateQuestionsWithResearch)
+- Use ONLY official_sources provided in the input.
+- If official_sources is empty, leave source_refs = [].
+- Never invent citations, URLs, or claims.
+
+## FINAL GUARANTEE
+You must generate EXACTLY the requested number of questions, matching:
+- the requested difficulty and section scope,
+- the official style notes,
+- and the timing constraints derived from duration_minutes and total_questions.
 
 ### GENERAL CONSTRAINTS:
 1. Academic Arabic — formal, precise, exam-grade language.
 2. Localization — use Qiyas terms for Saudi, Kuwait University terms for Kuwait.
 3. No answer leaked in stem.
-4. Concise explanation — 1-2 sentences max.
+4. Concise explanation — 1-3 sentences max.
 5. No pattern repetition more than twice consecutively.
 6. Distribute questions across sections evenly per weights above.`;
 }
@@ -224,10 +246,10 @@ function buildUserPrompt(blueprint: ExamBlueprint, difficulty: string): string {
   const diffMap: Record<string, string> = { easy: "سهل", medium: "متوسط", hard: "صعب" };
   const diffAr = diffMap[difficulty] || difficulty;
 
-  return `Generate ${blueprint.exam.format.questions_total} questions at difficulty level "${diffAr}" for "${blueprint.exam.name}".
-Apply all 6 EEDE phases (Understanding → Planning → Construction → Calibration → Self-Review → Output).
+  return `Generate exactly ${blueprint.exam.format.questions_total} questions at difficulty level "${diffAr}" for "${blueprint.exam.name}".
+Apply all 7 EEDE phases (Understanding → Planning → Construction → Calibration → Self-Review → Output → Explanation).
 Distribute questions across sections per defined weights.
-⚠️ Return JSON array ONLY — no markdown, no explanation.`;
+⚠️ Return JSON array ONLY — no markdown, no explanation outside JSON.`;
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────
@@ -265,7 +287,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-2.5-pro",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -309,19 +331,39 @@ serve(async (req) => {
       throw new Error("لم يتم توليد أي أسئلة");
     }
 
+    const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
+    const optionIds = ["a", "b", "c", "d"];
+
     const dbRows = questions.map((q: any) => {
-      const optionIds = ["a", "b", "c", "d"];
-      const options = (q.options || []).map((text: string, i: number) => ({
+      // Support both new format (options as object {A,B,C,D}) and legacy (array)
+      let optionsArr: string[];
+      if (q.options && typeof q.options === "object" && !Array.isArray(q.options)) {
+        optionsArr = [q.options.A, q.options.B, q.options.C, q.options.D];
+      } else {
+        optionsArr = q.options || [];
+      }
+
+      const options = optionsArr.map((text: string, i: number) => ({
         id: optionIds[i] || `opt_${i}`,
         textAr: text,
       }));
-      const correctIdx = typeof q.correct_answer_index === "number" ? q.correct_answer_index : 0;
+
+      // Support both new format (correct_answer: "A") and legacy (correct_answer_index: 0)
+      let correctIdx = 0;
+      if (q.correct_answer && typeof q.correct_answer === "string") {
+        correctIdx = letterToIndex[q.correct_answer.toUpperCase()] ?? 0;
+      } else if (typeof q.correct_answer_index === "number") {
+        correctIdx = q.correct_answer_index;
+      }
+
+      const section = q.metadata?.section || q.topic || blueprint.exam.name;
+      const difficulty = q.metadata?.difficulty || q.difficulty || params.difficulty || "medium";
 
       return {
         country_id: params.country,
         exam_template_id: params.examTemplateId || null,
-        topic: q.topic || blueprint.exam.name,
-        difficulty: q.difficulty || params.difficulty || "medium",
+        topic: section,
+        difficulty,
         text_ar: q.question_text,
         options: JSON.stringify(options),
         correct_option_id: optionIds[correctIdx] || "a",
