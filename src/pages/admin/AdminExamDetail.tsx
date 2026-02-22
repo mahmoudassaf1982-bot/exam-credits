@@ -198,10 +198,10 @@ export default function AdminExamDetail() {
             {template.slug && <p className="text-xs sm:text-sm text-muted-foreground font-mono truncate" dir="ltr">{template.slug.toUpperCase()}</p>}
           </div>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Button onClick={handleAiSync} disabled={syncing} variant="outline" className="gap-2 text-xs sm:text-sm flex-1 sm:flex-none">
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            <span className="truncate">{syncing ? 'جاري البحث...' : '🔄 تحديث المعايير'}</span>
+        <div className="flex items-center gap-2 w-full sm:w-auto overflow-hidden">
+          <Button onClick={handleAiSync} disabled={syncing} variant="outline" className="gap-2 text-xs flex-1 sm:flex-none min-w-0">
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <Sparkles className="h-4 w-4 shrink-0" />}
+            <span className="truncate">{syncing ? 'جاري البحث...' : 'تحديث المعايير'}</span>
           </Button>
           <Button onClick={handleSave} disabled={saving} className="gradient-primary text-primary-foreground font-bold gap-2 shrink-0">
             <Save className="h-4 w-4" /><span className="hidden sm:inline">حفظ</span>
