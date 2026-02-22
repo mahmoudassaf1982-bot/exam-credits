@@ -121,6 +121,57 @@ export type Database = {
           },
         ]
       }
+      exam_sessions: {
+        Row: {
+          answers_json: Json | null
+          completed_at: string | null
+          created_at: string
+          exam_snapshot: Json | null
+          exam_template_id: string
+          id: string
+          points_cost: number
+          questions_json: Json | null
+          score_json: Json | null
+          session_type: string
+          started_at: string
+          status: string
+          time_limit_sec: number
+          user_id: string
+        }
+        Insert: {
+          answers_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          exam_snapshot?: Json | null
+          exam_template_id: string
+          id?: string
+          points_cost?: number
+          questions_json?: Json | null
+          score_json?: Json | null
+          session_type?: string
+          started_at?: string
+          status?: string
+          time_limit_sec?: number
+          user_id: string
+        }
+        Update: {
+          answers_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          exam_snapshot?: Json | null
+          exam_template_id?: string
+          id?: string
+          points_cost?: number
+          questions_json?: Json | null
+          score_json?: Json | null
+          session_type?: string
+          started_at?: string
+          status?: string
+          time_limit_sec?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       exam_standards: {
         Row: {
           created_at: string
