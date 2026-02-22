@@ -15,6 +15,7 @@ import Wallet from "./pages/Wallet";
 import Referral from "./pages/Referral";
 import Exams from "./pages/Exams";
 import ExamSession from "./pages/ExamSession";
+import ExamHistory from "./pages/ExamHistory";
 import TopUp from "./pages/TopUp";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentCancel from "./pages/PaymentCancel";
@@ -60,6 +61,7 @@ const App = () => (
             <Route path="/app" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
             <Route path="/app/exams" element={<ProtectedRoute><AppLayout><Exams /></AppLayout></ProtectedRoute>} />
             <Route path="/app/exam-session/:sessionId" element={<ProtectedRoute><ExamSession /></ProtectedRoute>} />
+            <Route path="/app/history" element={<ProtectedRoute><AppLayout><ExamHistory /></AppLayout></ProtectedRoute>} />
             <Route path="/app/wallet" element={<ProtectedRoute><AppLayout><Wallet /></AppLayout></ProtectedRoute>} />
             <Route path="/app/referral" element={<ProtectedRoute><AppLayout><Referral /></AppLayout></ProtectedRoute>} />
             <Route path="/app/topup" element={<ProtectedRoute><AppLayout><TopUp /></AppLayout></ProtectedRoute>} />
