@@ -6,6 +6,68 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// ── Helpers ──
+
+interface Section {
+  id: string;
+  name_ar: string;
+  order: number;
+  question_count: number;
+  time_limit_sec: number | null;
+  difficulty_mix_json: { easy: number; medium: number; hard: number } | null;
+  topic_filter_json: string[] | null;
+  exam_template_id: string;
+}
+
+function computeDifficultyCounts(
+  questionCount: number,
+  mix: { easy: number; medium: number; hard: number }
+) {
+  const total = mix.easy + mix.medium + mix.hard;
+  if (total <= 0) return { easy: questionCount, medium: 0, hard: 0 };
+  const easy = Math.round((mix.easy / total) * questionCount);
+  const hard = Math.round((mix.hard / total) * questionCount);
+  const medium = questionCount - easy - hard;
+  return { easy, medium, hard };
+}
+
+function autoWeightSections(sections: Section[], totalQuestions: number): Map<string, number> {
+  const sectionWeights = new Map<string, number>();
+  const declaredTotal = sections.reduce((s, sec) => s + sec.question_count, 0);
+
+  if (declaredTotal <= 0) {
+    // Equal distribution
+    const perSection = Math.floor(totalQuestions / sections.length);
+    let remainder = totalQuestions - perSection * sections.length;
+    for (const sec of sections) {
+      sectionWeights.set(sec.id, perSection + (remainder-- > 0 ? 1 : 0));
+    }
+  } else {
+    // Proportional distribution based on each section's declared question_count
+    let assigned = 0;
+    for (let i = 0; i < sections.length; i++) {
+      if (i === sections.length - 1) {
+        sectionWeights.set(sections[i].id, totalQuestions - assigned);
+      } else {
+        const count = Math.round((sections[i].question_count / declaredTotal) * totalQuestions);
+        sectionWeights.set(sections[i].id, count);
+        assigned += count;
+      }
+    }
+  }
+  return sectionWeights;
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// ── Main Handler ──
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -24,14 +86,10 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-    // User client to get the authenticated user
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
-    const {
-      data: { user },
-      error: userError,
-    } = await userClient.auth.getUser();
+    const { data: { user }, error: userError } = await userClient.auth.getUser();
     if (userError || !user) {
       return new Response(JSON.stringify({ error: "مستخدم غير صالح" }), {
         status: 401,
@@ -39,21 +97,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Admin/service client for DB operations
     const admin = createClient(supabaseUrl, serviceKey);
-
     const { exam_template_id, session_type } = await req.json();
+
     if (!exam_template_id || !session_type) {
       return new Response(
         JSON.stringify({ error: "exam_template_id و session_type مطلوبان" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 1. Fetch exam template
+    // ── 1. Fetch template ──
     const { data: template, error: tErr } = await admin
       .from("exam_templates")
       .select("*")
@@ -64,14 +118,11 @@ Deno.serve(async (req) => {
     if (tErr || !template) {
       return new Response(
         JSON.stringify({ error: "قالب الاختبار غير موجود أو غير مفعّل" }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 2. Fetch exam sections
+    // ── 2. Fetch sections (the STRUCTURE that drives everything) ──
     const { data: sections } = await admin
       .from("exam_sections")
       .select("*")
@@ -81,33 +132,23 @@ Deno.serve(async (req) => {
     if (!sections || sections.length === 0) {
       return new Response(
         JSON.stringify({ error: "لا توجد أقسام لهذا الاختبار" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 3. Determine points cost
+    // ── 3. Points cost & deduction ──
     let pointsCost = 0;
-    if (session_type === "simulation") {
-      pointsCost = template.simulation_cost_points;
-    } else if (session_type === "practice") {
-      pointsCost = template.practice_cost_points;
-    } else if (session_type === "analysis") {
-      pointsCost = template.analysis_cost_points;
-    }
+    if (session_type === "simulation") pointsCost = template.simulation_cost_points;
+    else if (session_type === "practice") pointsCost = template.practice_cost_points;
+    else if (session_type === "analysis") pointsCost = template.analysis_cost_points;
 
-    // 4. Check if user is diamond
     const { data: profile } = await admin
       .from("profiles")
       .select("is_diamond")
       .eq("id", user.id)
       .single();
-
     const isDiamond = profile?.is_diamond ?? false;
 
-    // 5. Check wallet balance & deduct points (if not diamond)
     if (!isDiamond && pointsCost > 0) {
       const { data: wallet } = await admin
         .from("wallets")
@@ -122,20 +163,15 @@ Deno.serve(async (req) => {
             required: pointsCost,
             current: wallet?.balance ?? 0,
           }),
-          {
-            status: 402,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Deduct points
       await admin
         .from("wallets")
         .update({ balance: wallet.balance - pointsCost })
         .eq("user_id", user.id);
 
-      // Record transaction
       await admin.from("transactions").insert({
         user_id: user.id,
         type: "debit",
@@ -150,29 +186,23 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 6. Assemble questions for each section
+    // ── 4. Structure-driven question assembly ──
+    const totalQuestions = template.default_question_count;
+    const weightedCounts = autoWeightSections(sections as Section[], totalQuestions);
+
     const assembledQuestions: Record<string, unknown[]> = {};
     let totalQuestionCount = 0;
 
-    for (const section of sections) {
-      const questionCount = section.question_count || 20;
-      const difficultyMix = (section.difficulty_mix_json as Record<string, number>) || {
-        easy: 30,
-        medium: 50,
-        hard: 20,
-      };
-      const topicFilters = (section.topic_filter_json as string[]) || [];
+    for (const section of sections as Section[]) {
+      const sectionTargetCount = weightedCounts.get(section.id) ?? section.question_count;
+      const mix = section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
+      const { easy, medium, hard } = computeDifficultyCounts(sectionTargetCount, mix);
+      const topicFilters = section.topic_filter_json ?? [];
 
-      // Calculate count per difficulty
-      const total = difficultyMix.easy + difficultyMix.medium + difficultyMix.hard;
-      const easyCount = Math.round((difficultyMix.easy / total) * questionCount);
-      const hardCount = Math.round((difficultyMix.hard / total) * questionCount);
-      const mediumCount = questionCount - easyCount - hardCount;
-
-      const difficulties: { level: string; count: number }[] = [
-        { level: "easy", count: easyCount },
-        { level: "medium", count: mediumCount },
-        { level: "hard", count: hardCount },
+      const difficulties = [
+        { level: "easy", count: easy },
+        { level: "medium", count: medium },
+        { level: "hard", count: hard },
       ];
 
       const sectionQuestions: unknown[] = [];
@@ -180,49 +210,89 @@ Deno.serve(async (req) => {
       for (const { level, count } of difficulties) {
         if (count <= 0) continue;
 
-        let query = admin
+        // Priority 1: questions linked to this exact section
+        let baseQuery = admin
           .from("questions")
           .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
           .eq("is_approved", true)
           .eq("country_id", template.country_id)
           .eq("difficulty", level);
 
-        // Apply topic filters if specified
         if (topicFilters.length > 0) {
-          query = query.in("topic", topicFilters);
+          baseQuery = baseQuery.in("topic", topicFilters);
         }
 
-        // Apply section filter if questions have section_id
-        if (section.id) {
-          // Try section-specific first, fall back to any
-          const { data: sectionSpecific } = await query
-            .eq("section_id", section.id)
-            .limit(count);
+        // Try section-specific questions first
+        const { data: sectionSpecific } = await baseQuery
+          .eq("section_id", section.id)
+          .limit(count);
 
-          if (sectionSpecific && sectionSpecific.length > 0) {
-            sectionQuestions.push(...sectionSpecific);
-            continue;
+        if (sectionSpecific && sectionSpecific.length >= count) {
+          sectionQuestions.push(...shuffle(sectionSpecific));
+          continue;
+        }
+
+        const found = sectionSpecific ?? [];
+        const remaining = count - found.length;
+        sectionQuestions.push(...found);
+
+        // Priority 2: questions linked to this exam template but no specific section
+        if (remaining > 0) {
+          let fallbackQuery = admin
+            .from("questions")
+            .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
+            .eq("is_approved", true)
+            .eq("country_id", template.country_id)
+            .eq("difficulty", level)
+            .eq("exam_template_id", exam_template_id)
+            .is("section_id", null);
+
+          if (topicFilters.length > 0) {
+            fallbackQuery = fallbackQuery.in("topic", topicFilters);
+          }
+
+          // Exclude already selected IDs
+          const usedIds = found.map((q: any) => q.id);
+          if (usedIds.length > 0) {
+            fallbackQuery = fallbackQuery.not("id", "in", `(${usedIds.join(",")})`);
+          }
+
+          const { data: templateQuestions } = await fallbackQuery.limit(remaining);
+          if (templateQuestions) {
+            sectionQuestions.push(...templateQuestions);
+          }
+
+          // Priority 3: any matching questions from the country pool
+          const still = remaining - (templateQuestions?.length ?? 0);
+          if (still > 0) {
+            const allUsed = [...usedIds, ...(templateQuestions ?? []).map((q: any) => q.id)];
+            let poolQuery = admin
+              .from("questions")
+              .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
+              .eq("is_approved", true)
+              .eq("country_id", template.country_id)
+              .eq("difficulty", level);
+
+            if (topicFilters.length > 0) {
+              poolQuery = poolQuery.in("topic", topicFilters);
+            }
+            if (allUsed.length > 0) {
+              poolQuery = poolQuery.not("id", "in", `(${allUsed.join(",")})`);
+            }
+
+            const { data: poolQuestions } = await poolQuery.limit(still);
+            if (poolQuestions) {
+              sectionQuestions.push(...poolQuestions);
+            }
           }
         }
-
-        // Fallback: get questions without section restriction
-        const { data: questions } = await query.limit(count);
-        if (questions) {
-          sectionQuestions.push(...questions);
-        }
       }
 
-      // Shuffle questions within section
-      for (let i = sectionQuestions.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [sectionQuestions[i], sectionQuestions[j]] = [sectionQuestions[j], sectionQuestions[i]];
-      }
-
-      assembledQuestions[section.id] = sectionQuestions;
+      assembledQuestions[section.id] = shuffle(sectionQuestions);
       totalQuestionCount += sectionQuestions.length;
     }
 
-    // 7. Build exam snapshot (frozen copy of template + sections)
+    // ── 5. Build frozen snapshot ──
     const examSnapshot = {
       template: {
         id: template.id,
@@ -232,17 +302,18 @@ Deno.serve(async (req) => {
         default_time_limit_sec: template.default_time_limit_sec,
         default_question_count: template.default_question_count,
       },
-      sections: sections.map((s: Record<string, unknown>) => ({
+      sections: (sections as Section[]).map((s) => ({
         id: s.id,
         name_ar: s.name_ar,
         order: s.order,
-        question_count: s.question_count,
+        question_count: weightedCounts.get(s.id) ?? s.question_count,
         time_limit_sec: s.time_limit_sec,
         difficulty_mix_json: s.difficulty_mix_json,
+        topic_filter_json: s.topic_filter_json,
       })),
     };
 
-    // 8. Create exam session
+    // ── 6. Create session ──
     const { data: session, error: sessionErr } = await admin
       .from("exam_sessions")
       .insert({
@@ -263,10 +334,7 @@ Deno.serve(async (req) => {
       console.error("Session creation error:", sessionErr);
       return new Response(
         JSON.stringify({ error: "فشل في إنشاء جلسة الاختبار", details: sessionErr.message }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -277,19 +345,13 @@ Deno.serve(async (req) => {
         sections_count: sections.length,
         points_deducted: isDiamond ? 0 : pointsCost,
       }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("Assemble exam error:", err);
     return new Response(
       JSON.stringify({ error: "خطأ داخلي في الخادم" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
