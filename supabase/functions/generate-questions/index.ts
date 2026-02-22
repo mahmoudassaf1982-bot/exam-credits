@@ -16,70 +16,76 @@ interface GenerateRequest {
   countryId?: string;
 }
 
-function buildPrompt(params: GenerateRequest): string {
-  if (params.mode === "automatic") {
-    return `أنت خبير في إعداد اختبارات القدرات لجامعة الكويت. قم بتوليد 15 سؤال اختبار قدرات متنوع يغطي الأقسام التالية:
-- 5 أسئلة رياضيات (مستويات مختلفة)
-- 5 أسئلة لغة إنجليزية (قواعد ومفردات)
-- 5 أسئلة لغة عربية (نحو وصرف وبلاغة)
+const QUALITY_CONSTRAINTS = `═══ قيود الجودة (إلزامية) ═══
+• الحد الأقصى لنص السؤال: سطرين — لا تتجاوز هذا أبداً
+• ممنوع: الاشتقاقات والحسابات الطويلة
+• ممنوع: المعلومات التافهة أو الحفظية البحتة
+• لا تضع أكثر من سؤالين متتاليين من نفس الموضوع
+• كل سؤال يختبر مفهوماً واحداً فقط
+• الخيارات الخاطئة يجب أن تكون منطقية (ليست سخيفة أو واضحة الخطأ)
+• لا تكرر نفس بنية السؤال — نوّع في الصياغة`;
 
-كل سؤال يجب أن يكون باللغة العربية ويتبع معايير اختبار القدرات الأكاديمية.
+const DIFFICULTY_GUIDE = `═══ مستويات الصعوبة ═══
+• easy: سؤال مباشر يختبر الفهم الأساسي. خطوة واحدة. [15-30 ثانية]
+• medium: يتطلب تطبيق مفهوم أو ربط مفهومين. خطوة إلى خطوتين. [30-60 ثانية]
+• hard: يتطلب تفكيراً تحليلياً. خطوتين إلى ثلاث. ⚠️ الصعوبة = ذكاء أكثر وليس طول أكثر. [45-90 ثانية]`;
 
-أرجع النتيجة كـ JSON array بالشكل التالي:
+const OUTPUT_FORMAT = `═══ تنسيق الإخراج (JSON فقط) ═══
+أرجع JSON array فقط بدون أي نص قبله أو بعده:
 [
   {
-    "topic": "الرياضيات",
-    "difficulty": "medium",
-    "question_text": "نص السؤال",
-    "options": ["الخيار أ", "الخيار ب", "الخيار ج", "الخيار د"],
+    "question_text": "نص السؤال (سطرين كحد أقصى)",
+    "topic": "الموضوع",
+    "difficulty": "easy|medium|hard",
+    "options": ["خيار أ", "خيار ب", "خيار ج", "خيار د"],
     "correct_answer_index": 0,
-    "explanation": "شرح الإجابة الصحيحة"
+    "explanation": "شرح مختصر ودقيق (جملة أو جملتين)"
   }
-]
+]`;
 
-أرجع JSON فقط بدون أي نص إضافي.`;
+function buildPrompt(params: GenerateRequest): { system: string; user: string } {
+  if (params.mode === "automatic") {
+    const system = `أنت مُعِدّ اختبارات قدرات جامعة الكويت المحترف.
+
+═══ هيكل الاختبار ═══
+• 5 أسئلة رياضيات (جبر، هندسة، تحليل) — نسبة: ~33%
+• 5 أسئلة لغة إنجليزية (قواعد، مفردات، فهم) — نسبة: ~33%
+• 5 أسئلة لغة عربية (نحو، صرف، بلاغة) — نسبة: ~33%
+
+${DIFFICULTY_GUIDE}
+
+${QUALITY_CONSTRAINTS}
+
+${OUTPUT_FORMAT}`;
+
+    return {
+      system,
+      user: `وَلِّد 15 سؤال اختبار قدرات متنوع (5 رياضيات + 5 إنجليزية + 5 عربية) بمستويات صعوبة متنوعة. التزم بالقيود. أرجع JSON فقط.`,
+    };
   }
 
   const subjectMap: Record<string, string> = {
-    mathematics: "الرياضيات",
-    english: "اللغة الإنجليزية",
-    arabic: "اللغة العربية",
+    mathematics: "الرياضيات", english: "اللغة الإنجليزية", arabic: "اللغة العربية",
   };
-  const difficultyMap: Record<string, string> = {
-    easy: "سهل",
-    medium: "متوسط",
-    hard: "صعب",
-  };
+  const diffMap: Record<string, string> = { easy: "سهل", medium: "متوسط", hard: "صعب" };
 
   const subjectAr = subjectMap[params.subject || "mathematics"] || params.subject;
-  const difficultyAr = difficultyMap[params.difficulty || "medium"] || params.difficulty;
+  const diffAr = diffMap[params.difficulty || "medium"] || params.difficulty;
   const count = Math.min(Math.max(params.count || 5, 1), 50);
-  const topicText = params.topic ? `في موضوع "${params.topic}"` : "";
+  const topicText = params.topic ? ` في موضوع "${params.topic}"` : "";
 
-  return `أنت خبير في إعداد أسئلة الاختبارات الأكاديمية باللغة العربية.
+  const system = `أنت مُعِدّ اختبارات أكاديمية محترف متخصص في ${subjectAr}.
 
-قم بتوليد ${count} سؤال في مادة ${subjectAr} ${topicText}، بمستوى صعوبة ${difficultyAr}.
+${DIFFICULTY_GUIDE}
 
-كل سؤال يجب أن يكون:
-- واضح ودقيق علمياً
-- مناسب لمستوى الصعوبة المطلوب
-- له 4 خيارات إجابة
-- إجابة واحدة صحيحة فقط
-- شرح مختصر للإجابة الصحيحة
+${QUALITY_CONSTRAINTS}
 
-أرجع النتيجة كـ JSON array بالشكل التالي:
-[
-  {
-    "topic": "${subjectAr}",
-    "difficulty": "${params.difficulty || "medium"}",
-    "question_text": "نص السؤال",
-    "options": ["الخيار أ", "الخيار ب", "الخيار ج", "الخيار د"],
-    "correct_answer_index": 0,
-    "explanation": "شرح الإجابة الصحيحة"
-  }
-]
+${OUTPUT_FORMAT}`;
 
-أرجع JSON فقط بدون أي نص إضافي.`;
+  return {
+    system,
+    user: `وَلِّد ${count} سؤال في ${subjectAr}${topicText} بمستوى صعوبة "${diffAr}". التزم بالقيود. أرجع JSON فقط.`,
+  };
 }
 
 serve(async (req) => {
@@ -89,13 +95,12 @@ serve(async (req) => {
 
   try {
     const params: GenerateRequest = await req.json();
-    console.log("[generate-questions] mode:", params.mode, "params:", JSON.stringify(params));
+    console.log("[generate-questions] mode:", params.mode);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const prompt = buildPrompt(params);
-    console.log("[generate-questions] Calling AI gateway...");
+    const { system, user } = buildPrompt(params);
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -106,8 +111,8 @@ serve(async (req) => {
       body: JSON.stringify({
         model: "google/gemini-2.5-pro",
         messages: [
-          { role: "system", content: "أنت مساعد متخصص في توليد أسئلة اختبارات أكاديمية عالية الجودة باللغة العربية. أرجع JSON فقط." },
-          { role: "user", content: prompt },
+          { role: "system", content: system },
+          { role: "user", content: user },
         ],
       }),
     });
@@ -130,9 +135,7 @@ serve(async (req) => {
 
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content || "";
-    console.log("[generate-questions] AI raw response length:", rawContent.length);
 
-    // Parse JSON from response (handle markdown code blocks)
     let jsonStr = rawContent.trim();
     const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
@@ -140,8 +143,8 @@ serve(async (req) => {
     let questions: any[];
     try {
       questions = JSON.parse(jsonStr);
-    } catch (e) {
-      console.error("[generate-questions] JSON parse error:", e, "raw:", jsonStr.substring(0, 500));
+    } catch {
+      console.error("[generate-questions] JSON parse error, raw:", jsonStr.substring(0, 500));
       throw new Error("فشل في تحليل استجابة الذكاء الاصطناعي");
     }
 
@@ -149,9 +152,6 @@ serve(async (req) => {
       throw new Error("لم يتم توليد أي أسئلة");
     }
 
-    console.log("[generate-questions] Parsed", questions.length, "questions. Inserting into DB...");
-
-    // Map to DB format
     const countryId = params.countryId || "kw";
     const dbRows = questions.map((q: any) => {
       const optionIds = ["a", "b", "c", "d"];
@@ -160,7 +160,6 @@ serve(async (req) => {
         textAr: text,
       }));
       const correctIdx = typeof q.correct_answer_index === "number" ? q.correct_answer_index : 0;
-      const correctOptionId = optionIds[correctIdx] || "a";
 
       return {
         country_id: countryId,
@@ -168,14 +167,13 @@ serve(async (req) => {
         difficulty: q.difficulty || params.difficulty || "medium",
         text_ar: q.question_text,
         options: JSON.stringify(options),
-        correct_option_id: correctOptionId,
+        correct_option_id: optionIds[correctIdx] || "a",
         explanation: q.explanation || null,
         is_approved: false,
         source: "ai",
       };
     });
 
-    // Insert using service role
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -190,7 +188,7 @@ serve(async (req) => {
       throw new Error("فشل في حفظ الأسئلة: " + insertError.message);
     }
 
-    console.log("[generate-questions] Successfully inserted", inserted?.length, "questions");
+    console.log("[generate-questions] ✅ Inserted", inserted?.length, "questions");
 
     return new Response(JSON.stringify({ success: true, questions: inserted, count: inserted?.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
