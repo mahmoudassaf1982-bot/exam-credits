@@ -1,4 +1,4 @@
-import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles, Loader2, Shield } from 'lucide-react';
+import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles, Loader2, Shield, Trophy, Target, History } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/StatsCard';
@@ -8,25 +8,39 @@ import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { PointsTransaction } from '@/types';
+import { Progress } from '@/components/ui/progress';
+
+interface ExamStats {
+  totalSessions: number;
+  completedSessions: number;
+  passedSessions: number;
+  avgPercentage: number;
+  recentSessions: {
+    id: string;
+    examName: string;
+    percentage: number;
+    passed: boolean;
+    completedAt: string;
+  }[];
+}
 
 export default function Dashboard() {
   const { user, wallet } = useAuth();
   const [recentTx, setRecentTx] = useState<PointsTransaction[]>([]);
   const [txStats, setTxStats] = useState({ debitCount: 0 });
+  const [examStats, setExamStats] = useState<ExamStats>({ totalSessions: 0, completedSessions: 0, passedSessions: 0, avgPercentage: 0, recentSessions: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      const { data } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
+      const [txRes, sessRes] = await Promise.all([
+        supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
+        supabase.from('exam_sessions').select('id, status, score_json, exam_snapshot, completed_at').order('started_at', { ascending: false }).limit(100),
+      ]);
 
-      if (data) {
-        setRecentTx(data.map(tx => ({
+      if (txRes.data) {
+        setRecentTx(txRes.data.map(tx => ({
           id: tx.id,
           userId: tx.user_id,
           type: tx.type as 'credit' | 'debit',
@@ -35,8 +49,41 @@ export default function Dashboard() {
           metaJson: tx.meta_json as Record<string, unknown> | undefined,
           createdAt: tx.created_at,
         })));
-        setTxStats({ debitCount: data.filter(t => t.type === 'debit').length });
+        setTxStats({ debitCount: txRes.data.filter(t => t.type === 'debit').length });
       }
+
+      if (sessRes.data) {
+        const completed = sessRes.data.filter(s => s.status === 'completed');
+        let totalPct = 0;
+        let passedCount = 0;
+        const recent: ExamStats['recentSessions'] = [];
+
+        for (const s of completed) {
+          const score = s.score_json as { percentage: number } | null;
+          const snap = s.exam_snapshot as { template: { name_ar: string } } | null;
+          const pct = score?.percentage ?? 0;
+          totalPct += pct;
+          if (pct >= 60) passedCount++;
+          if (recent.length < 5) {
+            recent.push({
+              id: s.id,
+              examName: snap?.template?.name_ar || 'اختبار',
+              percentage: pct,
+              passed: pct >= 60,
+              completedAt: s.completed_at || '',
+            });
+          }
+        }
+
+        setExamStats({
+          totalSessions: sessRes.data.length,
+          completedSessions: completed.length,
+          passedSessions: passedCount,
+          avgPercentage: completed.length > 0 ? Math.round(totalPct / completed.length) : 0,
+          recentSessions: recent,
+        });
+      }
+
       setLoading(false);
     };
     load();
@@ -100,26 +147,71 @@ export default function Dashboard() {
           variant="gold"
         />
         <StatsCard
-          title="الاختبارات المتاحة"
-          value={userExams.length}
-          subtitle={`في ${user?.countryName}`}
+          title="الاختبارات المكتملة"
+          value={examStats.completedSessions}
+          subtitle={`من أصل ${examStats.totalSessions} جلسة`}
           icon={BookOpen}
           variant="info"
         />
         <StatsCard
-          title="دعوات ناجحة"
-          value={0}
-          subtitle="0 قيد الانتظار"
-          icon={UserPlus}
+          title="معدل النجاح"
+          value={examStats.completedSessions > 0 ? `${Math.round((examStats.passedSessions / examStats.completedSessions) * 100)}%` : '—'}
+          subtitle={`${examStats.passedSessions} ناجح من ${examStats.completedSessions}`}
+          icon={Trophy}
           variant="success"
         />
         <StatsCard
-          title="الجلسات المستخدمة"
-          value={txStats.debitCount}
-          subtitle="جلسة مكتملة"
-          icon={TrendingUp}
+          title="متوسط الأداء"
+          value={examStats.avgPercentage > 0 ? `${examStats.avgPercentage}%` : '—'}
+          subtitle="معدل الدرجات"
+          icon={Target}
         />
       </motion.div>
+
+      {/* Recent Exam Results */}
+      {examStats.recentSessions.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.18 }}
+          className="rounded-2xl border bg-card shadow-card overflow-hidden"
+        >
+          <div className="flex items-center justify-between p-5 border-b">
+            <h2 className="font-bold text-lg flex items-center gap-2">
+              <History className="h-5 w-5 text-primary" />
+              آخر الاختبارات
+            </h2>
+            <Link to="/app/history" className="text-sm text-primary font-medium hover:underline">
+              عرض الكل
+            </Link>
+          </div>
+          <div className="divide-y">
+            {examStats.recentSessions.map((s) => (
+              <Link
+                key={s.id}
+                to={`/app/exam-session/${s.id}`}
+                className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
+              >
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0 ${s.passed ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
+                  {s.passed ? <Trophy className="h-5 w-5" /> : <Target className="h-5 w-5" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{s.examName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {s.completedAt ? new Date(s.completedAt).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }) : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <Progress value={s.percentage} className="h-1.5 w-16" />
+                  <span className={`text-sm font-bold font-mono ${s.passed ? 'text-success' : 'text-destructive'}`}>
+                    {s.percentage}%
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Recent Activity */}
       <motion.div
