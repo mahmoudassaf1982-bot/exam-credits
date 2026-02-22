@@ -187,7 +187,7 @@ export default function AdminExamDetail() {
   const totalTime = sections.reduce((s, sec) => s + (sec.time_limit_sec || 0), 0);
 
   return (
-    <div className="space-y-6 sm:space-y-8 max-w-full overflow-x-hidden">
+    <div className="space-y-6 sm:space-y-8 w-full max-w-full overflow-hidden box-border">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <Link to="/app/admin/exams" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted hover:bg-muted/70 transition-colors">
