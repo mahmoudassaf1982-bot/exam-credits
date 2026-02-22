@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Coins, Plus, Pencil, Trash2, Star } from 'lucide-react';
-import { mockPointsPacks as initialPacks, countries } from '@/data/mock';
-import type { PointsPack } from '@/types';
+import { Coins, Plus, Pencil, Trash2, Star, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import type { PointsPack, Country } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,15 +34,52 @@ import {
 } from '@/components/ui/alert-dialog';
 
 export default function AdminPointsPacks() {
-  const [packs, setPacks] = useState<PointsPack[]>(initialPacks);
+  const [packs, setPacks] = useState<PointsPack[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editingPack, setEditingPack] = useState<PointsPack | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState({ countryId: 'sa', points: 0, priceUSD: 0, label: '', popular: false });
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ countryId: '', points: 0, priceUSD: 0, label: '', popular: false });
+
+  const fetchData = async () => {
+    const [packsRes, countriesRes] = await Promise.all([
+      supabase.from('points_packs').select('*').order('points', { ascending: true }),
+      supabase.from('countries').select('*').order('name_ar'),
+    ]);
+
+    if (packsRes.data) {
+      setPacks(packsRes.data.map(p => ({
+        id: p.id,
+        countryId: p.country_id,
+        points: p.points,
+        priceUSD: p.price_usd,
+        label: p.label,
+        popular: p.popular,
+        isActive: p.is_active,
+      })));
+    }
+
+    if (countriesRes.data) {
+      setCountries(countriesRes.data.map(c => ({
+        id: c.id,
+        name: c.name,
+        nameAr: c.name_ar,
+        flag: c.flag,
+        currency: c.currency,
+        isActive: c.is_active,
+      })));
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, []);
 
   const openCreate = () => {
     setEditingPack(null);
-    setForm({ countryId: 'sa', points: 0, priceUSD: 0, label: '', popular: false });
+    setForm({ countryId: countries[0]?.id || '', points: 0, priceUSD: 0, label: '', popular: false });
     setShowDialog(true);
   };
 
@@ -52,37 +89,81 @@ export default function AdminPointsPacks() {
     setShowDialog(true);
   };
 
-  const handleSave = () => {
-    if (!form.label || form.points <= 0 || form.priceUSD <= 0) {
+  const handleSave = async () => {
+    if (!form.label || form.points <= 0 || form.priceUSD <= 0 || !form.countryId) {
       toast.error('يرجى ملء جميع الحقول بشكل صحيح');
       return;
     }
+    setSaving(true);
+
     if (editingPack) {
-      setPacks((prev) => prev.map((p) => p.id === editingPack.id ? { ...p, ...form } : p));
-      toast.success('تم تحديث الحزمة');
+      const { error } = await supabase
+        .from('points_packs')
+        .update({
+          country_id: form.countryId,
+          points: form.points,
+          price_usd: form.priceUSD,
+          label: form.label,
+          popular: form.popular,
+        })
+        .eq('id', editingPack.id);
+
+      if (error) toast.error('فشل في تحديث الحزمة');
+      else toast.success('تم تحديث الحزمة');
     } else {
-      setPacks((prev) => [...prev, { id: `pack-${Date.now()}`, ...form, isActive: true }]);
-      toast.success('تم إضافة الحزمة');
+      const newId = `pack-${form.countryId}-${Date.now()}`;
+      const { error } = await supabase
+        .from('points_packs')
+        .insert({
+          id: newId,
+          country_id: form.countryId,
+          points: form.points,
+          price_usd: form.priceUSD,
+          label: form.label,
+          popular: form.popular,
+          is_active: true,
+        });
+
+      if (error) toast.error('فشل في إضافة الحزمة');
+      else toast.success('تم إضافة الحزمة');
     }
+
+    setSaving(false);
     setShowDialog(false);
+    fetchData();
   };
 
-  const handleDelete = () => {
-    if (deleteId) {
-      setPacks((prev) => prev.filter((p) => p.id !== deleteId));
-      toast.success('تم حذف الحزمة');
-      setDeleteId(null);
-    }
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    const { error } = await supabase.from('points_packs').delete().eq('id', deleteId);
+    if (error) toast.error('فشل في حذف الحزمة');
+    else toast.success('تم حذف الحزمة');
+    setDeleteId(null);
+    fetchData();
   };
 
-  const toggleActive = (id: string) => {
-    setPacks((prev) => prev.map((p) => p.id === id ? { ...p, isActive: !p.isActive } : p));
+  const toggleActive = async (pack: PointsPack) => {
+    const { error } = await supabase
+      .from('points_packs')
+      .update({ is_active: !pack.isActive })
+      .eq('id', pack.id);
+
+    if (error) toast.error('فشل في تحديث الحالة');
+    else fetchData();
   };
 
   // Group by country
   const grouped = countries
     .map((c) => ({ country: c, items: packs.filter((p) => p.countryId === c.id) }))
     .filter((g) => g.items.length > 0);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -130,7 +211,7 @@ export default function AdminPointsPacks() {
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <span className="text-sm font-bold text-gold" dir="ltr">${pack.priceUSD}</span>
-                  <Switch checked={pack.isActive ?? true} onCheckedChange={() => toggleActive(pack.id)} />
+                  <Switch checked={pack.isActive ?? true} onCheckedChange={() => toggleActive(pack)} />
                 </div>
               </div>
             ))}
@@ -155,7 +236,7 @@ export default function AdminPointsPacks() {
             <div className="space-y-2">
               <Label>الدولة</Label>
               <Select value={form.countryId} onValueChange={(v) => setForm({ ...form, countryId: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="اختر الدولة" /></SelectTrigger>
                 <SelectContent>
                   {countries.map((c) => (<SelectItem key={c.id} value={c.id}>{c.flag} {c.nameAr}</SelectItem>))}
                 </SelectContent>
@@ -182,7 +263,9 @@ export default function AdminPointsPacks() {
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" onClick={() => setShowDialog(false)} className="flex-1">إلغاء</Button>
-            <Button onClick={handleSave} className="flex-1 gradient-primary text-primary-foreground font-bold">{editingPack ? 'تحديث' : 'إضافة'}</Button>
+            <Button onClick={handleSave} disabled={saving} className="flex-1 gradient-primary text-primary-foreground font-bold">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingPack ? 'تحديث' : 'إضافة'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
