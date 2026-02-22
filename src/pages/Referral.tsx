@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Copy, Check, Gift, Users, Clock, Share2, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockSettings } from '@/data/mock';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { Button } from '@/components/ui/button';
 import { StatsCard } from '@/components/StatsCard';
 import { motion } from 'framer-motion';
@@ -17,6 +17,7 @@ interface ReferralTransaction {
 
 export default function Referral() {
   const { user } = useAuth();
+  const { settings, loading: settingsLoading } = usePlatformSettings();
   const [copied, setCopied] = useState(false);
   const [referrals, setReferrals] = useState<ReferralTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,7 +30,6 @@ export default function Referral() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { setLoading(false); return; }
 
-      // Get referral bonus transactions for this user (as referrer: amount=30)
       const { data } = await supabase
         .from('transactions')
         .select('id, meta_json, created_at')
@@ -71,7 +71,7 @@ export default function Referral() {
     if (navigator.share) {
       await navigator.share({
         title: 'Saris Exams - ادعوني اشتركت!',
-        text: `سجّل في Saris Exams واحصل على ${mockSettings.referredBonusPoints} نقاط مجانية!`,
+        text: `سجّل في Saris Exams واحصل على ${settings.referredBonusPoints} نقاط مجانية!`,
         url: referralLink,
       });
     } else {
@@ -79,39 +79,23 @@ export default function Referral() {
     }
   };
 
-  const totalPoints = referrals.length * mockSettings.referrerBonusPoints;
+  const totalPoints = referrals.length * settings.referrerBonusPoints;
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-2xl sm:text-3xl font-black text-foreground">
-          دعوة صديق
-        </h1>
-        <p className="mt-1 text-muted-foreground">
-          ادعُ أصدقاءك واحصل على نقاط مجانية لكليكما
-        </p>
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        <h1 className="text-2xl sm:text-3xl font-black text-foreground">دعوة صديق</h1>
+        <p className="mt-1 text-muted-foreground">ادعُ أصدقاءك واحصل على نقاط مجانية لكليكما</p>
       </motion.div>
 
-      {/* Referral link card */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="rounded-2xl border bg-card p-6 shadow-card"
-      >
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl border bg-card p-6 shadow-card">
         <div className="flex items-center gap-3 mb-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-success text-success-foreground">
             <Gift className="h-6 w-6" />
           </div>
           <div>
             <h2 className="font-bold text-lg">رابط الدعوة الخاص بك</h2>
-            <p className="text-sm text-muted-foreground">
-              شاركه مع أصدقائك وزملائك
-            </p>
+            <p className="text-sm text-muted-foreground">شاركه مع أصدقائك وزملائك</p>
           </div>
         </div>
 
@@ -120,18 +104,11 @@ export default function Referral() {
             {referralLink}
           </div>
           <div className="flex gap-2">
-            <Button
-              onClick={copyLink}
-              variant="outline"
-              className="gap-2"
-            >
+            <Button onClick={copyLink} variant="outline" className="gap-2">
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               {copied ? 'تم النسخ' : 'نسخ'}
             </Button>
-            <Button
-              onClick={shareLink}
-              className="gap-2 gradient-primary text-primary-foreground"
-            >
+            <Button onClick={shareLink} className="gap-2 gradient-primary text-primary-foreground">
               <Share2 className="h-4 w-4" />
               مشاركة
             </Button>
@@ -146,80 +123,41 @@ export default function Referral() {
         </div>
       </motion.div>
 
-      {/* How it works */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="rounded-2xl border bg-card p-6 shadow-card"
-      >
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="rounded-2xl border bg-card p-6 shadow-card">
         <h2 className="font-bold text-lg mb-4">كيف تعمل الدعوة؟</h2>
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full gradient-primary text-primary-foreground text-sm font-bold flex-shrink-0">
-              1
-            </div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full gradient-primary text-primary-foreground text-sm font-bold flex-shrink-0">1</div>
             <div>
               <p className="font-semibold text-sm">شارك الرابط</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                أرسل رابط الدعوة لأصدقائك
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">أرسل رابط الدعوة لأصدقائك</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full gradient-primary text-primary-foreground text-sm font-bold flex-shrink-0">
-              2
-            </div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full gradient-primary text-primary-foreground text-sm font-bold flex-shrink-0">2</div>
             <div>
               <p className="font-semibold text-sm">صديقك يسجّل ويشتري</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                يكمل التسجيل ثم يشتري نقاط أو Diamond
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">يكمل التسجيل ثم يشتري نقاط أو Diamond</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full gradient-gold text-gold-foreground text-sm font-bold flex-shrink-0">
-              3
-            </div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full gradient-gold text-gold-foreground text-sm font-bold flex-shrink-0">3</div>
             <div>
               <p className="font-semibold text-sm">تحصلان على نقاط</p>
               <p className="text-xs text-muted-foreground mt-1">
-                أنت تحصل على {mockSettings.referrerBonusPoints} نقطة وصديقك {mockSettings.referredBonusPoints} نقطة
+                {settingsLoading ? '...' : `أنت تحصل على ${settings.referrerBonusPoints} نقطة وصديقك ${settings.referredBonusPoints} نقطة`}
               </p>
             </div>
           </div>
         </div>
       </motion.div>
 
-      {/* Stats */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="grid gap-4 sm:grid-cols-2"
-      >
-        <StatsCard
-          title="دعوات ناجحة"
-          value={loading ? '...' : referrals.length}
-          icon={Users}
-          variant="success"
-        />
-        <StatsCard
-          title="نقاط مكتسبة"
-          value={loading ? '...' : totalPoints}
-          subtitle="من الدعوات"
-          icon={Gift}
-          variant="gold"
-        />
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="grid gap-4 sm:grid-cols-2">
+        <StatsCard title="دعوات ناجحة" value={loading ? '...' : referrals.length} icon={Users} variant="success" />
+        <StatsCard title="نقاط مكتسبة" value={loading ? '...' : totalPoints} subtitle="من الدعوات" icon={Gift} variant="gold" />
       </motion.div>
 
-      {/* Referral events */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25 }}
-        className="rounded-2xl border bg-card shadow-card overflow-hidden"
-      >
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="rounded-2xl border bg-card shadow-card overflow-hidden">
         <div className="p-5 border-b">
           <h2 className="font-bold text-lg">سجل الدعوات</h2>
         </div>
@@ -236,24 +174,15 @@ export default function Referral() {
             </div>
           ) : (
             referrals.map((event) => (
-              <div
-                key={event.id}
-                className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
-              >
+              <div key={event.id} className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm">
                   {event.referred_name.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    {event.referred_name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(event.created_at).toLocaleDateString('ar-SA')}
-                  </p>
+                  <p className="text-sm font-medium text-foreground">{event.referred_name}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(event.created_at).toLocaleDateString('ar-SA')}</p>
                 </div>
-                <span className="rounded-full px-3 py-1 text-xs font-bold bg-success/10 text-success">
-                  ✅ مكافأة مُنحت
-                </span>
+                <span className="rounded-full px-3 py-1 text-xs font-bold bg-success/10 text-success">✅ مكافأة مُنحت</span>
               </div>
             ))
           )}

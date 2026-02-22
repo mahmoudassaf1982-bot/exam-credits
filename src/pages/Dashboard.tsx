@@ -2,7 +2,7 @@ import { Coins, BookOpen, UserPlus, TrendingUp, ArrowLeft, Sparkles, Loader2, Sh
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/StatsCard';
-import { reasonLabels } from '@/data/mock';
+import { reasonLabels } from '@/data/constants';
 import { useExamTemplates } from '@/hooks/useExamTemplates';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
