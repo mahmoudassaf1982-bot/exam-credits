@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockExamTemplates } from '@/data/examTemplates';
+import { useExamTemplates } from '@/hooks/useExamTemplates';
 import { SessionCostDialog } from '@/components/SessionCostDialog';
 import type { ExamTemplate, SessionType } from '@/types';
 import {
@@ -13,6 +13,7 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,9 +26,7 @@ export default function Exams() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedExam, setExpandedExam] = useState<string | null>(null);
 
-  const userExams = mockExamTemplates.filter(
-    (t) => t.countryId === user?.countryId && t.isActive
-  );
+  const { templates: userExams, loading: examsLoading } = useExamTemplates(user?.countryId);
 
   const openSession = (exam: ExamTemplate, type: SessionType) => {
     setSelectedExam(exam);
@@ -58,6 +57,11 @@ export default function Exams() {
       </motion.div>
 
       {/* Exams grid */}
+      {examsLoading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
       <div className="grid gap-6 sm:grid-cols-2">
         {userExams.map((exam, i) => {
           const isExpanded = expandedExam === exam.id;
@@ -265,6 +269,7 @@ export default function Exams() {
           </div>
         )}
       </div>
+      )}
 
       <SessionCostDialog
         open={dialogOpen}
