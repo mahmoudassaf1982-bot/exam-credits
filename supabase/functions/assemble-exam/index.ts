@@ -341,7 +341,6 @@ Deno.serve(async (req) => {
         status: "in_progress",
         exam_snapshot: examSnapshot,
         questions_json: assembledQuestions,
-        answers_key_json: answersKey,
         answers_json: {},
         time_limit_sec: template.default_time_limit_sec,
         points_cost: isDiamond ? 0 : pointsCost,
@@ -355,6 +354,18 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "فشل في إنشاء جلسة الاختبار", details: sessionErr.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Store answer keys in separate locked table
+    const { error: keyErr } = await admin
+      .from("exam_answer_keys")
+      .insert({
+        session_id: session.id,
+        answers_key_json: answersKey,
+      });
+
+    if (keyErr) {
+      console.error("Answer keys storage error:", keyErr);
     }
 
     return new Response(

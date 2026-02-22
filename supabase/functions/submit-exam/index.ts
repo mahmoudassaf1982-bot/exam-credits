@@ -46,10 +46,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch session with answer keys (service role bypasses RLS)
+    // Fetch session (service role bypasses RLS)
     const { data: session, error: sErr } = await admin
       .from("exam_sessions")
-      .select("id, user_id, status, exam_snapshot, questions_json, answers_key_json")
+      .select("id, user_id, status, exam_snapshot, questions_json")
       .eq("id", session_id)
       .single();
 
@@ -74,8 +74,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Score the exam server-side
-    const answersKeyJson = session.answers_key_json as Record<string, Record<string, { correct_option_id: string; explanation?: string }>>;
+    // Fetch answer keys from separate locked table
+    const { data: keyRow, error: keyErr } = await admin
+      .from("exam_answer_keys")
+      .select("answers_key_json")
+      .eq("session_id", session_id)
+      .single();
+
+    if (keyErr || !keyRow) {
+      return new Response(
+        JSON.stringify({ error: "مفاتيح الإجابات غير موجودة" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const answersKeyJson = keyRow.answers_key_json as Record<string, Record<string, { correct_option_id: string; explanation?: string }>>;
     const questionsJson = session.questions_json as Record<string, any[]>;
     const snapshot = session.exam_snapshot as { sections: { id: string; name_ar: string }[] };
     const sections = snapshot?.sections || [];
