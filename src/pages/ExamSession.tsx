@@ -21,16 +21,19 @@ import {
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import ExamReview from '@/components/exam/ExamReview';
-import type { Json } from '@/integrations/supabase/types';
+
 
 interface QuestionData {
   id: string;
   text_ar: string;
   options: { id: string; textAr: string }[];
-  correct_option_id: string;
-  explanation?: string;
   difficulty: string;
   topic: string;
+}
+
+interface FullQuestionData extends QuestionData {
+  correct_option_id: string;
+  explanation?: string;
 }
 
 interface SectionSnapshot {
@@ -55,6 +58,7 @@ interface ExamSessionData {
     sections: SectionSnapshot[];
   };
   questions_json: Record<string, QuestionData[]>;
+  review_questions_json: Record<string, FullQuestionData[]> | null;
   answers_json: Record<string, string>;
   score_json: Record<string, unknown> | null;
   time_limit_sec: number;
@@ -76,6 +80,7 @@ export default function ExamSession() {
   const [showResults, setShowResults] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [scoreData, setScoreData] = useState<Record<string, unknown> | null>(null);
+  const [reviewQuestions, setReviewQuestions] = useState<Record<string, FullQuestionData[]> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load session
@@ -101,6 +106,7 @@ export default function ExamSession() {
       if (sessionData.status === 'completed') {
         setShowResults(true);
         setScoreData(sessionData.score_json);
+        setReviewQuestions(sessionData.review_questions_json || null);
       } else {
         // Calculate remaining time
         const started = new Date(sessionData.started_at).getTime();
@@ -162,7 +168,7 @@ export default function ExamSession() {
         if (sessionId) {
           supabase
             .from('exam_sessions')
-            .update({ answers_json: updated as unknown as Json })
+            .update({ answers_json: updated as any })
             .eq('id', sessionId)
             .then();
         }
@@ -178,63 +184,23 @@ export default function ExamSession() {
 
     if (timerRef.current) clearInterval(timerRef.current);
 
-    // Calculate score
-    let totalCorrect = 0;
-    let totalAttempted = 0;
-    const sectionScores: Record<string, { correct: number; total: number; name: string }> = {};
+    // Submit to server for scoring
+    const { data: result, error } = await supabase.functions.invoke('submit-exam', {
+      body: { session_id: sessionId, answers },
+    });
 
-    for (const section of sections) {
-      const questions = session.questions_json?.[section.id] || [];
-      let sCorrect = 0;
-      let sTotal = questions.length;
-
-      for (const q of questions) {
-        if (answers[q.id]) {
-          totalAttempted++;
-          if (answers[q.id] === q.correct_option_id) {
-            sCorrect++;
-            totalCorrect++;
-          }
-        }
-      }
-
-      sectionScores[section.id] = {
-        correct: sCorrect,
-        total: sTotal,
-        name: section.name_ar,
-      };
-    }
-
-    const score = {
-      total_correct: totalCorrect,
-      total_questions: totalQuestions,
-      total_attempted: totalAttempted,
-      percentage: totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0,
-      section_scores: sectionScores,
-    };
-
-    // Update session
-    const { error } = await supabase
-      .from('exam_sessions')
-      .update({
-        status: 'completed',
-        answers_json: answers as unknown as Json,
-        score_json: score as unknown as Json,
-        completed_at: new Date().toISOString(),
-      })
-      .eq('id', sessionId);
-
-    if (error) {
+    if (error || !result?.score) {
       toast.error('فشل في حفظ النتيجة');
       setSubmitting(false);
       return;
     }
 
-    setScoreData(score);
+    setScoreData(result.score);
+    setReviewQuestions(result.review_questions || null);
     setShowResults(true);
     setSubmitting(false);
     refreshWallet();
-  }, [submitting, session, sessionId, answers, sections, totalQuestions, refreshWallet]);
+  }, [submitting, session, sessionId, answers, refreshWallet]);
 
   if (loading) {
     return (
@@ -342,7 +308,7 @@ export default function ExamSession() {
         <div className="mx-auto max-w-2xl">
           <ExamReview
             sections={sections}
-            questionsJson={session.questions_json || {}}
+            questionsJson={reviewQuestions || {}}
             answers={answers}
             onBack={() => setShowReview(false)}
           />

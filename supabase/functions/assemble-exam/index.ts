@@ -191,6 +191,7 @@ Deno.serve(async (req) => {
     const weightedCounts = autoWeightSections(sections as Section[], totalQuestions);
 
     const assembledQuestions: Record<string, unknown[]> = {};
+    const answersKey: Record<string, Record<string, { correct_option_id: string; explanation?: string }>> = {};
     let totalQuestionCount = 0;
 
     for (const section of sections as Section[]) {
@@ -288,7 +289,24 @@ Deno.serve(async (req) => {
         }
       }
 
-      assembledQuestions[section.id] = shuffle(sectionQuestions);
+      // Store answer keys separately, strip from client-facing data
+      const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
+      const strippedQuestions = sectionQuestions.map((q: any) => {
+        sectionAnswerKeys[q.id] = {
+          correct_option_id: q.correct_option_id,
+          explanation: q.explanation || undefined,
+        };
+        return {
+          id: q.id,
+          text_ar: q.text_ar,
+          options: q.options,
+          difficulty: q.difficulty,
+          topic: q.topic,
+        };
+      });
+
+      assembledQuestions[section.id] = shuffle(strippedQuestions);
+      answersKey[section.id] = sectionAnswerKeys;
       totalQuestionCount += sectionQuestions.length;
     }
 
@@ -323,6 +341,7 @@ Deno.serve(async (req) => {
         status: "in_progress",
         exam_snapshot: examSnapshot,
         questions_json: assembledQuestions,
+        answers_key_json: answersKey,
         answers_json: {},
         time_limit_sec: template.default_time_limit_sec,
         points_cost: isDiamond ? 0 : pointsCost,

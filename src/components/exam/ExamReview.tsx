@@ -18,7 +18,7 @@ interface QuestionData {
   text_ar: string;
   options: { id: string; textAr: string }[];
   correct_option_id: string;
-  explanation?: string;
+  explanation?: string | null;
   difficulty: string;
   topic: string;
 }
