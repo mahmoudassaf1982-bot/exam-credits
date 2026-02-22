@@ -141,7 +141,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 w-full max-w-full overflow-x-hidden">
         {/* Mobile top bar */}
         <header className="sticky top-0 z-30 flex items-center justify-between bg-background/80 backdrop-blur-md border-b border-border px-4 py-3 lg:hidden">
           <div className="flex items-center gap-2">
@@ -158,7 +158,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           </button>
         </header>
 
-        <div className="p-3 sm:p-6 lg:p-8 mx-0 sm:m-0">
+        <div className="p-2 sm:p-6 lg:p-8 w-full max-w-full box-border">
           {children}
         </div>
       </main>
