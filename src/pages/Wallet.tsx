@@ -1,6 +1,6 @@
 import { Coins, ArrowDown, ArrowUp, Filter, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { reasonLabels } from '@/data/mock';
+import { reasonLabels } from '@/data/constants';
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Save, Coins, Users, Filter, Bell, Loader2, Mail } from 'lucide-react';
-import { mockSettings } from '@/data/mock';
-import type { PlatformSettings } from '@/types';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,15 +26,15 @@ interface ReferralRow {
 }
 
 export default function AdminSettings() {
-  const [settings, setSettings] = useState<PlatformSettings>(mockSettings);
+  const { settings, setSettings, loading: settingsLoading } = usePlatformSettings();
   const [referralFilter, setReferralFilter] = useState<string>('all');
   const [adminEmail, setAdminEmail] = useState('');
   const [loadingEmail, setLoadingEmail] = useState(true);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [referrals, setReferrals] = useState<ReferralRow[]>([]);
   const [loadingReferrals, setLoadingReferrals] = useState(true);
 
-  // Load admin notification email from DB
   useEffect(() => {
     const fetchAdminEmail = async () => {
       const { data } = await supabase
@@ -49,11 +48,9 @@ export default function AdminSettings() {
     fetchAdminEmail();
   }, []);
 
-  // Load real referral data from transactions
   useEffect(() => {
     const fetchReferrals = async () => {
       setLoadingReferrals(true);
-      // referral_bonus transactions for referrers have meta_json with referred_user_name
       const { data } = await supabase
         .from('transactions')
         .select('id, user_id, amount, reason, meta_json, created_at, type')
@@ -62,7 +59,6 @@ export default function AdminSettings() {
         .order('created_at', { ascending: false });
 
       if (data) {
-        // Filter only referrer bonuses (amount=30, meta has referred_user_name)
         const rows: ReferralRow[] = data
           .filter((t) => {
             const meta = t.meta_json as Record<string, string> | null;
@@ -100,8 +96,29 @@ export default function AdminSettings() {
     }
   };
 
-  const handleSave = () => {
-    toast.success('تم حفظ الإعدادات بنجاح');
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    const updates = [
+      { key: 'signup_bonus_points', value: String(settings.signupBonusPoints) },
+      { key: 'referrer_bonus_points', value: String(settings.referrerBonusPoints) },
+      { key: 'referred_bonus_points', value: String(settings.referredBonusPoints) },
+    ];
+
+    let hasError = false;
+    for (const u of updates) {
+      const { error } = await supabase
+        .from('platform_settings')
+        .update({ value: u.value })
+        .eq('key', u.key);
+      if (error) hasError = true;
+    }
+
+    setSavingSettings(false);
+    if (hasError) {
+      toast.error('فشل حفظ بعض الإعدادات');
+    } else {
+      toast.success('تم حفظ الإعدادات بنجاح');
+    }
   };
 
   const filteredReferrals = referrals.filter((e) => {
@@ -143,49 +160,61 @@ export default function AdminSettings() {
               إعدادات النقاط العامة
             </h2>
 
-            <div className="grid gap-6 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>نقاط هدية التسجيل</Label>
-                <Input
-                  type="number"
-                  value={settings.signupBonusPoints}
-                  onChange={(e) => setSettings({ ...settings, signupBonusPoints: Number(e.target.value) })}
-                  min={0}
-                  dir="ltr"
-                  className="text-center"
-                />
-                <p className="text-xs text-muted-foreground">النقاط الممنوحة عند إنشاء حساب جديد</p>
+            {settingsLoading ? (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
-              <div className="space-y-2">
-                <Label>نقاط الداعي</Label>
-                <Input
-                  type="number"
-                  value={settings.referrerBonusPoints}
-                  onChange={(e) => setSettings({ ...settings, referrerBonusPoints: Number(e.target.value) })}
-                  min={0}
-                  dir="ltr"
-                  className="text-center"
-                />
-                <p className="text-xs text-muted-foreground">النقاط الممنوحة للشخص الداعي</p>
-              </div>
-              <div className="space-y-2">
-                <Label>نقاط المدعو</Label>
-                <Input
-                  type="number"
-                  value={settings.referredBonusPoints}
-                  onChange={(e) => setSettings({ ...settings, referredBonusPoints: Number(e.target.value) })}
-                  min={0}
-                  dir="ltr"
-                  className="text-center"
-                />
-                <p className="text-xs text-muted-foreground">النقاط الممنوحة للصديق المدعو</p>
-              </div>
-            </div>
+            ) : (
+              <>
+                <div className="grid gap-6 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>نقاط هدية التسجيل</Label>
+                    <Input
+                      type="number"
+                      value={settings.signupBonusPoints}
+                      onChange={(e) => setSettings({ ...settings, signupBonusPoints: Number(e.target.value) })}
+                      min={0}
+                      dir="ltr"
+                      className="text-center"
+                    />
+                    <p className="text-xs text-muted-foreground">النقاط الممنوحة عند إنشاء حساب جديد</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>نقاط الداعي</Label>
+                    <Input
+                      type="number"
+                      value={settings.referrerBonusPoints}
+                      onChange={(e) => setSettings({ ...settings, referrerBonusPoints: Number(e.target.value) })}
+                      min={0}
+                      dir="ltr"
+                      className="text-center"
+                    />
+                    <p className="text-xs text-muted-foreground">النقاط الممنوحة للشخص الداعي</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>نقاط المدعو</Label>
+                    <Input
+                      type="number"
+                      value={settings.referredBonusPoints}
+                      onChange={(e) => setSettings({ ...settings, referredBonusPoints: Number(e.target.value) })}
+                      min={0}
+                      dir="ltr"
+                      className="text-center"
+                    />
+                    <p className="text-xs text-muted-foreground">النقاط الممنوحة للصديق المدعو</p>
+                  </div>
+                </div>
 
-            <Button onClick={handleSave} className="mt-6 gradient-primary text-primary-foreground font-bold gap-2">
-              <Save className="h-4 w-4" />
-              حفظ الإعدادات
-            </Button>
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={savingSettings}
+                  className="mt-6 gradient-primary text-primary-foreground font-bold gap-2"
+                >
+                  {savingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  حفظ الإعدادات
+                </Button>
+              </>
+            )}
           </motion.div>
         </TabsContent>
 
@@ -227,7 +256,6 @@ export default function AdminSettings() {
               </div>
             ) : (
               <>
-                {/* Desktop table */}
                 <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full">
                     <thead>
@@ -243,25 +271,19 @@ export default function AdminSettings() {
                           <td className="p-3 text-sm">{event.referred_name}</td>
                           <td className="p-3 text-sm text-muted-foreground">{new Date(event.created_at).toLocaleDateString('ar-SA')}</td>
                           <td className="p-3">
-                            <span className="rounded-full px-3 py-1 text-xs font-bold bg-success/10 text-success">
-                              مكافأة مُنحت
-                            </span>
+                            <span className="rounded-full px-3 py-1 text-xs font-bold bg-success/10 text-success">مكافأة مُنحت</span>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-
-                {/* Mobile list */}
                 <div className="sm:hidden divide-y">
                   {filteredReferrals.map((event) => (
                     <div key={event.id} className="p-4 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{event.referred_name}</span>
-                        <span className="rounded-full px-2 py-0.5 text-xs font-bold bg-success/10 text-success">
-                          مكافأة
-                        </span>
+                        <span className="rounded-full px-2 py-0.5 text-xs font-bold bg-success/10 text-success">مكافأة</span>
                       </div>
                       <p className="text-xs text-muted-foreground">{new Date(event.created_at).toLocaleDateString('ar-SA')}</p>
                     </div>
@@ -272,7 +294,6 @@ export default function AdminSettings() {
           </motion.div>
         </TabsContent>
 
-        {/* Notifications Tab */}
         <TabsContent value="notifications">
           <motion.div
             initial={{ opacity: 0, y: 12 }}
@@ -309,9 +330,7 @@ export default function AdminSettings() {
                   className="text-left"
                 />
               )}
-              <p className="text-xs text-muted-foreground">
-                اتركه فارغاً لتعطيل التنبيهات الإلكترونية.
-              </p>
+              <p className="text-xs text-muted-foreground">اتركه فارغاً لتعطيل التنبيهات الإلكترونية.</p>
             </div>
 
             {adminEmail && (
@@ -324,7 +343,6 @@ export default function AdminSettings() {
               </div>
             )}
 
-            {/* What triggers notifications */}
             <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
               <p className="text-sm font-semibold text-foreground">الأحداث التي تُطلق التنبيهات:</p>
               <div className="space-y-2">
