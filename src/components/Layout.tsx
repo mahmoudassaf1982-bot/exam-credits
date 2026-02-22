@@ -14,6 +14,7 @@ import {
   Users,
   BarChart2,
   Settings,
+  History,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PointsBadge } from '@/components/PointsBadge';
@@ -22,6 +23,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { path: '/app', label: 'لوحة التحكم', icon: LayoutDashboard },
   { path: '/app/exams', label: 'الاختبارات', icon: BookOpen },
+  { path: '/app/history', label: 'سجل الاختبارات', icon: History },
   { path: '/app/wallet', label: 'المحفظة', icon: Wallet },
   { path: '/app/referral', label: 'دعوة صديق', icon: UserPlus },
   { path: '/app/topup', label: 'شراء نقاط', icon: ShoppingCart },
