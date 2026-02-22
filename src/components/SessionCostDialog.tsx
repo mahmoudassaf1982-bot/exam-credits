@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Coins } from 'lucide-react';
+import { AlertTriangle, Coins, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import type { ExamTemplate, SessionType } from '@/types';
 import {
   Dialog,
@@ -12,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 interface SessionCostDialogProps {
   open: boolean;
@@ -45,7 +47,7 @@ export function SessionCostDialog({
   sessionType,
   onConfirm,
 }: SessionCostDialogProps) {
-  const { wallet, user, updateBalance } = useAuth();
+  const { wallet, user, refreshWallet } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
@@ -56,16 +58,31 @@ export function SessionCostDialog({
   const isDiamond = user?.isDiamond ?? false;
   const canAfford = isDiamond || balance >= cost;
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     setLoading(true);
-    if (!isDiamond) {
-      updateBalance(-cost);
-    }
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('assemble-exam', {
+        body: {
+          exam_template_id: exam.id,
+          session_type: sessionType,
+        },
+      });
+
+      if (error || data?.error) {
+        toast.error(data?.error || 'فشل في بدء الجلسة');
+        setLoading(false);
+        return;
+      }
+
+      await refreshWallet();
       onConfirm();
       onOpenChange(false);
-    }, 500);
+      navigate(`/app/exam-session/${data.session_id}`);
+    } catch {
+      toast.error('حدث خطأ أثناء بدء الجلسة');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -127,6 +144,7 @@ export function SessionCostDialog({
                 variant="outline"
                 onClick={() => onOpenChange(false)}
                 className="flex-1"
+                disabled={loading}
               >
                 إلغاء
               </Button>
@@ -135,7 +153,16 @@ export function SessionCostDialog({
                 disabled={loading}
                 className="flex-1 gradient-gold text-gold-foreground font-bold hover:opacity-90"
               >
-                {loading ? 'جارٍ الخصم...' : isDiamond ? 'ابدأ الآن' : `ابدأ (${cost} نقطة)`}
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin ml-2" />
+                    جارٍ تجميع الاختبار...
+                  </>
+                ) : isDiamond ? (
+                  'ابدأ الآن'
+                ) : (
+                  `ابدأ (${cost} نقطة)`
+                )}
               </Button>
             </>
           ) : (
