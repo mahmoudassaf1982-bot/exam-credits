@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.assemble-exam]
 verify_jwt = false
+
+[functions.submit-exam]
+verify_jwt = false

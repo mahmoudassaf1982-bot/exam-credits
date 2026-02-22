@@ -124,6 +124,7 @@ export type Database = {
       exam_sessions: {
         Row: {
           answers_json: Json | null
+          answers_key_json: Json | null
           completed_at: string | null
           created_at: string
           exam_snapshot: Json | null
@@ -131,6 +132,7 @@ export type Database = {
           id: string
           points_cost: number
           questions_json: Json | null
+          review_questions_json: Json | null
           score_json: Json | null
           session_type: string
           started_at: string
@@ -140,6 +142,7 @@ export type Database = {
         }
         Insert: {
           answers_json?: Json | null
+          answers_key_json?: Json | null
           completed_at?: string | null
           created_at?: string
           exam_snapshot?: Json | null
@@ -147,6 +150,7 @@ export type Database = {
           id?: string
           points_cost?: number
           questions_json?: Json | null
+          review_questions_json?: Json | null
           score_json?: Json | null
           session_type?: string
           started_at?: string
@@ -156,6 +160,7 @@ export type Database = {
         }
         Update: {
           answers_json?: Json | null
+          answers_key_json?: Json | null
           completed_at?: string | null
           created_at?: string
           exam_snapshot?: Json | null
@@ -163,6 +168,7 @@ export type Database = {
           id?: string
           points_cost?: number
           questions_json?: Json | null
+          review_questions_json?: Json | null
           score_json?: Json | null
           session_type?: string
           started_at?: string
