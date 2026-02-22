@@ -16,29 +16,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { countries } from '@/data/mock';
-import { mockExamTemplates } from '@/data/examTemplates';
-
-const baseStats = [
-  {
-    label: 'الدول المفعّلة',
-    value: countries.filter((c) => c.isActive).length,
-    total: countries.length,
-    icon: Globe,
-    color: 'text-info',
-    bg: 'bg-info/10',
-    href: '/app/admin/countries',
-  },
-  {
-    label: 'الاختبارات',
-    value: mockExamTemplates.filter((t) => t.isActive).length,
-    total: mockExamTemplates.length,
-    icon: BookOpen,
-    color: 'text-primary',
-    bg: 'bg-primary/10',
-    href: '/app/admin/exams',
-  },
-];
 
 const quickLinks = [
   { label: 'إدارة الدول', icon: Globe, href: '/app/admin/countries', desc: 'إضافة وتعديل الدول والعملات' },
@@ -57,11 +34,21 @@ interface LiveStats {
   totalPointsGranted: number;
 }
 
+interface ContentStats {
+  activeCountries: number;
+  totalCountries: number;
+  activeExams: number;
+  totalExams: number;
+}
+
 export default function AdminDashboard() {
   const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
   const [loadingLive, setLoadingLive] = useState(true);
+  const [contentStats, setContentStats] = useState<ContentStats>({ activeCountries: 0, totalCountries: 0, activeExams: 0, totalExams: 0 });
+  const [loadingContent, setLoadingContent] = useState(true);
 
   useEffect(() => {
+    // Fetch live stats from edge function
     const fetchLive = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -85,8 +72,54 @@ export default function AdminDashboard() {
         setLoadingLive(false);
       }
     };
+
+    // Fetch content stats from DB
+    const fetchContent = async () => {
+      try {
+        const [countriesRes, examsRes] = await Promise.all([
+          supabase.from('countries').select('id, is_active'),
+          supabase.from('exam_templates').select('id, is_active'),
+        ]);
+
+        setContentStats({
+          activeCountries: countriesRes.data?.filter(c => c.is_active).length ?? 0,
+          totalCountries: countriesRes.data?.length ?? 0,
+          activeExams: examsRes.data?.filter(e => e.is_active).length ?? 0,
+          totalExams: examsRes.data?.length ?? 0,
+        });
+      } catch {
+        // silent
+      } finally {
+        setLoadingContent(false);
+      }
+    };
+
     fetchLive();
+    fetchContent();
   }, []);
+
+  const baseStats = [
+    {
+      label: 'الدول المفعّلة',
+      value: contentStats.activeCountries,
+      total: contentStats.totalCountries,
+      icon: Globe,
+      color: 'text-info',
+      bg: 'bg-info/10',
+      href: '/app/admin/countries',
+      loading: loadingContent,
+    },
+    {
+      label: 'الاختبارات',
+      value: contentStats.activeExams,
+      total: contentStats.totalExams,
+      icon: BookOpen,
+      color: 'text-primary',
+      bg: 'bg-primary/10',
+      href: '/app/admin/exams',
+      loading: loadingContent,
+    },
+  ];
 
   return (
     <div className="space-y-8">
@@ -221,10 +254,14 @@ export default function AdminDashboard() {
               <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${stat.bg} mb-3`}>
                 <stat.icon className={`h-4 w-4 ${stat.color}`} />
               </div>
-              <p className="text-2xl font-black text-foreground">{stat.value}</p>
+              {stat.loading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : (
+                <p className="text-2xl font-black text-foreground">{stat.value}</p>
+              )}
               <p className="text-xs text-muted-foreground mt-0.5">
                 {stat.label}
-                {stat.total !== stat.value && (
+                {!stat.loading && stat.total !== stat.value && (
                   <span className="text-muted-foreground/60"> / {stat.total}</span>
                 )}
               </p>
