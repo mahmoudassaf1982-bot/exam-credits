@@ -1,7 +1,6 @@
-import { useState } from 'react';
-import { mockExamTemplates } from '@/data/examTemplates';
-import { countries } from '@/data/mock';
-import type { Question, QuestionDifficulty, QuestionOption } from '@/types';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import type { Question, QuestionDifficulty, QuestionOption, Country, ExamTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useExamTemplates } from '@/hooks/useExamTemplates';
 
 interface QuestionFormDialogProps {
   open: boolean;
@@ -30,7 +30,7 @@ interface QuestionFormDialogProps {
 }
 
 const emptyForm = (): Partial<Question> => ({
-  countryId: 'sa',
+  countryId: '',
   examTemplateId: '',
   sectionId: '',
   topic: '',
@@ -51,6 +51,29 @@ export function QuestionFormDialog({ open, onOpenChange, question, onSave }: Que
   const [form, setForm] = useState<Partial<Question>>(() =>
     question ? { ...question } : emptyForm()
   );
+  const [countries, setCountries] = useState<Country[]>([]);
+
+  // Fetch countries from DB
+  useEffect(() => {
+    const fetchCountries = async () => {
+      const { data } = await supabase.from('countries').select('*').order('name_ar');
+      if (data) {
+        setCountries(data.map(c => ({
+          id: c.id,
+          name: c.name,
+          nameAr: c.name_ar,
+          flag: c.flag,
+          currency: c.currency,
+          isActive: c.is_active,
+        })));
+      }
+    };
+    fetchCountries();
+  }, []);
+
+  // Fetch exam templates for the selected country
+  const { templates: examsForCountry } = useExamTemplates(form.countryId || undefined);
+  const selectedExam = examsForCountry.find((t) => t.id === form.examTemplateId);
 
   // Reset form when dialog opens
   const handleOpenChange = (isOpen: boolean) => {
@@ -79,9 +102,6 @@ export function QuestionFormDialog({ open, onOpenChange, question, onSave }: Que
     onSave(result);
   };
 
-  const examsForCountry = mockExamTemplates.filter((t) => t.countryId === (form.countryId || 'sa'));
-  const selectedExam = mockExamTemplates.find((t) => t.id === form.examTemplateId);
-
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
@@ -93,7 +113,7 @@ export function QuestionFormDialog({ open, onOpenChange, question, onSave }: Que
             <div className="space-y-2">
               <Label>الدولة</Label>
               <Select value={form.countryId} onValueChange={(v) => setForm({ ...form, countryId: v, examTemplateId: '', sectionId: '' })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="اختر الدولة" /></SelectTrigger>
                 <SelectContent>
                   {countries.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.flag} {c.nameAr}</SelectItem>
