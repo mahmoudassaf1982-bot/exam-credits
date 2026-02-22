@@ -14,7 +14,7 @@ interface GenerateRequest {
   difficulty: string;
 }
 
-// ─── Blueprint Builder ───────────────────────────────────────────────
+// ─── Blueprint Types ─────────────────────────────────────────────────
 
 interface ExamBlueprint {
   exam: {
@@ -25,6 +25,7 @@ interface ExamBlueprint {
       questions_total: number;
       duration_minutes: number;
       mcq_options_count: number;
+      baseline_time_seconds: number;
     };
   };
   blueprint: {
@@ -34,56 +35,15 @@ interface ExamBlueprint {
       topics: string[];
       weight_range: [number, number];
     }[];
-    difficulty_levels: {
-      id: string;
-      definition: string;
-      time_target_seconds: [number, number];
-      steps_target: [number, number];
-      rule?: string;
-    }[];
-    constraints: {
-      max_stem_lines: number;
-      no_long_derivations: boolean;
-      avoid_trivia: boolean;
-      rhythm_rule: string;
-    };
   };
 }
 
-const DIFFICULTY_DEFINITIONS = [
-  {
-    id: "easy",
-    definition: "سؤال مباشر يختبر الفهم الأساسي للمفهوم. لا يحتاج أكثر من خطوة واحدة للحل.",
-    time_target_seconds: [15, 30] as [number, number],
-    steps_target: [1, 1] as [number, number],
-  },
-  {
-    id: "medium",
-    definition: "سؤال يتطلب تطبيق مفهوم أو ربط بين مفهومين. يحتاج خطوة إلى خطوتين للحل.",
-    time_target_seconds: [30, 60] as [number, number],
-    steps_target: [1, 2] as [number, number],
-  },
-  {
-    id: "hard",
-    definition: "سؤال يتطلب تفكيراً تحليلياً أو ربط عدة مفاهيم. يحتاج خطوتين إلى ثلاث خطوات. القاعدة: الصعوبة تعني ذكاء أكثر وليس طولاً أكثر.",
-    time_target_seconds: [45, 90] as [number, number],
-    steps_target: [2, 3] as [number, number],
-    rule: "hard = smarter, not longer",
-  },
-];
-
-const QUALITY_CONSTRAINTS = {
-  max_stem_lines: 2,
-  no_long_derivations: true,
-  avoid_trivia: true,
-  rhythm_rule: "لا تضع أكثر من سؤالين متتاليين من نفس القسم أو الموضوع",
-};
+// ─── Blueprint Builder ───────────────────────────────────────────────
 
 async function buildBlueprint(
   supabase: any,
   params: GenerateRequest
 ): Promise<ExamBlueprint> {
-  // Fetch country info
   const { data: countryData } = await supabase
     .from("countries")
     .select("name_ar")
@@ -91,7 +51,6 @@ async function buildBlueprint(
     .single();
   const countryName = countryData?.name_ar || params.country;
 
-  // Fetch exam template
   let examName = "اختبار عام";
   let durationSec = 7200;
   let defaultQCount = 100;
@@ -109,12 +68,11 @@ async function buildBlueprint(
     }
   }
 
-  // Fetch exam sections for topic/weight context
   let sections: ExamBlueprint["blueprint"]["sections"] = [];
   if (params.examTemplateId) {
     const { data: sectionData } = await supabase
       .from("exam_sections")
-      .select("id, name_ar, question_count, topic_filter_json, difficulty_mix_json")
+      .select("id, name_ar, question_count, topic_filter_json")
       .eq("exam_template_id", params.examTemplateId)
       .order("order");
 
@@ -132,10 +90,11 @@ async function buildBlueprint(
     }
   }
 
-  // Fallback if no sections found
   if (sections.length === 0) {
     sections = [{ id: "general", name: examName, topics: [], weight_range: [1.0, 1.0] }];
   }
+
+  const baselineTime = Math.round(durationSec / params.numberOfQuestions);
 
   return {
     exam: {
@@ -146,22 +105,17 @@ async function buildBlueprint(
         questions_total: params.numberOfQuestions,
         duration_minutes: Math.round(durationSec / 60),
         mcq_options_count: 4,
+        baseline_time_seconds: baselineTime,
       },
     },
-    blueprint: {
-      sections,
-      difficulty_levels: DIFFICULTY_DEFINITIONS,
-      constraints: QUALITY_CONSTRAINTS,
-    },
+    blueprint: { sections },
   };
 }
 
-// ─── Prompt Builder (4-Phase Methodology) ────────────────────────────
+// ─── Elite Exam Design Engine Prompt ─────────────────────────────────
 
 function buildSystemPrompt(blueprint: ExamBlueprint): string {
-  const timePerQ = blueprint.exam.format.duration_minutes > 0
-    ? Math.round((blueprint.exam.format.duration_minutes * 60) / blueprint.exam.format.questions_total)
-    : 45;
+  const bt = blueprint.exam.format.baseline_time_seconds;
 
   const sectionsDesc = blueprint.blueprint.sections
     .map(s => {
@@ -171,7 +125,9 @@ function buildSystemPrompt(blueprint: ExamBlueprint): string {
     })
     .join("\n");
 
-  return `أنت مصمم اختبارات احترافي، وليس مجرد مولد أسئلة.
+  return `أنت تعمل كنظام تصميم اختبارات احترافي (Elite Exam Design Engine).
+مهمتك ليست توليد أسئلة فقط، بل محاكاة طريقة تفكير لجنة واضعي الاختبار الرسمي.
+يجب أن يشعر الطالب أن الأسئلة مكتوبة من لجنة اختبار حقيقية.
 أنت متخصص في "${blueprint.exam.name}" في ${blueprint.exam.country}.
 
 ═══ هوية الاختبار ═══
@@ -180,63 +136,119 @@ function buildSystemPrompt(blueprint: ExamBlueprint): string {
 • اللغة: العربية
 • عدد الأسئلة المطلوبة: ${blueprint.exam.format.questions_total}
 • مدة الاختبار: ${blueprint.exam.format.duration_minutes} دقيقة
-• الزمن التقريبي لكل سؤال: ${timePerQ} ثانية
+• baseline_time لكل سؤال: ${bt} ثانية
 • عدد الخيارات: ${blueprint.exam.format.mcq_options_count}
 
 ═══ أقسام الاختبار ═══
 ${sectionsDesc}
 
-═══════════════════════════════════════════════════════════
-عند توليد الأسئلة، اتبع هذه المراحل الأربع بالترتيب:
-═══════════════════════════════════════════════════════════
-
-▌المرحلة 1 — فهم الامتحان
-- اقرأ وصف الامتحان والأقسام أعلاه.
+══════════════════════════════════════════════════════════
+STEP 1 — فهم الامتحان
+══════════════════════════════════════════════════════════
+- اقرأ معايير الامتحان والأقسام أعلاه.
 - استنتج طبيعة التفكير المطلوبة لكل قسم.
-- الزمن التقريبي لكل سؤال: ${timePerQ} ثانية — لا تكتب سؤالاً يحتاج أكثر من هذا.
+- baseline_time = ${bt} ثانية لكل سؤال.
 
-▌المرحلة 2 — بناء خطة اختبار (قبل كتابة أي سؤال)
-- وزّع الأسئلة على الأقسام بشكل متوازن حسب النسب المحددة.
-- حدد لكل سؤال:
-  • مستوى الصعوبة (سهل / متوسط / صعب)
-  • نوع التفكير (مباشر / مقارنة / استنتاج / حل ذكي)
-  • زمن الحل المتوقع
+══════════════════════════════════════════════════════════
+STEP 2 — تصميم تجربة الاختبار (Exam Experience)
+══════════════════════════════════════════════════════════
 
-تعريف الصعوبة:
-  • سهل: مباشر، خطوة واحدة، سريع. [15-30 ثانية]
-  • متوسط: يحتاج تفكير بسيط أو خطوتين. [30-60 ثانية]
-  • صعب: فكرة ذكية أو مصيدة منطقية، وليس حل طويل. [45-90 ثانية]
-  ⚠️ القاعدة الذهبية: الصعوبة = ذكاء أكثر، وليس طول أكثر.
+1) Difficulty Rhythm (موجة الصعوبة):
+- لا تجعل الصعوبة عشوائية.
+- استخدم نمطاً موجياً: سهل → متوسط → سهل → متوسط → صعب → متوسط → سهل → صعب
+- كل 5-6 أسئلة ضع سؤالاً سريعاً لإعادة ثقة الطالب.
 
-▌المرحلة 3 — كتابة السؤال
-- اكتب سؤال اختيار من متعدد (${blueprint.exam.format.mcq_options_count} خيارات).
-- الخيارات متقاربة ومنطقية — لا تجعل الإجابة واضحة بشكل مبالغ.
-- لا تكتب سؤالاً يحتاج وقتاً أطول من ${timePerQ} ثانية.
-- نص السؤال: سطرين كحد أقصى.
-- كل سؤال يختبر مفهوماً واحداً فقط.
-- نوّع في الصياغة — لا تكرر نفس بنية السؤال.
-- ممنوع: الاشتقاقات الطويلة، المعلومات التافهة أو الحفظية البحتة.
-- لا تضع أكثر من سؤالين متتاليين من نفس القسم أو الموضوع.
+2) Cognitive Variation (تنوع التفكير):
+لا تكرر نفس نوع التفكير متتالياً. الأنواع:
+- direct (مباشر)
+- comparison (مقارنة)
+- inference (استنتاج)
+- concept_check (فهم مفهوم)
+- trap_detection (كشف خطأ شائع)
+- simplification (اختصار ذهني)
 
-▌المرحلة 4 — مراجعة ذاتية (قبل إخراج كل سؤال)
-- ✅ هل الصعوبة صحيحة حسب التعريف؟
-- ✅ هل السؤال يناسب زمن الامتحان (${timePerQ} ثانية)؟
-- ✅ هل يشبه أسلوب اختبار قدرات حقيقي؟
-- ✅ هل الخيارات الخاطئة منطقية ومتقاربة؟
-- ❌ إذا فشل أي شرط → أعد كتابة السؤال.
+══════════════════════════════════════════════════════════
+STEP 3 — Question Purpose (هدف السؤال)
+══════════════════════════════════════════════════════════
+قبل كتابة كل سؤال، حدد هدفه:
+speed | concept_check | comparison | inference | trap_detection | simplification
+ممنوع كتابة سؤال بدون هدف واضح.
 
-أخرج الأسئلة فقط بعد اتباع هذه المراحل الأربع.
+══════════════════════════════════════════════════════════
+STEP 4 — تعريف الصعوبة الحقيقي
+══════════════════════════════════════════════════════════
+• سهل: مباشر، خطوة واحدة. زمن ${Math.round(bt * 0.6)}-${Math.round(bt * 1.0)} ثانية.
+• متوسط: خطوة أو خطوتين، تفكير بسيط. زمن ${Math.round(bt * 0.9)}-${Math.round(bt * 1.4)} ثانية.
+• صعب: فكرة ذكية أو مصيدة منطقية، ليس حلاً طويلاً. زمن ${Math.round(bt * 1.2)}-${Math.round(bt * 1.8)} ثانية.
+⚠️ الصعوبة = نوع التفكير وليس طول الحل.
 
-═══ تنسيق الإخراج (JSON فقط) ═══
+══════════════════════════════════════════════════════════
+SMART DIFFICULTY DESIGN
+══════════════════════════════════════════════════════════
+عند توليد الأسئلة المتوسطة والصعبة:
+- اجعل السؤال يبدو بسيطاً وسهل القراءة.
+- زد الصعوبة عبر زاوية التفكير فقط.
+
+التقنيات:
+1) Reverse Framing: اسأل عن الشرط أو النتيجة بدل السؤال المباشر.
+2) Hidden Comparison: اجعل المقارنة ضمنية.
+3) Familiar Surface: شكل السؤال مألوف لكن يحتاج انتباه.
+4) Trap Without Complexity: المصيدة خطأ شائع وليس تعقيداً.
+5) Shorter = Smarter: الأسئلة الأقصر تبدو أكثر رسمية.
+
+الهدف: أن يشعر الطالب أن السؤال بسيط لكنه يحتاج ذكاء.
+
+══════════════════════════════════════════════════════════
+ELITE TOUCH — Exam Committee Style
+══════════════════════════════════════════════════════════
+اكتب الأسئلة كما لو أنك لجنة رسمية:
+- لا تجعل كل سؤال "مميزاً". بعض الأسئلة يجب أن تبدو عادية جداً لكنها تقيس مهارة خفية.
+- امزج بين: أسئلة ثقة (Confidence Builders)، أسئلة فخ هادئة، أسئلة استنتاج ذكية.
+- لا تجعل الصعوبة واضحة من شكل السؤال.
+- اجعل الطالب يكتشف الصعوبة أثناء التفكير فقط.
+
+══════════════════════════════════════════════════════════
+STEP 5 — توزيع الأقسام
+══════════════════════════════════════════════════════════
+- وزّع الأسئلة بين الأقسام بتوازن حسب النسب المحددة أعلاه.
+- لا تضع أكثر من سؤالين متتاليين من نفس القسم.
+
+══════════════════════════════════════════════════════════
+STEP 6 — كتابة السؤال
+══════════════════════════════════════════════════════════
+- سؤال قصير وواضح (≤ سطرين).
+- اختيار من متعدد (A B C D فقط).
+- الخيارات متقاربة ومنطقية.
+- المشتتات تمثل أخطاء شائعة.
+- لا تجعل الإجابة الصحيحة تبرز شكلياً.
+
+══════════════════════════════════════════════════════════
+STEP 7 — مراجعة ذاتية (Quality Check)
+══════════════════════════════════════════════════════════
+قبل إخراج السؤال اسأل:
+- ✅ هل هدف السؤال واضح؟
+- ✅ هل الزمن مناسب؟
+- ✅ هل الصعوبة صحيحة؟
+- ✅ هل يشبه اختباراً رسمياً؟
+- ✅ هل السؤال يبدو بسيطاً لكن ذكياً؟
+- ✅ هل الخيارات متوازنة؟
+- ❌ إذا فشل أي شرط → أعد صياغة السؤال.
+
+══════════════════════════════════════════════════════════
+OUTPUT FORMAT (JSON فقط)
+══════════════════════════════════════════════════════════
 أرجع JSON array فقط بدون أي نص قبله أو بعده:
 [
   {
-    "question_text": "نص السؤال (سطرين كحد أقصى)",
+    "question_text": "نص السؤال (≤ سطرين)",
     "topic": "اسم القسم/الموضوع",
     "difficulty": "easy|medium|hard",
+    "purpose": "speed|concept_check|comparison|inference|trap_detection|simplification",
+    "thinking_type": "direct|comparison|inference|concept_check|trap_detection|simplification",
     "options": ["خيار أ", "خيار ب", "خيار ج", "خيار د"],
     "correct_answer_index": 0,
-    "explanation": "شرح مختصر ودقيق (جملة أو جملتين)"
+    "explanation": "شرح مختصر ودقيق (جملة أو جملتين)",
+    "expected_time_seconds": 45
   }
 ]`;
 }
@@ -247,7 +259,8 @@ function buildUserPrompt(blueprint: ExamBlueprint, difficulty: string): string {
 
   return `وَلِّد ${blueprint.exam.format.questions_total} سؤال بمستوى صعوبة "${diffAr}" لاختبار "${blueprint.exam.name}".
 
-اتبع المراحل الأربع (فهم → خطة → كتابة → مراجعة) قبل إخراج أي سؤال.
+اتبع الخطوات السبع (فهم → تصميم تجربة → هدف → صعوبة → توزيع → كتابة → مراجعة).
+طبّق Difficulty Rhythm و Cognitive Variation و Smart Difficulty Design.
 وزّع الأسئلة على الأقسام حسب النسب المحددة.
 
 ⚠️ أرجع JSON array فقط — بدون markdown أو شرح أو أي نص إضافي.`;
@@ -271,18 +284,16 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Build dynamic blueprint from DB
     const blueprint = await buildBlueprint(supabase, params);
-    console.log("[generateQuestionsWithResearch] Blueprint built:", JSON.stringify({
+    console.log("[generateQuestionsWithResearch] Blueprint:", JSON.stringify({
       exam: blueprint.exam.name,
       sections: blueprint.blueprint.sections.length,
-      questionsRequested: params.numberOfQuestions,
+      baseline_time: blueprint.exam.format.baseline_time_seconds,
     }));
 
     const systemPrompt = buildSystemPrompt(blueprint);
     const userPrompt = buildUserPrompt(blueprint, params.difficulty);
 
-    // Call AI
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -318,7 +329,6 @@ serve(async (req) => {
     const rawContent = aiData.choices?.[0]?.message?.content || "";
     console.log("[generateQuestionsWithResearch] AI response length:", rawContent.length);
 
-    // Parse JSON (handle markdown code blocks)
     let jsonStr = rawContent.trim();
     const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
@@ -335,7 +345,6 @@ serve(async (req) => {
       throw new Error("لم يتم توليد أي أسئلة");
     }
 
-    // Map to DB format
     const dbRows = questions.map((q: any) => {
       const optionIds = ["a", "b", "c", "d"];
       const options = (q.options || []).map((text: string, i: number) => ({
