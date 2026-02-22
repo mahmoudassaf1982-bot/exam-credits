@@ -213,7 +213,7 @@ export default function AdminExamDetail() {
         <div className="lg:col-span-2 space-y-6">
           {/* Basic info */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
-            className="rounded-2xl border bg-card p-5 shadow-card space-y-4">
+            className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-4">
             <h2 className="font-bold text-lg flex items-center gap-2"><BookOpen className="h-5 w-5 text-primary" />معلومات الاختبار</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2"><Label>اسم الاختبار</Label><Input value={template.name_ar} onChange={(e) => updateField('name_ar', e.target.value)} /></div>
@@ -228,7 +228,7 @@ export default function AdminExamDetail() {
 
           {/* Default settings */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="rounded-2xl border bg-card p-5 shadow-card space-y-4">
+            className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-4">
             <h2 className="font-bold text-lg flex items-center gap-2"><Clock className="h-5 w-5 text-primary" />الإعدادات الافتراضية</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -258,7 +258,7 @@ export default function AdminExamDetail() {
             ) : (
               <div className="space-y-3">
                 {sections.map((sec, idx) => (
-                  <div key={sec.id} className="rounded-2xl border bg-card p-4 shadow-card space-y-3">
+                  <div key={sec.id} className="rounded-2xl border bg-card p-3 sm:p-4 shadow-card space-y-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono text-muted-foreground">#{idx + 1}</span>
@@ -300,9 +300,9 @@ export default function AdminExamDetail() {
           {/* Exam Standards Table */}
           {standards.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-              className="rounded-2xl border bg-card p-5 shadow-card space-y-4">
+              className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-4">
               <h2 className="font-bold text-lg flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />معايير الاختبار الرسمية</h2>
-              <div className="overflow-x-auto -mx-5 px-5">
+              <div className="overflow-x-auto -mx-3 px-3 sm:-mx-5 sm:px-5">
                 <table className="w-full text-sm" style={{ minWidth: '320px' }}>
                   <thead>
                     <tr className="border-b text-muted-foreground">
@@ -340,7 +340,7 @@ export default function AdminExamDetail() {
         {/* Sidebar */}
         <div className="space-y-6">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="rounded-2xl border bg-card p-5 shadow-card space-y-4">
+            className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-4">
             <h2 className="font-bold flex items-center gap-2"><Coins className="h-5 w-5 text-primary" />تكاليف النقاط</h2>
             <div className="space-y-3">
               <div className="space-y-2"><Label className="text-xs">جلسة المحاكاة</Label><Input type="number" value={template.simulation_cost_points} onChange={(e) => updateField('simulation_cost_points', Number(e.target.value))} min={0} dir="ltr" className="text-center" /></div>
@@ -350,7 +350,7 @@ export default function AdminExamDetail() {
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-            className="rounded-2xl border bg-card p-5 shadow-card space-y-3">
+            className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-3">
             <h2 className="font-bold text-sm">ملخص الأقسام</h2>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" />عدد الأقسام</span><span className="font-bold">{sections.length}</span></div>
@@ -361,7 +361,7 @@ export default function AdminExamDetail() {
 
           {/* Trusted Sources */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-            className="rounded-2xl border bg-card p-5 shadow-card space-y-3">
+            className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-3">
             <h2 className="font-bold text-sm flex items-center gap-2"><ExternalLink className="h-4 w-4 text-primary" />المصادر الموثوقة</h2>
             {sources.length === 0 ? (
               <p className="text-xs text-muted-foreground">لا توجد مصادر بعد. اضغط "تحديث المعايير" لاكتشافها تلقائياً.</p>
@@ -388,7 +388,7 @@ export default function AdminExamDetail() {
           {/* Audit Log */}
           {auditLog.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
-              className="rounded-2xl border bg-card p-5 shadow-card space-y-3">
+              className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-3">
               <h2 className="font-bold text-sm flex items-center gap-2"><History className="h-4 w-4 text-primary" />سجل التحديثات</h2>
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {auditLog.map((entry) => (
