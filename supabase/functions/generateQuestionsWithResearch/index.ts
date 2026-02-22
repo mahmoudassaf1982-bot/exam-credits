@@ -12,18 +12,221 @@ interface GenerateRequest {
   examTemplateId?: string | null;
   numberOfQuestions: number;
   difficulty: string;
-  // Legacy fields
-  examType?: string;
 }
 
-const countryMap: Record<string, string> = {
-  kw: "الكويت", sa: "السعودية", eg: "مصر", ae: "الإمارات", jo: "الأردن", ps: "فلسطين",
-  bh: "البحرين", om: "عمان", qa: "قطر",
+// ─── Blueprint Builder ───────────────────────────────────────────────
+
+interface ExamBlueprint {
+  exam: {
+    name: string;
+    country: string;
+    language: string;
+    format: {
+      questions_total: number;
+      duration_minutes: number;
+      mcq_options_count: number;
+    };
+  };
+  blueprint: {
+    sections: {
+      id: string;
+      name: string;
+      topics: string[];
+      weight_range: [number, number];
+    }[];
+    difficulty_levels: {
+      id: string;
+      definition: string;
+      time_target_seconds: [number, number];
+      steps_target: [number, number];
+      rule?: string;
+    }[];
+    constraints: {
+      max_stem_lines: number;
+      no_long_derivations: boolean;
+      avoid_trivia: boolean;
+      rhythm_rule: string;
+    };
+  };
+}
+
+const DIFFICULTY_DEFINITIONS = [
+  {
+    id: "easy",
+    definition: "سؤال مباشر يختبر الفهم الأساسي للمفهوم. لا يحتاج أكثر من خطوة واحدة للحل.",
+    time_target_seconds: [15, 30] as [number, number],
+    steps_target: [1, 1] as [number, number],
+  },
+  {
+    id: "medium",
+    definition: "سؤال يتطلب تطبيق مفهوم أو ربط بين مفهومين. يحتاج خطوة إلى خطوتين للحل.",
+    time_target_seconds: [30, 60] as [number, number],
+    steps_target: [1, 2] as [number, number],
+  },
+  {
+    id: "hard",
+    definition: "سؤال يتطلب تفكيراً تحليلياً أو ربط عدة مفاهيم. يحتاج خطوتين إلى ثلاث خطوات. القاعدة: الصعوبة تعني ذكاء أكثر وليس طولاً أكثر.",
+    time_target_seconds: [45, 90] as [number, number],
+    steps_target: [2, 3] as [number, number],
+    rule: "hard = smarter, not longer",
+  },
+];
+
+const QUALITY_CONSTRAINTS = {
+  max_stem_lines: 2,
+  no_long_derivations: true,
+  avoid_trivia: true,
+  rhythm_rule: "لا تضع أكثر من سؤالين متتاليين من نفس القسم أو الموضوع",
 };
 
-const difficultyMap: Record<string, string> = {
-  easy: "سهل", medium: "متوسط", hard: "صعب",
-};
+async function buildBlueprint(
+  supabase: any,
+  params: GenerateRequest
+): Promise<ExamBlueprint> {
+  // Fetch country info
+  const { data: countryData } = await supabase
+    .from("countries")
+    .select("name_ar")
+    .eq("id", params.country)
+    .single();
+  const countryName = countryData?.name_ar || params.country;
+
+  // Fetch exam template
+  let examName = "اختبار عام";
+  let durationSec = 7200;
+  let defaultQCount = 100;
+
+  if (params.examTemplateId) {
+    const { data: examData } = await supabase
+      .from("exam_templates")
+      .select("name_ar, default_time_limit_sec, default_question_count")
+      .eq("id", params.examTemplateId)
+      .single();
+    if (examData) {
+      examName = examData.name_ar;
+      durationSec = examData.default_time_limit_sec || 7200;
+      defaultQCount = examData.default_question_count || 100;
+    }
+  }
+
+  // Fetch exam sections for topic/weight context
+  let sections: ExamBlueprint["blueprint"]["sections"] = [];
+  if (params.examTemplateId) {
+    const { data: sectionData } = await supabase
+      .from("exam_sections")
+      .select("id, name_ar, question_count, topic_filter_json, difficulty_mix_json")
+      .eq("exam_template_id", params.examTemplateId)
+      .order("order");
+
+    if (sectionData && sectionData.length > 0) {
+      const totalQ = sectionData.reduce((s: number, sec: any) => s + (sec.question_count || 0), 0) || defaultQCount;
+      sections = sectionData.map((sec: any) => ({
+        id: sec.id,
+        name: sec.name_ar,
+        topics: Array.isArray(sec.topic_filter_json) ? sec.topic_filter_json : [],
+        weight_range: [
+          Math.max(0, ((sec.question_count || 0) / totalQ) - 0.05),
+          Math.min(1, ((sec.question_count || 0) / totalQ) + 0.05),
+        ] as [number, number],
+      }));
+    }
+  }
+
+  // Fallback if no sections found
+  if (sections.length === 0) {
+    sections = [{ id: "general", name: examName, topics: [], weight_range: [1.0, 1.0] }];
+  }
+
+  return {
+    exam: {
+      name: examName,
+      country: countryName,
+      language: "ar",
+      format: {
+        questions_total: params.numberOfQuestions,
+        duration_minutes: Math.round(durationSec / 60),
+        mcq_options_count: 4,
+      },
+    },
+    blueprint: {
+      sections,
+      difficulty_levels: DIFFICULTY_DEFINITIONS,
+      constraints: QUALITY_CONSTRAINTS,
+    },
+  };
+}
+
+// ─── Prompt Builder ──────────────────────────────────────────────────
+
+function buildSystemPrompt(blueprint: ExamBlueprint): string {
+  const sectionsDesc = blueprint.blueprint.sections
+    .map(s => {
+      const topicsStr = s.topics.length > 0 ? `المواضيع: ${s.topics.join("، ")}` : "مواضيع عامة";
+      const weightPct = `${Math.round(s.weight_range[0] * 100)}%-${Math.round(s.weight_range[1] * 100)}%`;
+      return `  • ${s.name} (نسبة: ${weightPct}) — ${topicsStr}`;
+    })
+    .join("\n");
+
+  const diffDesc = blueprint.blueprint.difficulty_levels
+    .map(d => {
+      const timeRange = `${d.time_target_seconds[0]}-${d.time_target_seconds[1]} ثانية`;
+      const stepsRange = `${d.steps_target[0]}-${d.steps_target[1]} خطوة`;
+      return `  • ${d.id}: ${d.definition} [زمن: ${timeRange}, خطوات: ${stepsRange}]${d.rule ? ` ⚠️ ${d.rule}` : ""}`;
+    })
+    .join("\n");
+
+  const c = blueprint.blueprint.constraints;
+
+  return `أنت مُعِدّ اختبارات أكاديمية محترف متخصص في "${blueprint.exam.name}" في ${blueprint.exam.country}.
+
+═══ هوية الاختبار ═══
+• الاسم: ${blueprint.exam.name}
+• الدولة: ${blueprint.exam.country}
+• اللغة: العربية
+• عدد الأسئلة المطلوبة: ${blueprint.exam.format.questions_total}
+• عدد الخيارات لكل سؤال: ${blueprint.exam.format.mcq_options_count}
+
+═══ أقسام الاختبار ═══
+${sectionsDesc}
+
+═══ مستويات الصعوبة ═══
+${diffDesc}
+
+═══ قيود الجودة (إلزامية) ═══
+• الحد الأقصى لنص السؤال: ${c.max_stem_lines} سطر — لا تتجاوز هذا أبداً
+• ${c.no_long_derivations ? "ممنوع: الاشتقاقات والحسابات الطويلة" : ""}
+• ${c.avoid_trivia ? "ممنوع: المعلومات التافهة أو الحفظية البحتة" : ""}
+• ${c.rhythm_rule}
+• كل سؤال يختبر مفهوماً واحداً فقط
+• الخيارات الخاطئة يجب أن تكون منطقية (ليست سخيفة أو واضحة الخطأ)
+• لا تكرر نفس بنية السؤال — نوّع في الصياغة
+
+═══ تنسيق الإخراج (JSON فقط) ═══
+أرجع JSON array فقط بدون أي نص قبله أو بعده:
+[
+  {
+    "question_text": "نص السؤال (سطرين كحد أقصى)",
+    "topic": "اسم القسم/الموضوع",
+    "difficulty": "easy|medium|hard",
+    "options": ["خيار أ", "خيار ب", "خيار ج", "خيار د"],
+    "correct_answer_index": 0,
+    "explanation": "شرح مختصر ودقيق للإجابة الصحيحة (جملة أو جملتين)"
+  }
+]`;
+}
+
+function buildUserPrompt(blueprint: ExamBlueprint, difficulty: string): string {
+  const diffMap: Record<string, string> = { easy: "سهل", medium: "متوسط", hard: "صعب" };
+  const diffAr = diffMap[difficulty] || difficulty;
+
+  return `وَلِّد ${blueprint.exam.format.questions_total} سؤال بمستوى صعوبة "${diffAr}" لاختبار "${blueprint.exam.name}".
+
+التزم بالقيود والأقسام المذكورة في تعليماتك. وزّع الأسئلة على الأقسام حسب النسب المحددة.
+
+⚠️ أرجع JSON array فقط — بدون markdown أو شرح أو أي نص إضافي.`;
+}
+
+// ─── Main Handler ────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -41,57 +244,18 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Resolve exam name from DB if examTemplateId provided
-    let examName = "اختبار عام";
-    let topicHint = "";
-    if (params.examTemplateId) {
-      const { data: examData } = await supabase
-        .from("exam_templates")
-        .select("name_ar, country_id")
-        .eq("id", params.examTemplateId)
-        .single();
-      if (examData) examName = examData.name_ar;
-    }
+    // Build dynamic blueprint from DB
+    const blueprint = await buildBlueprint(supabase, params);
+    console.log("[generateQuestionsWithResearch] Blueprint built:", JSON.stringify({
+      exam: blueprint.exam.name,
+      sections: blueprint.blueprint.sections.length,
+      questionsRequested: params.numberOfQuestions,
+    }));
 
-    // Resolve country name
-    let countryAr = countryMap[params.country] || params.country;
-    if (!countryMap[params.country]) {
-      const { data: countryData } = await supabase
-        .from("countries")
-        .select("name_ar")
-        .eq("id", params.country)
-        .single();
-      if (countryData) countryAr = countryData.name_ar;
-    }
+    const systemPrompt = buildSystemPrompt(blueprint);
+    const userPrompt = buildUserPrompt(blueprint, params.difficulty);
 
-    const diffAr = difficultyMap[params.difficulty] || params.difficulty;
-    const count = Math.min(Math.max(params.numberOfQuestions || 10, 1), 50);
-
-    const prompt = `أنت خبير في إعداد الاختبارات الأكاديمية في ${countryAr}.
-
-قم بتوليد ${count} سؤال لـ "${examName}" بمستوى صعوبة ${diffAr}، مناسب لمعايير ${countryAr} التعليمية.
-
-كل سؤال يجب أن يكون:
-- واضح ودقيق علمياً
-- مناسب لمستوى الصعوبة المطلوب
-- له 4 خيارات إجابة (أ، ب، ج، د)
-- إجابة واحدة صحيحة فقط
-- شرح مختصر للإجابة الصحيحة
-- موضوع (topic) مناسب للاختبار
-
-أرجع النتيجة كـ JSON array بالشكل التالي:
-[
-  {
-    "question_text": "نص السؤال",
-    "topic": "موضوع السؤال",
-    "options": ["الخيار أ", "الخيار ب", "الخيار ج", "الخيار د"],
-    "correct_answer_index": 0,
-    "explanation": "شرح الإجابة الصحيحة"
-  }
-]
-
-أرجع JSON فقط بدون أي نص إضافي.`;
-
+    // Call AI
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -101,8 +265,8 @@ serve(async (req) => {
       body: JSON.stringify({
         model: "google/gemini-2.5-pro",
         messages: [
-          { role: "system", content: "أنت مساعد متخصص في توليد أسئلة اختبارات أكاديمية عالية الجودة باللغة العربية. أرجع JSON فقط." },
-          { role: "user", content: prompt },
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
         ],
       }),
     });
@@ -125,7 +289,9 @@ serve(async (req) => {
 
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content || "";
+    console.log("[generateQuestionsWithResearch] AI response length:", rawContent.length);
 
+    // Parse JSON (handle markdown code blocks)
     let jsonStr = rawContent.trim();
     const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
@@ -142,6 +308,7 @@ serve(async (req) => {
       throw new Error("لم يتم توليد أي أسئلة");
     }
 
+    // Map to DB format
     const dbRows = questions.map((q: any) => {
       const optionIds = ["a", "b", "c", "d"];
       const options = (q.options || []).map((text: string, i: number) => ({
@@ -153,8 +320,8 @@ serve(async (req) => {
       return {
         country_id: params.country,
         exam_template_id: params.examTemplateId || null,
-        topic: q.topic || examName,
-        difficulty: params.difficulty || "medium",
+        topic: q.topic || blueprint.exam.name,
+        difficulty: q.difficulty || params.difficulty || "medium",
         text_ar: q.question_text,
         options: JSON.stringify(options),
         correct_option_id: optionIds[correctIdx] || "a",
@@ -173,6 +340,8 @@ serve(async (req) => {
       console.error("[generateQuestionsWithResearch] Insert error:", insertError);
       throw new Error("فشل في حفظ الأسئلة: " + insertError.message);
     }
+
+    console.log("[generateQuestionsWithResearch] ✅ Inserted", inserted?.length, "questions");
 
     return new Response(JSON.stringify({ success: true, questions: inserted, count: inserted?.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
