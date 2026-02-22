@@ -17,8 +17,10 @@ import {
   Layers,
   HelpCircle,
   Trophy,
+  BookOpen,
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import ExamReview from '@/components/exam/ExamReview';
 import type { Json } from '@/integrations/supabase/types';
 
 interface QuestionData {
@@ -72,6 +74,7 @@ export default function ExamSession() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [scoreData, setScoreData] = useState<Record<string, unknown> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -319,7 +322,30 @@ export default function ExamSession() {
               <ArrowLeft className="ml-2 h-4 w-4" />
               العودة للاختبارات
             </Button>
+            <Button
+              className="flex-1"
+              onClick={() => setShowReview(true)}
+            >
+              <BookOpen className="ml-2 h-4 w-4" />
+              مراجعة الإجابات
+            </Button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Review View ──
+  if (showReview && session) {
+    return (
+      <div className="min-h-screen bg-background p-4 sm:p-6" dir="rtl">
+        <div className="mx-auto max-w-2xl">
+          <ExamReview
+            sections={sections}
+            questionsJson={session.questions_json || {}}
+            answers={answers}
+            onBack={() => setShowReview(false)}
+          />
         </div>
       </div>
     );
