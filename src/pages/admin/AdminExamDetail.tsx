@@ -302,14 +302,14 @@ export default function AdminExamDetail() {
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
               className="rounded-2xl border bg-card p-5 shadow-card space-y-4">
               <h2 className="font-bold text-lg flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />معايير الاختبار الرسمية</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto -mx-5 px-5">
+                <table className="w-full text-sm" style={{ minWidth: '320px' }}>
                   <thead>
                     <tr className="border-b text-muted-foreground">
-                      <th className="text-right py-2 px-3 font-medium">القسم</th>
-                      <th className="text-center py-2 px-3 font-medium">الأسئلة</th>
-                      <th className="text-center py-2 px-3 font-medium">المدة (دقيقة)</th>
-                      <th className="text-center py-2 px-3 font-medium">الصعوبة</th>
+                      <th className="text-right py-2 px-2 font-medium text-xs">القسم</th>
+                      <th className="text-center py-2 px-2 font-medium text-xs">الأسئلة</th>
+                      <th className="text-center py-2 px-2 font-medium text-xs">المدة</th>
+                      <th className="text-center py-2 px-2 font-medium text-xs">الصعوبة</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -317,14 +317,14 @@ export default function AdminExamDetail() {
                       const diff = std.difficulty_distribution || {};
                       return (
                         <tr key={std.id} className="border-b last:border-0">
-                          <td className="py-2.5 px-3 font-medium">{std.section_name}</td>
-                          <td className="py-2.5 px-3 text-center">{std.question_count}</td>
-                          <td className="py-2.5 px-3 text-center">{std.time_limit_minutes ?? '—'}</td>
-                          <td className="py-2.5 px-3 text-center">
-                            <div className="flex items-center justify-center gap-1 text-xs">
-                              {diff.easy && <Badge variant="secondary" className="text-[10px] px-1.5">سهل {diff.easy}%</Badge>}
-                              {diff.medium && <Badge variant="secondary" className="text-[10px] px-1.5">متوسط {diff.medium}%</Badge>}
-                              {diff.hard && <Badge variant="secondary" className="text-[10px] px-1.5">صعب {diff.hard}%</Badge>}
+                          <td className="py-2.5 px-2 font-medium text-xs">{std.section_name}</td>
+                          <td className="py-2.5 px-2 text-center text-xs">{std.question_count}</td>
+                          <td className="py-2.5 px-2 text-center text-xs">{std.time_limit_minutes ?? '—'}</td>
+                          <td className="py-2.5 px-2">
+                            <div className="flex flex-wrap items-center justify-center gap-1 text-[10px]">
+                              {diff.easy && <Badge variant="secondary" className="text-[9px] px-1 py-0">سهل {diff.easy}%</Badge>}
+                              {diff.medium && <Badge variant="secondary" className="text-[9px] px-1 py-0">متوسط {diff.medium}%</Badge>}
+                              {diff.hard && <Badge variant="secondary" className="text-[9px] px-1 py-0">صعب {diff.hard}%</Badge>}
                             </div>
                           </td>
                         </tr>
