@@ -77,6 +77,27 @@ export type Database = {
         }
         Relationships: []
       }
+      exam_answer_keys: {
+        Row: {
+          answers_key_json: Json
+          created_at: string
+          id: string
+          session_id: string
+        }
+        Insert: {
+          answers_key_json?: Json
+          created_at?: string
+          id?: string
+          session_id: string
+        }
+        Update: {
+          answers_key_json?: Json
+          created_at?: string
+          id?: string
+          session_id?: string
+        }
+        Relationships: []
+      }
       exam_sections: {
         Row: {
           created_at: string
@@ -124,7 +145,6 @@ export type Database = {
       exam_sessions: {
         Row: {
           answers_json: Json | null
-          answers_key_json: Json | null
           completed_at: string | null
           created_at: string
           exam_snapshot: Json | null
@@ -142,7 +162,6 @@ export type Database = {
         }
         Insert: {
           answers_json?: Json | null
-          answers_key_json?: Json | null
           completed_at?: string | null
           created_at?: string
           exam_snapshot?: Json | null
@@ -160,7 +179,6 @@ export type Database = {
         }
         Update: {
           answers_json?: Json | null
-          answers_key_json?: Json | null
           completed_at?: string | null
           created_at?: string
           exam_snapshot?: Json | null
