@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/StatsCard';
 import { reasonLabels } from '@/data/mock';
-import { mockExamTemplates } from '@/data/examTemplates';
+import { useExamTemplates } from '@/hooks/useExamTemplates';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -42,7 +42,7 @@ export default function Dashboard() {
     load();
   }, [user]);
 
-  const userExams = mockExamTemplates.filter((t) => t.countryId === user?.countryId && t.isActive);
+  const { templates: userExams } = useExamTemplates(user?.countryId);
 
   return (
     <div className="space-y-8">
