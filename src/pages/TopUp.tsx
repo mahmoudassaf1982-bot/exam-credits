@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Check, Coins, Crown, Sparkles, CreditCard, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockPointsPacks, mockDiamondPlans } from '@/data/mock';
+import { supabase } from '@/integrations/supabase/client';
+import type { PointsPack, DiamondPlan } from '@/types';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { PayPalHostedCardFields } from '@/components/PayPalHostedCardFields';
@@ -10,18 +11,69 @@ export default function TopUp() {
   const { user } = useAuth();
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [showDiamondPayment, setShowDiamondPayment] = useState(false);
+  const [userPacks, setUserPacks] = useState<PointsPack[]>([]);
+  const [userDiamondPlan, setUserDiamondPlan] = useState<DiamondPlan | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const userPacks = mockPointsPacks.filter(
-    (p) => p.countryId === user?.countryId
-  );
+  useEffect(() => {
+    if (!user?.countryId) return;
+    const fetchData = async () => {
+      const [packsRes, plansRes] = await Promise.all([
+        supabase
+          .from('points_packs')
+          .select('*')
+          .eq('country_id', user.countryId)
+          .eq('is_active', true)
+          .order('points', { ascending: true }),
+        supabase
+          .from('diamond_plans')
+          .select('*')
+          .eq('country_id', user.countryId)
+          .eq('is_active', true)
+          .limit(1),
+      ]);
 
-  const userDiamondPlan = mockDiamondPlans.find(
-    (p) => p.countryId === user?.countryId && p.isActive
-  );
+      if (packsRes.data) {
+        setUserPacks(packsRes.data.map(p => ({
+          id: p.id,
+          countryId: p.country_id,
+          points: p.points,
+          priceUSD: p.price_usd,
+          label: p.label,
+          popular: p.popular,
+          isActive: p.is_active,
+        })));
+      }
+
+      if (plansRes.data && plansRes.data.length > 0) {
+        const p = plansRes.data[0];
+        setUserDiamondPlan({
+          id: p.id,
+          countryId: p.country_id,
+          nameAr: p.name_ar,
+          priceUSD: p.price_usd,
+          currency: p.currency,
+          durationMonths: p.duration_months,
+          isActive: p.is_active,
+          createdAt: p.created_at,
+        });
+      }
+
+      setLoading(false);
+    };
+    fetchData();
+  }, [user?.countryId]);
 
   const diamondPrice = userDiamondPlan?.priceUSD ?? 99;
-
   const selectedPack = userPacks.find((p) => p.id === selectedPackId);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -39,69 +91,71 @@ export default function TopUp() {
       </motion.div>
 
       {/* Diamond subscription */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="rounded-2xl gradient-diamond p-6 text-diamond-foreground shadow-diamond relative overflow-hidden"
-      >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15">
-            <Crown className="h-8 w-8" />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h2 className="text-2xl font-black">Diamond Yearly</h2>
-              <Sparkles className="h-5 w-5" />
+      {userDiamondPlan && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="rounded-2xl gradient-diamond p-6 text-diamond-foreground shadow-diamond relative overflow-hidden"
+        >
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15">
+              <Crown className="h-8 w-8" />
             </div>
-            <p className="mt-1 text-sm opacity-90">
-              وصول غير محدود لجميع الاختبارات والتدريب والتحليل — بدون خصم نقاط
-            </p>
-            <ul className="mt-3 space-y-1">
-              {[
-                'جلسات محاكاة غير محدودة',
-                'تدريب ذكي AI بلا حدود',
-                'تحليل نتائج مجاني',
-                'شارة Diamond مميزة',
-              ].map((item) => (
-                <li key={item} className="flex items-center gap-2 text-sm">
-                  <Check className="h-4 w-4 flex-shrink-0" />
-                  {item}
-                </li>
-              ))}
-            </ul>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-black">{userDiamondPlan.nameAr}</h2>
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <p className="mt-1 text-sm opacity-90">
+                وصول غير محدود لجميع الاختبارات والتدريب والتحليل — بدون خصم نقاط
+              </p>
+              <ul className="mt-3 space-y-1">
+                {[
+                  'جلسات محاكاة غير محدودة',
+                  'تدريب ذكي AI بلا حدود',
+                  'تحليل نتائج مجاني',
+                  'شارة Diamond مميزة',
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-sm">
+                    <Check className="h-4 w-4 flex-shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="text-center sm:text-left">
+              <p className="text-4xl font-black">${diamondPrice}</p>
+              <p className="text-sm opacity-80">/ {userDiamondPlan.durationMonths} شهر</p>
+              <Button
+                onClick={() => setShowDiamondPayment(!showDiamondPayment)}
+                className="mt-3 bg-white/20 hover:bg-white/30 text-diamond-foreground font-bold px-8"
+              >
+                <CreditCard className="h-4 w-4 ml-2" />
+                {showDiamondPayment ? 'إخفاء' : 'اشترك الآن'}
+              </Button>
+            </div>
           </div>
-          <div className="text-center sm:text-left">
-            <p className="text-4xl font-black">${diamondPrice}</p>
-            <p className="text-sm opacity-80">/ سنة</p>
-            <Button
-              onClick={() => setShowDiamondPayment(!showDiamondPayment)}
-              className="mt-3 bg-white/20 hover:bg-white/30 text-diamond-foreground font-bold px-8"
-            >
-              <CreditCard className="h-4 w-4 ml-2" />
-              {showDiamondPayment ? 'إخفاء' : 'اشترك الآن'}
-            </Button>
-          </div>
-        </div>
 
-        {showDiamondPayment && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="mt-6 rounded-xl bg-white/10 backdrop-blur-sm p-4"
-          >
-            <PayPalHostedCardFields
-              orderType="diamond_plan"
-              planId={userDiamondPlan?.id}
-              priceUSD={diamondPrice}
-              description={userDiamondPlan?.nameAr ?? 'اشتراك Diamond سنوي'}
-              onSuccess={() => setShowDiamondPayment(false)}
-              onCancel={() => setShowDiamondPayment(false)}
-            />
-          </motion.div>
-        )}
-      </motion.div>
+          {showDiamondPayment && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-6 rounded-xl bg-white/10 backdrop-blur-sm p-4"
+            >
+              <PayPalHostedCardFields
+                orderType="diamond_plan"
+                planId={userDiamondPlan.id}
+                priceUSD={diamondPrice}
+                description={userDiamondPlan.nameAr}
+                onSuccess={() => setShowDiamondPayment(false)}
+                onCancel={() => setShowDiamondPayment(false)}
+              />
+            </motion.div>
+          )}
+        </motion.div>
+      )}
 
       {/* Divider */}
       <div className="flex items-center gap-4">

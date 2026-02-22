@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Crown, Plus, Pencil, Trash2 } from 'lucide-react';
-import { mockDiamondPlans as initialPlans, countries } from '@/data/mock';
-import type { DiamondPlan } from '@/types';
+import { Crown, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import type { DiamondPlan, Country } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,21 +34,60 @@ import {
 } from '@/components/ui/alert-dialog';
 
 export default function AdminPlans() {
-  const [plans, setPlans] = useState<DiamondPlan[]>(initialPlans);
+  const [plans, setPlans] = useState<DiamondPlan[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editingPlan, setEditingPlan] = useState<DiamondPlan | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    countryId: 'sa',
+    countryId: '',
     nameAr: '',
     priceUSD: 99,
-    currency: 'SAR',
+    currency: 'USD',
     durationMonths: 12,
   });
 
+  const fetchData = async () => {
+    const [plansRes, countriesRes] = await Promise.all([
+      supabase.from('diamond_plans').select('*').order('created_at'),
+      supabase.from('countries').select('*').order('name_ar'),
+    ]);
+
+    if (plansRes.data) {
+      setPlans(plansRes.data.map(p => ({
+        id: p.id,
+        countryId: p.country_id,
+        nameAr: p.name_ar,
+        priceUSD: p.price_usd,
+        currency: p.currency,
+        durationMonths: p.duration_months,
+        isActive: p.is_active,
+        createdAt: p.created_at,
+      })));
+    }
+
+    if (countriesRes.data) {
+      setCountries(countriesRes.data.map(c => ({
+        id: c.id,
+        name: c.name,
+        nameAr: c.name_ar,
+        flag: c.flag,
+        currency: c.currency,
+        isActive: c.is_active,
+      })));
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
   const openCreate = () => {
     setEditingPlan(null);
-    setForm({ countryId: 'sa', nameAr: '', priceUSD: 99, currency: 'SAR', durationMonths: 12 });
+    const firstCountry = countries[0];
+    setForm({ countryId: firstCountry?.id || '', nameAr: '', priceUSD: 99, currency: firstCountry?.currency || 'USD', durationMonths: 12 });
     setShowDialog(true);
   };
 
@@ -64,42 +103,76 @@ export default function AdminPlans() {
     setShowDialog(true);
   };
 
-  const handleSave = () => {
-    if (!form.nameAr || form.priceUSD <= 0) {
+  const handleSave = async () => {
+    if (!form.nameAr || form.priceUSD <= 0 || !form.countryId) {
       toast.error('يرجى ملء جميع الحقول بشكل صحيح');
       return;
     }
+    setSaving(true);
+
     if (editingPlan) {
-      setPlans((prev) =>
-        prev.map((p) => (p.id === editingPlan.id ? { ...p, ...form } : p))
-      );
-      toast.success('تم تحديث الخطة');
+      const { error } = await supabase
+        .from('diamond_plans')
+        .update({
+          country_id: form.countryId,
+          name_ar: form.nameAr,
+          price_usd: form.priceUSD,
+          currency: form.currency,
+          duration_months: form.durationMonths,
+        })
+        .eq('id', editingPlan.id);
+
+      if (error) toast.error('فشل في تحديث الخطة');
+      else toast.success('تم تحديث الخطة');
     } else {
-      setPlans((prev) => [
-        ...prev,
-        {
-          id: `plan-${Date.now()}`,
-          ...form,
-          isActive: true,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-      toast.success('تم إضافة الخطة');
+      const newId = `plan-${form.countryId}-${Date.now()}`;
+      const { error } = await supabase
+        .from('diamond_plans')
+        .insert({
+          id: newId,
+          country_id: form.countryId,
+          name_ar: form.nameAr,
+          price_usd: form.priceUSD,
+          currency: form.currency,
+          duration_months: form.durationMonths,
+          is_active: true,
+        });
+
+      if (error) toast.error('فشل في إضافة الخطة');
+      else toast.success('تم إضافة الخطة');
     }
+
+    setSaving(false);
     setShowDialog(false);
+    fetchData();
   };
 
-  const handleDelete = () => {
-    if (deleteId) {
-      setPlans((prev) => prev.filter((p) => p.id !== deleteId));
-      toast.success('تم حذف الخطة');
-      setDeleteId(null);
-    }
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    const { error } = await supabase.from('diamond_plans').delete().eq('id', deleteId);
+    if (error) toast.error('فشل في حذف الخطة');
+    else toast.success('تم حذف الخطة');
+    setDeleteId(null);
+    fetchData();
   };
 
-  const toggleActive = (id: string) => {
-    setPlans((prev) => prev.map((p) => (p.id === id ? { ...p, isActive: !p.isActive } : p)));
+  const toggleActive = async (plan: DiamondPlan) => {
+    const { error } = await supabase
+      .from('diamond_plans')
+      .update({ is_active: !plan.isActive })
+      .eq('id', plan.id);
+
+    if (error) toast.error('فشل في تحديث الحالة');
+    else fetchData();
   };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -173,7 +246,7 @@ export default function AdminPlans() {
 
                 <div className="flex items-center justify-between rounded-xl bg-muted/50 p-3">
                   <span className="text-sm text-muted-foreground">مفعّلة</span>
-                  <Switch checked={plan.isActive} onCheckedChange={() => toggleActive(plan.id)} />
+                  <Switch checked={plan.isActive} onCheckedChange={() => toggleActive(plan)} />
                 </div>
               </div>
             </div>
@@ -203,7 +276,7 @@ export default function AdminPlans() {
                 const c = countries.find((cc) => cc.id === v);
                 setForm({ ...form, countryId: v, currency: c?.currency || 'USD' });
               }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="اختر الدولة" /></SelectTrigger>
                 <SelectContent>
                   {countries.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.flag} {c.nameAr}</SelectItem>
@@ -232,8 +305,8 @@ export default function AdminPlans() {
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" onClick={() => setShowDialog(false)} className="flex-1">إلغاء</Button>
-            <Button onClick={handleSave} className="flex-1 gradient-primary text-primary-foreground font-bold">
-              {editingPlan ? 'تحديث' : 'إضافة'}
+            <Button onClick={handleSave} disabled={saving} className="flex-1 gradient-primary text-primary-foreground font-bold">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingPlan ? 'تحديث' : 'إضافة'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -4,11 +4,11 @@ import { Eye, EyeOff, UserPlus, LogIn, Loader2, CheckCircle, AlertTriangle } fro
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { countries } from '@/data/mock';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import type { Country } from '@/types';
 
 // ---- Email Validation ----
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
@@ -27,7 +27,6 @@ const ALLOWED_DOMAINS = [
   'tutanota.com',
   'fastmail.com',
   'pm.me',
-  // Arabic region common providers
   'hotmail.com', 'outlook.sa',
 ];
 
@@ -82,15 +81,36 @@ export default function Auth() {
   const navigate = useNavigate();
   const { login, signup, isAuthenticated, logout, user } = useAuth();
 
-  // Detect if there's already an active session for a different account
+  const [countries, setCountries] = useState<Country[]>([]);
   const [existingSessionEmail, setExistingSessionEmail] = useState<string | null>(null);
+
+  // Fetch active countries from DB
+  useEffect(() => {
+    const fetchCountries = async () => {
+      const { data } = await supabase
+        .from('countries')
+        .select('*')
+        .eq('is_active', true)
+        .order('name_ar');
+      if (data) {
+        setCountries(data.map(c => ({
+          id: c.id,
+          name: c.name,
+          nameAr: c.name_ar,
+          flag: c.flag,
+          currency: c.currency,
+          isActive: c.is_active,
+        })));
+      }
+    };
+    fetchCountries();
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) navigate('/app');
   }, [isAuthenticated, navigate]);
 
   useEffect(() => {
-    // Check for existing session to warn user about account conflict
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.email) {
         setExistingSessionEmail(session.user.email);
@@ -118,7 +138,6 @@ export default function Auth() {
     e.preventDefault();
     if (submitting) return;
 
-    // Email validation for both login and register
     const emailError = validateEmail(form.email);
     if (emailError) {
       toast.error(emailError);
@@ -151,7 +170,6 @@ export default function Auth() {
         if (result.error) {
           toast.error(result.error);
         } else {
-          // Auto-confirm is enabled: show success screen then redirect
           setShowSuccess(true);
           setTimeout(() => {
             navigate('/app');
