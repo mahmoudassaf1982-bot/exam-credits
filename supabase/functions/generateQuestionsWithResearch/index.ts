@@ -156,50 +156,76 @@ async function buildBlueprint(
   };
 }
 
-// ─── Prompt Builder ──────────────────────────────────────────────────
+// ─── Prompt Builder (4-Phase Methodology) ────────────────────────────
 
 function buildSystemPrompt(blueprint: ExamBlueprint): string {
+  const timePerQ = blueprint.exam.format.duration_minutes > 0
+    ? Math.round((blueprint.exam.format.duration_minutes * 60) / blueprint.exam.format.questions_total)
+    : 45;
+
   const sectionsDesc = blueprint.blueprint.sections
     .map(s => {
-      const topicsStr = s.topics.length > 0 ? `المواضيع: ${s.topics.join("، ")}` : "مواضيع عامة";
+      const topicsStr = s.topics.length > 0 ? s.topics.join("، ") : "مواضيع عامة";
       const weightPct = `${Math.round(s.weight_range[0] * 100)}%-${Math.round(s.weight_range[1] * 100)}%`;
       return `  • ${s.name} (نسبة: ${weightPct}) — ${topicsStr}`;
     })
     .join("\n");
 
-  const diffDesc = blueprint.blueprint.difficulty_levels
-    .map(d => {
-      const timeRange = `${d.time_target_seconds[0]}-${d.time_target_seconds[1]} ثانية`;
-      const stepsRange = `${d.steps_target[0]}-${d.steps_target[1]} خطوة`;
-      return `  • ${d.id}: ${d.definition} [زمن: ${timeRange}, خطوات: ${stepsRange}]${d.rule ? ` ⚠️ ${d.rule}` : ""}`;
-    })
-    .join("\n");
-
-  const c = blueprint.blueprint.constraints;
-
-  return `أنت مُعِدّ اختبارات أكاديمية محترف متخصص في "${blueprint.exam.name}" في ${blueprint.exam.country}.
+  return `أنت مصمم اختبارات احترافي، وليس مجرد مولد أسئلة.
+أنت متخصص في "${blueprint.exam.name}" في ${blueprint.exam.country}.
 
 ═══ هوية الاختبار ═══
 • الاسم: ${blueprint.exam.name}
 • الدولة: ${blueprint.exam.country}
 • اللغة: العربية
 • عدد الأسئلة المطلوبة: ${blueprint.exam.format.questions_total}
-• عدد الخيارات لكل سؤال: ${blueprint.exam.format.mcq_options_count}
+• مدة الاختبار: ${blueprint.exam.format.duration_minutes} دقيقة
+• الزمن التقريبي لكل سؤال: ${timePerQ} ثانية
+• عدد الخيارات: ${blueprint.exam.format.mcq_options_count}
 
 ═══ أقسام الاختبار ═══
 ${sectionsDesc}
 
-═══ مستويات الصعوبة ═══
-${diffDesc}
+═══════════════════════════════════════════════════════════
+عند توليد الأسئلة، اتبع هذه المراحل الأربع بالترتيب:
+═══════════════════════════════════════════════════════════
 
-═══ قيود الجودة (إلزامية) ═══
-• الحد الأقصى لنص السؤال: ${c.max_stem_lines} سطر — لا تتجاوز هذا أبداً
-• ${c.no_long_derivations ? "ممنوع: الاشتقاقات والحسابات الطويلة" : ""}
-• ${c.avoid_trivia ? "ممنوع: المعلومات التافهة أو الحفظية البحتة" : ""}
-• ${c.rhythm_rule}
-• كل سؤال يختبر مفهوماً واحداً فقط
-• الخيارات الخاطئة يجب أن تكون منطقية (ليست سخيفة أو واضحة الخطأ)
-• لا تكرر نفس بنية السؤال — نوّع في الصياغة
+▌المرحلة 1 — فهم الامتحان
+- اقرأ وصف الامتحان والأقسام أعلاه.
+- استنتج طبيعة التفكير المطلوبة لكل قسم.
+- الزمن التقريبي لكل سؤال: ${timePerQ} ثانية — لا تكتب سؤالاً يحتاج أكثر من هذا.
+
+▌المرحلة 2 — بناء خطة اختبار (قبل كتابة أي سؤال)
+- وزّع الأسئلة على الأقسام بشكل متوازن حسب النسب المحددة.
+- حدد لكل سؤال:
+  • مستوى الصعوبة (سهل / متوسط / صعب)
+  • نوع التفكير (مباشر / مقارنة / استنتاج / حل ذكي)
+  • زمن الحل المتوقع
+
+تعريف الصعوبة:
+  • سهل: مباشر، خطوة واحدة، سريع. [15-30 ثانية]
+  • متوسط: يحتاج تفكير بسيط أو خطوتين. [30-60 ثانية]
+  • صعب: فكرة ذكية أو مصيدة منطقية، وليس حل طويل. [45-90 ثانية]
+  ⚠️ القاعدة الذهبية: الصعوبة = ذكاء أكثر، وليس طول أكثر.
+
+▌المرحلة 3 — كتابة السؤال
+- اكتب سؤال اختيار من متعدد (${blueprint.exam.format.mcq_options_count} خيارات).
+- الخيارات متقاربة ومنطقية — لا تجعل الإجابة واضحة بشكل مبالغ.
+- لا تكتب سؤالاً يحتاج وقتاً أطول من ${timePerQ} ثانية.
+- نص السؤال: سطرين كحد أقصى.
+- كل سؤال يختبر مفهوماً واحداً فقط.
+- نوّع في الصياغة — لا تكرر نفس بنية السؤال.
+- ممنوع: الاشتقاقات الطويلة، المعلومات التافهة أو الحفظية البحتة.
+- لا تضع أكثر من سؤالين متتاليين من نفس القسم أو الموضوع.
+
+▌المرحلة 4 — مراجعة ذاتية (قبل إخراج كل سؤال)
+- ✅ هل الصعوبة صحيحة حسب التعريف؟
+- ✅ هل السؤال يناسب زمن الامتحان (${timePerQ} ثانية)؟
+- ✅ هل يشبه أسلوب اختبار قدرات حقيقي؟
+- ✅ هل الخيارات الخاطئة منطقية ومتقاربة؟
+- ❌ إذا فشل أي شرط → أعد كتابة السؤال.
+
+أخرج الأسئلة فقط بعد اتباع هذه المراحل الأربع.
 
 ═══ تنسيق الإخراج (JSON فقط) ═══
 أرجع JSON array فقط بدون أي نص قبله أو بعده:
@@ -210,7 +236,7 @@ ${diffDesc}
     "difficulty": "easy|medium|hard",
     "options": ["خيار أ", "خيار ب", "خيار ج", "خيار د"],
     "correct_answer_index": 0,
-    "explanation": "شرح مختصر ودقيق للإجابة الصحيحة (جملة أو جملتين)"
+    "explanation": "شرح مختصر ودقيق (جملة أو جملتين)"
   }
 ]`;
 }
@@ -221,7 +247,8 @@ function buildUserPrompt(blueprint: ExamBlueprint, difficulty: string): string {
 
   return `وَلِّد ${blueprint.exam.format.questions_total} سؤال بمستوى صعوبة "${diffAr}" لاختبار "${blueprint.exam.name}".
 
-التزم بالقيود والأقسام المذكورة في تعليماتك. وزّع الأسئلة على الأقسام حسب النسب المحددة.
+اتبع المراحل الأربع (فهم → خطة → كتابة → مراجعة) قبل إخراج أي سؤال.
+وزّع الأسئلة على الأقسام حسب النسب المحددة.
 
 ⚠️ أرجع JSON array فقط — بدون markdown أو شرح أو أي نص إضافي.`;
 }
