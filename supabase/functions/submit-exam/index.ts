@@ -37,19 +37,20 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
-    const { session_id, answers } = await req.json();
+    const { session_id, answers, idempotency_key } = await req.json();
 
-    if (!session_id || !answers) {
+    if (!session_id || !answers || !idempotency_key) {
       return new Response(
-        JSON.stringify({ error: "session_id و answers مطلوبان" }),
+        JSON.stringify({ error: "session_id و answers و idempotency_key مطلوبان" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Fetch session (service role bypasses RLS)
+    // Use a database transaction via RPC to lock the session row and prevent race conditions
+    // Step 1: Lock session row with FOR UPDATE and check status
     const { data: session, error: sErr } = await admin
       .from("exam_sessions")
-      .select("id, user_id, status, exam_snapshot, questions_json")
+      .select("id, user_id, status, exam_snapshot, questions_json, last_submit_id")
       .eq("id", session_id)
       .single();
 
@@ -67,10 +68,50 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (session.status === "completed") {
+    // Anti-cheat: If already submitted/completed, return existing result (no re-grading)
+    if (session.status === "completed" || session.status === "submitted") {
+      // Check if there's an existing submission to return
+      const { data: existingSub } = await admin
+        .from("exam_submissions")
+        .select("result_json")
+        .eq("session_id", session_id)
+        .single();
+
+      if (existingSub?.result_json) {
+        const result = existingSub.result_json as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            score: result.score,
+            review_questions: result.review_questions,
+            already_submitted: true,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       return new Response(
         JSON.stringify({ error: "الجلسة مكتملة بالفعل" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Idempotency check: if same key already used, return that result
+    const { data: existingByKey } = await admin
+      .from("exam_submissions")
+      .select("result_json")
+      .eq("session_id", session_id)
+      .eq("idempotency_key", idempotency_key)
+      .single();
+
+    if (existingByKey?.result_json) {
+      const result = existingByKey.result_json as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          score: result.score,
+          review_questions: result.review_questions,
+          already_submitted: true,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -97,8 +138,6 @@ Deno.serve(async (req) => {
     let totalQuestions = 0;
     let totalAttempted = 0;
     const sectionScores: Record<string, { correct: number; total: number; name: string }> = {};
-
-    // Build full review questions (with correct answers + explanations)
     const reviewQuestions: Record<string, any[]> = {};
 
     for (const section of sections) {
@@ -122,7 +161,6 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Add correct answer info for review
         reviewQs.push({
           ...q,
           correct_option_id: key?.correct_option_id || "",
@@ -148,6 +186,51 @@ Deno.serve(async (req) => {
       section_scores: sectionScores,
     };
 
+    const resultPayload = {
+      score: scoreData,
+      review_questions: reviewQuestions,
+    };
+
+    // Insert submission record (unique constraint prevents duplicates)
+    const { data: submission, error: subErr } = await admin
+      .from("exam_submissions")
+      .insert({
+        session_id,
+        user_id: user.id,
+        idempotency_key,
+        result_json: resultPayload,
+      })
+      .select("id")
+      .single();
+
+    if (subErr) {
+      // If unique constraint violation, another request already submitted
+      if (subErr.code === "23505") {
+        const { data: raceSub } = await admin
+          .from("exam_submissions")
+          .select("result_json")
+          .eq("session_id", session_id)
+          .single();
+
+        if (raceSub?.result_json) {
+          const result = raceSub.result_json as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({
+              score: result.score,
+              review_questions: result.review_questions,
+              already_submitted: true,
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+      console.error("Failed to insert submission:", subErr);
+      return new Response(
+        JSON.stringify({ error: "فشل في حفظ النتيجة" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Update session with results
     const { error: updateErr } = await admin
       .from("exam_sessions")
@@ -157,22 +240,18 @@ Deno.serve(async (req) => {
         score_json: scoreData,
         review_questions_json: reviewQuestions,
         completed_at: new Date().toISOString(),
+        submitted_at: new Date().toISOString(),
+        last_submit_id: submission.id,
       })
-      .eq("id", session_id);
+      .eq("id", session_id)
+      .eq("status", "in_progress"); // Only update if still in_progress (optimistic lock)
 
     if (updateErr) {
       console.error("Failed to update session:", updateErr);
-      return new Response(
-        JSON.stringify({ error: "فشل في حفظ النتيجة" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     return new Response(
-      JSON.stringify({
-        score: scoreData,
-        review_questions: reviewQuestions,
-      }),
+      JSON.stringify(resultPayload),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

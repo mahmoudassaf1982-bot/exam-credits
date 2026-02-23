@@ -150,6 +150,7 @@ export type Database = {
           exam_snapshot: Json | null
           exam_template_id: string
           id: string
+          last_submit_id: string | null
           points_cost: number
           questions_json: Json | null
           review_questions_json: Json | null
@@ -157,6 +158,7 @@ export type Database = {
           session_type: string
           started_at: string
           status: string
+          submitted_at: string | null
           time_limit_sec: number
           user_id: string
         }
@@ -167,6 +169,7 @@ export type Database = {
           exam_snapshot?: Json | null
           exam_template_id: string
           id?: string
+          last_submit_id?: string | null
           points_cost?: number
           questions_json?: Json | null
           review_questions_json?: Json | null
@@ -174,6 +177,7 @@ export type Database = {
           session_type?: string
           started_at?: string
           status?: string
+          submitted_at?: string | null
           time_limit_sec?: number
           user_id: string
         }
@@ -184,6 +188,7 @@ export type Database = {
           exam_snapshot?: Json | null
           exam_template_id?: string
           id?: string
+          last_submit_id?: string | null
           points_cost?: number
           questions_json?: Json | null
           review_questions_json?: Json | null
@@ -191,6 +196,7 @@ export type Database = {
           session_type?: string
           started_at?: string
           status?: string
+          submitted_at?: string | null
           time_limit_sec?: number
           user_id?: string
         }
@@ -249,6 +255,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      exam_submissions: {
+        Row: {
+          created_at: string
+          id: string
+          idempotency_key: string
+          result_json: Json | null
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          result_json?: Json | null
+          session_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          result_json?: Json | null
+          session_id?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       exam_templates: {
         Row: {

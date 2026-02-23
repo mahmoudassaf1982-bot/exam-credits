@@ -184,9 +184,12 @@ export default function ExamSession() {
 
     if (timerRef.current) clearInterval(timerRef.current);
 
+    // Generate idempotency key to prevent duplicate submissions
+    const idempotencyKey = crypto.randomUUID();
+
     // Submit to server for scoring
     const { data: result, error } = await supabase.functions.invoke('submit-exam', {
-      body: { session_id: sessionId, answers },
+      body: { session_id: sessionId, answers, idempotency_key: idempotencyKey },
     });
 
     if (error || !result?.score) {
