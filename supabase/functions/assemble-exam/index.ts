@@ -311,10 +311,20 @@ Deno.serve(async (req) => {
           correct_option_id: q.correct_option_id,
           explanation: q.explanation || undefined,
         };
+        // Fix double-encoded options: if options is a string, parse it
+        let parsedOptions = q.options;
+        if (typeof parsedOptions === "string") {
+          try {
+            parsedOptions = JSON.parse(parsedOptions);
+          } catch {
+            console.error(`Failed to parse options for question ${q.id}`);
+            parsedOptions = [];
+          }
+        }
         return {
           id: q.id,
           text_ar: q.text_ar,
-          options: q.options,
+          options: parsedOptions,
           difficulty: q.difficulty,
           topic: q.topic,
         };
