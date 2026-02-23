@@ -365,7 +365,7 @@ serve(async (req) => {
         topic: section,
         difficulty,
         text_ar: q.question_text,
-        options: JSON.stringify(options),
+        options: options,
         correct_option_id: optionIds[correctIdx] || "a",
         explanation: q.explanation || null,
         is_approved: false,
