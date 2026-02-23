@@ -46,11 +46,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Use a database transaction via RPC to lock the session row and prevent race conditions
-    // Step 1: Lock session row with FOR UPDATE and check status
+    // Fetch session
     const { data: session, error: sErr } = await admin
       .from("exam_sessions")
-      .select("id, user_id, status, exam_snapshot, questions_json, last_submit_id")
+      .select("id, user_id, status, exam_snapshot, questions_json, last_submit_id, expires_at, answers_json")
       .eq("id", session_id)
       .single();
 
@@ -68,9 +67,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Anti-cheat: If already submitted/completed, return existing result (no re-grading)
+    // Anti-cheat: If already submitted/completed/expired, return existing result
     if (session.status === "completed" || session.status === "submitted") {
-      // Check if there's an existing submission to return
       const { data: existingSub } = await admin
         .from("exam_submissions")
         .select("result_json")
@@ -95,7 +93,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Idempotency check: if same key already used, return that result
+    // SERVER-SIDE TIME ENFORCEMENT
+    const now = new Date();
+    let finalAnswers = answers;
+
+    if (session.status === "expired") {
+      return new Response(
+        JSON.stringify({ error: "انتهى وقت الاختبار", expired: true }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (session.expires_at && now > new Date(session.expires_at)) {
+      // Time expired - auto-submit with last saved answers from DB
+      console.log("Session expired server-side, auto-submitting with saved answers");
+      finalAnswers = (session.answers_json as Record<string, string>) || {};
+
+      // Mark as expired first
+      await admin
+        .from("exam_sessions")
+        .update({ status: "expired" })
+        .eq("id", session_id)
+        .eq("status", "in_progress");
+    }
+
+    // Idempotency check
     const { data: existingByKey } = await admin
       .from("exam_submissions")
       .select("result_json")
@@ -115,7 +137,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch answer keys from separate locked table
+    // Fetch answer keys
     const { data: keyRow, error: keyErr } = await admin
       .from("exam_answer_keys")
       .select("answers_key_json")
@@ -151,7 +173,7 @@ Deno.serve(async (req) => {
 
       for (const q of sectionQs) {
         const key = sectionKeys[q.id];
-        const userAnswer = answers[q.id];
+        const userAnswer = finalAnswers[q.id];
 
         if (userAnswer) {
           totalAttempted++;
@@ -191,7 +213,7 @@ Deno.serve(async (req) => {
       review_questions: reviewQuestions,
     };
 
-    // Insert submission record (unique constraint prevents duplicates)
+    // Insert submission record
     const { data: submission, error: subErr } = await admin
       .from("exam_submissions")
       .insert({
@@ -204,7 +226,6 @@ Deno.serve(async (req) => {
       .single();
 
     if (subErr) {
-      // If unique constraint violation, another request already submitted
       if (subErr.code === "23505") {
         const { data: raceSub } = await admin
           .from("exam_submissions")
@@ -231,24 +252,19 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Update session with results
-    const { error: updateErr } = await admin
+    // Update session
+    await admin
       .from("exam_sessions")
       .update({
         status: "completed",
-        answers_json: answers,
+        answers_json: finalAnswers,
         score_json: scoreData,
         review_questions_json: reviewQuestions,
         completed_at: new Date().toISOString(),
         submitted_at: new Date().toISOString(),
         last_submit_id: submission.id,
       })
-      .eq("id", session_id)
-      .eq("status", "in_progress"); // Only update if still in_progress (optimistic lock)
-
-    if (updateErr) {
-      console.error("Failed to update session:", updateErr);
-    }
+      .eq("id", session_id);
 
     return new Response(
       JSON.stringify(resultPayload),

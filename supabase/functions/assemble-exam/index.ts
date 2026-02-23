@@ -338,7 +338,7 @@ Deno.serve(async (req) => {
         user_id: user.id,
         exam_template_id,
         session_type,
-        status: "in_progress",
+        status: "not_started",
         exam_snapshot: examSnapshot,
         questions_json: assembledQuestions,
         answers_json: {},
