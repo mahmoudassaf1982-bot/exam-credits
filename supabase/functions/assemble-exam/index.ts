@@ -72,19 +72,41 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-/** Count available approved questions for a section */
+/** Count available approved questions that could be fetched for a section (including fallbacks) */
 async function countSectionQuestions(
   admin: ReturnType<typeof createClient>,
   sectionId: string,
-  countryId: string
+  countryId: string,
+  examTemplateId: string
 ): Promise<number> {
-  const { count } = await admin
+  // Count section-specific + template-level + country pool questions
+  const { count: sectionCount } = await admin
     .from("questions")
     .select("id", { count: "exact", head: true })
     .eq("is_approved", true)
     .eq("country_id", countryId)
     .eq("section_id", sectionId);
-  return count ?? 0;
+
+  if ((sectionCount ?? 0) > 0) return sectionCount ?? 0;
+
+  // Fallback: count template-level questions
+  const { count: templateCount } = await admin
+    .from("questions")
+    .select("id", { count: "exact", head: true })
+    .eq("is_approved", true)
+    .eq("country_id", countryId)
+    .eq("exam_template_id", examTemplateId);
+
+  if ((templateCount ?? 0) > 0) return templateCount ?? 0;
+
+  // Fallback: count all country questions
+  const { count: countryCount } = await admin
+    .from("questions")
+    .select("id", { count: "exact", head: true })
+    .eq("is_approved", true)
+    .eq("country_id", countryId);
+
+  return countryCount ?? 0;
 }
 
 /** Find the weakest section from past session scores */
@@ -364,7 +386,7 @@ Deno.serve(async (req) => {
 
           if (weakestId) {
             // Verify the section has available questions
-            const qCount = await countSectionQuestions(admin, weakestId, template.country_id);
+            const qCount = await countSectionQuestions(admin, weakestId, template.country_id, template.id);
             if (qCount > 0) {
               targetSectionId = weakestId;
               practiceMode = "weakest";
