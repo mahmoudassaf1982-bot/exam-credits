@@ -145,6 +145,7 @@ export type Database = {
       exam_sessions: {
         Row: {
           answers_json: Json | null
+          attempt_token_hash: string | null
           completed_at: string | null
           created_at: string
           exam_snapshot: Json | null
@@ -165,6 +166,7 @@ export type Database = {
         }
         Insert: {
           answers_json?: Json | null
+          attempt_token_hash?: string | null
           completed_at?: string | null
           created_at?: string
           exam_snapshot?: Json | null
@@ -185,6 +187,7 @@ export type Database = {
         }
         Update: {
           answers_json?: Json | null
+          attempt_token_hash?: string | null
           completed_at?: string | null
           created_at?: string
           exam_snapshot?: Json | null
