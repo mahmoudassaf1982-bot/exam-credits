@@ -57,6 +57,9 @@ interface ExamSessionData {
       default_time_limit_sec: number;
     };
     sections: SectionSnapshot[];
+    practice_mode?: 'diagnostic' | 'weakest' | 'mixed';
+    is_diagnostic?: boolean;
+    target_section_name?: string;
   };
   questions_json: Record<string, QuestionData[]>;
   review_questions_json: Record<string, FullQuestionData[]> | null;
@@ -397,7 +400,13 @@ export default function ExamSession() {
               {passed ? 'مبروك! اجتزت الاختبار' : 'لم تجتز الاختبار'}
             </h1>
             <p className="mt-2 text-muted-foreground">
-              {session.exam_snapshot.template.name_ar}
+              {session.session_type === 'practice'
+                ? session.exam_snapshot.is_diagnostic
+                  ? `تدريب تشخيصي - ${session.exam_snapshot.template.name_ar}`
+                  : session.exam_snapshot.practice_mode === 'weakest'
+                  ? `تدريب ذكي (${session.exam_snapshot.target_section_name}) - ${session.exam_snapshot.template.name_ar}`
+                  : `تدريب ذكي - ${session.exam_snapshot.template.name_ar}`
+                : session.exam_snapshot.template.name_ar}
             </p>
 
             <div className="mt-6 flex items-center justify-center gap-8">
@@ -480,7 +489,13 @@ export default function ExamSession() {
         <div className="mx-auto max-w-3xl flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="font-bold text-sm sm:text-base truncate max-w-[200px]">
-              {session.exam_snapshot.template.name_ar}
+              {session.session_type === 'practice'
+                ? session.exam_snapshot.is_diagnostic
+                  ? '🔍 تدريب تشخيصي'
+                  : session.exam_snapshot.practice_mode === 'weakest'
+                  ? `🎯 تدريب ذكي: ${session.exam_snapshot.target_section_name || ''}`
+                  : '🧠 تدريب ذكي'
+                : session.exam_snapshot.template.name_ar}
             </h2>
             {currentSection && (
               <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">

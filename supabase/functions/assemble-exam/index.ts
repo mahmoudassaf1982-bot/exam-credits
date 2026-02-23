@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Helpers ──
+// ── Types ──
 
 interface Section {
   id: string;
@@ -18,6 +18,14 @@ interface Section {
   topic_filter_json: string[] | null;
   exam_template_id: string;
 }
+
+interface SectionScore {
+  correct: number;
+  total: number;
+  name: string;
+}
+
+// ── Helpers ──
 
 function computeDifficultyCounts(
   questionCount: number,
@@ -36,14 +44,12 @@ function autoWeightSections(sections: Section[], totalQuestions: number): Map<st
   const declaredTotal = sections.reduce((s, sec) => s + sec.question_count, 0);
 
   if (declaredTotal <= 0) {
-    // Equal distribution
     const perSection = Math.floor(totalQuestions / sections.length);
     let remainder = totalQuestions - perSection * sections.length;
     for (const sec of sections) {
       sectionWeights.set(sec.id, perSection + (remainder-- > 0 ? 1 : 0));
     }
   } else {
-    // Proportional distribution based on each section's declared question_count
     let assigned = 0;
     for (let i = 0; i < sections.length; i++) {
       if (i === sections.length - 1) {
@@ -64,6 +70,130 @@ function shuffle<T>(arr: T[]): T[] {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+/** Count available approved questions for a section */
+async function countSectionQuestions(
+  admin: ReturnType<typeof createClient>,
+  sectionId: string,
+  countryId: string
+): Promise<number> {
+  const { count } = await admin
+    .from("questions")
+    .select("id", { count: "exact", head: true })
+    .eq("is_approved", true)
+    .eq("country_id", countryId)
+    .eq("section_id", sectionId);
+  return count ?? 0;
+}
+
+/** Find the weakest section from past session scores */
+function findWeakestSectionId(
+  sectionScores: Record<string, SectionScore>,
+  validSectionIds: Set<string>
+): string | null {
+  let weakestId: string | null = null;
+  let weakestPct = Infinity;
+
+  for (const [sId, score] of Object.entries(sectionScores)) {
+    if (!validSectionIds.has(sId)) continue;
+    const pct = score.total > 0 ? score.correct / score.total : 0;
+    if (pct < weakestPct) {
+      weakestPct = pct;
+      weakestId = sId;
+    }
+  }
+  return weakestId;
+}
+
+/** Fetch questions for a single section with difficulty mix and fallback */
+async function fetchSectionQuestions(
+  admin: ReturnType<typeof createClient>,
+  section: Section,
+  targetCount: number,
+  template: { country_id: string; id: string },
+  excludeIds: string[] = []
+) {
+  const mix = section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
+  const { easy, medium, hard } = computeDifficultyCounts(targetCount, mix);
+  const topicFilters = section.topic_filter_json ?? [];
+
+  const difficulties = [
+    { level: "easy", count: easy },
+    { level: "medium", count: medium },
+    { level: "hard", count: hard },
+  ];
+
+  const questions: unknown[] = [];
+  const usedIds = new Set(excludeIds);
+
+  for (const { level, count } of difficulties) {
+    if (count <= 0) continue;
+
+    // Priority 1: section-specific questions
+    let baseQuery = admin
+      .from("questions")
+      .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
+      .eq("is_approved", true)
+      .eq("country_id", template.country_id)
+      .eq("difficulty", level);
+
+    if (topicFilters.length > 0) baseQuery = baseQuery.in("topic", topicFilters);
+
+    const { data: sectionSpecific } = await baseQuery
+      .eq("section_id", section.id)
+      .not("id", "in", usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)")
+      .limit(count);
+
+    if (sectionSpecific) {
+      sectionSpecific.forEach((q: any) => usedIds.add(q.id));
+      questions.push(...sectionSpecific);
+    }
+
+    const remaining = count - (sectionSpecific?.length ?? 0);
+    if (remaining <= 0) continue;
+
+    // Priority 2: template-level questions
+    let fallbackQuery = admin
+      .from("questions")
+      .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
+      .eq("is_approved", true)
+      .eq("country_id", template.country_id)
+      .eq("difficulty", level)
+      .eq("exam_template_id", template.id)
+      .is("section_id", null);
+
+    if (topicFilters.length > 0) fallbackQuery = fallbackQuery.in("topic", topicFilters);
+    if (usedIds.size > 0) fallbackQuery = fallbackQuery.not("id", "in", `(${[...usedIds].join(",")})`);
+
+    const { data: templateQuestions } = await fallbackQuery.limit(remaining);
+    if (templateQuestions) {
+      templateQuestions.forEach((q: any) => usedIds.add(q.id));
+      questions.push(...templateQuestions);
+    }
+
+    // Priority 3: country pool
+    const still = remaining - (templateQuestions?.length ?? 0);
+    if (still > 0) {
+      let poolQuery = admin
+        .from("questions")
+        .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
+        .eq("is_approved", true)
+        .eq("country_id", template.country_id)
+        .eq("difficulty", level);
+
+      if (topicFilters.length > 0) poolQuery = poolQuery.in("topic", topicFilters);
+      if (usedIds.size > 0) poolQuery = poolQuery.not("id", "in", `(${[...usedIds].join(",")})`);
+
+      const { data: poolQuestions } = await poolQuery.limit(still);
+      if (poolQuestions) {
+        poolQuestions.forEach((q: any) => usedIds.add(q.id));
+        questions.push(...poolQuestions);
+      }
+    }
+  }
+
+  return { questions, usedIds: [...usedIds] };
 }
 
 // ── Main Handler ──
@@ -101,12 +231,11 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { exam_template_id, session_type } = body;
 
-    // ── Tamper detection: reject any client-sent ordering params ──
+    // ── Tamper detection ──
     const tamperKeys = ["seed", "shuffle", "order", "question_order", "sort"];
     const detectedTamper = tamperKeys.filter((k) => k in body);
     if (detectedTamper.length > 0) {
       console.warn(`Order tamper attempt by ${user.id}: ${detectedTamper.join(", ")}`);
-      // Log to sync_audit_log (best-effort)
       await admin.from("sync_audit_log").insert({
         exam_template_id: exam_template_id || "unknown",
         action: "order_tamper_attempt",
@@ -137,7 +266,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── 2. Fetch sections (the STRUCTURE that drives everything) ──
+    // ── 2. Fetch sections ──
     const { data: sections } = await admin
       .from("exam_sections")
       .select("*")
@@ -201,142 +330,129 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── 4. Structure-driven question assembly ──
-    const totalQuestions = template.default_question_count;
-    const weightedCounts = autoWeightSections(sections as Section[], totalQuestions);
+    // ── 4. Adaptive practice logic ──
+    let isDiagnostic = false;
+    let targetSectionId: string | null = null;
+    let practiceMode: "diagnostic" | "weakest" | "mixed" = "diagnostic";
 
+    if (session_type === "practice") {
+      // Check for previous completed sessions with scores
+      const { data: pastSessions } = await admin
+        .from("exam_sessions")
+        .select("score_json")
+        .eq("user_id", user.id)
+        .eq("exam_template_id", exam_template_id)
+        .in("status", ["completed", "submitted"])
+        .not("score_json", "is", null)
+        .order("completed_at", { ascending: false })
+        .limit(1);
+
+      if (!pastSessions || pastSessions.length === 0) {
+        // First time → Diagnostic session
+        isDiagnostic = true;
+        practiceMode = "diagnostic";
+        console.log(`[assemble-exam] Diagnostic mode for user ${user.id}`);
+      } else {
+        // Returning user → find weakest section
+        const lastScore = pastSessions[0].score_json as {
+          section_scores?: Record<string, SectionScore>;
+        };
+
+        if (lastScore?.section_scores) {
+          const validSectionIds = new Set((sections as Section[]).map((s) => s.id));
+          const weakestId = findWeakestSectionId(lastScore.section_scores, validSectionIds);
+
+          if (weakestId) {
+            // Verify the section has available questions
+            const qCount = await countSectionQuestions(admin, weakestId, template.country_id);
+            if (qCount > 0) {
+              targetSectionId = weakestId;
+              practiceMode = "weakest";
+              console.log(`[assemble-exam] Weakest section: ${weakestId} (${qCount} questions available)`);
+            } else {
+              console.log(`[assemble-exam] Weakest section ${weakestId} is empty, falling back to mixed`);
+              practiceMode = "mixed";
+            }
+          } else {
+            practiceMode = "mixed";
+          }
+        } else {
+          // Score exists but no section breakdown → diagnostic
+          isDiagnostic = true;
+          practiceMode = "diagnostic";
+        }
+      }
+    }
+
+    // ── 5. Structure-driven question assembly ──
+    const totalQuestions = template.default_question_count;
     const assembledQuestions: Record<string, unknown[]> = {};
     const answersKey: Record<string, Record<string, { correct_option_id: string; explanation?: string }>> = {};
     let totalQuestionCount = 0;
 
-    for (const section of sections as Section[]) {
-      const sectionTargetCount = weightedCounts.get(section.id) ?? section.question_count;
-      const mix = section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
-      const { easy, medium, hard } = computeDifficultyCounts(sectionTargetCount, mix);
-      const topicFilters = section.topic_filter_json ?? [];
+    if (session_type === "practice" && practiceMode === "weakest" && targetSectionId) {
+      // ── WEAKEST SECTION MODE: generate all questions from the weakest section ──
+      const targetSection = (sections as Section[]).find((s) => s.id === targetSectionId)!;
+      const { questions } = await fetchSectionQuestions(
+        admin,
+        targetSection,
+        totalQuestions,
+        { country_id: template.country_id, id: template.id }
+      );
 
-      const difficulties = [
-        { level: "easy", count: easy },
-        { level: "medium", count: medium },
-        { level: "hard", count: hard },
-      ];
-
-      const sectionQuestions: unknown[] = [];
-
-      for (const { level, count } of difficulties) {
-        if (count <= 0) continue;
-
-        // Priority 1: questions linked to this exact section
-        let baseQuery = admin
-          .from("questions")
-          .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
-          .eq("is_approved", true)
-          .eq("country_id", template.country_id)
-          .eq("difficulty", level);
-
-        if (topicFilters.length > 0) {
-          baseQuery = baseQuery.in("topic", topicFilters);
-        }
-
-        // Try section-specific questions first
-        const { data: sectionSpecific } = await baseQuery
-          .eq("section_id", section.id)
-          .limit(count);
-
-        if (sectionSpecific && sectionSpecific.length >= count) {
-          sectionQuestions.push(...shuffle(sectionSpecific));
-          continue;
-        }
-
-        const found = sectionSpecific ?? [];
-        const remaining = count - found.length;
-        sectionQuestions.push(...found);
-
-        // Priority 2: questions linked to this exam template but no specific section
-        if (remaining > 0) {
-          let fallbackQuery = admin
-            .from("questions")
-            .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
-            .eq("is_approved", true)
-            .eq("country_id", template.country_id)
-            .eq("difficulty", level)
-            .eq("exam_template_id", exam_template_id)
-            .is("section_id", null);
-
-          if (topicFilters.length > 0) {
-            fallbackQuery = fallbackQuery.in("topic", topicFilters);
-          }
-
-          // Exclude already selected IDs
-          const usedIds = found.map((q: any) => q.id);
-          if (usedIds.length > 0) {
-            fallbackQuery = fallbackQuery.not("id", "in", `(${usedIds.join(",")})`);
-          }
-
-          const { data: templateQuestions } = await fallbackQuery.limit(remaining);
-          if (templateQuestions) {
-            sectionQuestions.push(...templateQuestions);
-          }
-
-          // Priority 3: any matching questions from the country pool
-          const still = remaining - (templateQuestions?.length ?? 0);
-          if (still > 0) {
-            const allUsed = [...usedIds, ...(templateQuestions ?? []).map((q: any) => q.id)];
-            let poolQuery = admin
-              .from("questions")
-              .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
-              .eq("is_approved", true)
-              .eq("country_id", template.country_id)
-              .eq("difficulty", level);
-
-            if (topicFilters.length > 0) {
-              poolQuery = poolQuery.in("topic", topicFilters);
-            }
-            if (allUsed.length > 0) {
-              poolQuery = poolQuery.not("id", "in", `(${allUsed.join(",")})`);
-            }
-
-            const { data: poolQuestions } = await poolQuery.limit(still);
-            if (poolQuestions) {
-              sectionQuestions.push(...poolQuestions);
-            }
-          }
-        }
-      }
-
-      // Store answer keys separately, strip from client-facing data
       const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
-      const strippedQuestions = sectionQuestions.map((q: any) => {
+      const strippedQuestions = questions.map((q: any) => {
         sectionAnswerKeys[q.id] = {
           correct_option_id: q.correct_option_id,
           explanation: q.explanation || undefined,
         };
-        // Fix double-encoded options: if options is a string, parse it
         let parsedOptions = q.options;
         if (typeof parsedOptions === "string") {
-          try {
-            parsedOptions = JSON.parse(parsedOptions);
-          } catch {
-            console.error(`Failed to parse options for question ${q.id}`);
-            parsedOptions = [];
-          }
+          try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = []; }
         }
-        return {
-          id: q.id,
-          text_ar: q.text_ar,
-          options: parsedOptions,
-          difficulty: q.difficulty,
-          topic: q.topic,
-        };
+        return { id: q.id, text_ar: q.text_ar, options: parsedOptions, difficulty: q.difficulty, topic: q.topic };
       });
 
-      assembledQuestions[section.id] = shuffle(strippedQuestions);
-      answersKey[section.id] = sectionAnswerKeys;
-      totalQuestionCount += sectionQuestions.length;
+      assembledQuestions[targetSection.id] = shuffle(strippedQuestions);
+      answersKey[targetSection.id] = sectionAnswerKeys;
+      totalQuestionCount = strippedQuestions.length;
+
+    } else {
+      // ── DIAGNOSTIC / MIXED / SIMULATION MODE: distribute across all sections ──
+      const weightedCounts = autoWeightSections(sections as Section[], totalQuestions);
+      const allUsedIds: string[] = [];
+
+      for (const section of sections as Section[]) {
+        const sectionTargetCount = weightedCounts.get(section.id) ?? section.question_count;
+        const { questions, usedIds } = await fetchSectionQuestions(
+          admin,
+          section,
+          sectionTargetCount,
+          { country_id: template.country_id, id: template.id },
+          allUsedIds
+        );
+        allUsedIds.push(...usedIds);
+
+        const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
+        const strippedQuestions = questions.map((q: any) => {
+          sectionAnswerKeys[q.id] = {
+            correct_option_id: q.correct_option_id,
+            explanation: q.explanation || undefined,
+          };
+          let parsedOptions = q.options;
+          if (typeof parsedOptions === "string") {
+            try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = []; }
+          }
+          return { id: q.id, text_ar: q.text_ar, options: parsedOptions, difficulty: q.difficulty, topic: q.topic };
+        });
+
+        assembledQuestions[section.id] = shuffle(strippedQuestions);
+        answersKey[section.id] = sectionAnswerKeys;
+        totalQuestionCount += strippedQuestions.length;
+      }
     }
 
-    // ── 5. Build deterministic question_order ──
-    // Flatten all question IDs in section order for the locked order
+    // ── 6. Build question_order ──
     const questionOrder: string[] = [];
     for (const section of sections as Section[]) {
       const sqs = assembledQuestions[section.id] || [];
@@ -345,7 +461,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 6. Build frozen snapshot ──
+    // ── 7. Build frozen snapshot ──
+    const weightedCounts = autoWeightSections(sections as Section[], totalQuestions);
+    const activeSections = (session_type === "practice" && practiceMode === "weakest" && targetSectionId)
+      ? (sections as Section[]).filter((s) => s.id === targetSectionId)
+      : (sections as Section[]);
+
     const examSnapshot = {
       template: {
         id: template.id,
@@ -355,18 +476,25 @@ Deno.serve(async (req) => {
         default_time_limit_sec: template.default_time_limit_sec,
         default_question_count: template.default_question_count,
       },
-      sections: (sections as Section[]).map((s) => ({
+      sections: activeSections.map((s) => ({
         id: s.id,
         name_ar: s.name_ar,
         order: s.order,
-        question_count: weightedCounts.get(s.id) ?? s.question_count,
+        question_count: (assembledQuestions[s.id] || []).length,
         time_limit_sec: s.time_limit_sec,
         difficulty_mix_json: s.difficulty_mix_json,
         topic_filter_json: s.topic_filter_json,
       })),
+      // Practice metadata
+      practice_mode: session_type === "practice" ? practiceMode : undefined,
+      is_diagnostic: session_type === "practice" ? isDiagnostic : undefined,
+      target_section_id: targetSectionId || undefined,
+      target_section_name: targetSectionId
+        ? (sections as Section[]).find((s) => s.id === targetSectionId)?.name_ar
+        : undefined,
     };
 
-    // ── 7. Create session with locked order ──
+    // ── 8. Create session ──
     const { data: session, error: sessionErr } = await admin
       .from("exam_sessions")
       .insert({
@@ -393,7 +521,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Store answer keys in separate locked table
+    // Store answer keys
     const { error: keyErr } = await admin
       .from("exam_answer_keys")
       .insert({
@@ -409,8 +537,10 @@ Deno.serve(async (req) => {
       JSON.stringify({
         session_id: session.id,
         total_questions: totalQuestionCount,
-        sections_count: sections.length,
+        sections_count: activeSections.length,
         points_deducted: isDiamond ? 0 : pointsCost,
+        practice_mode: session_type === "practice" ? practiceMode : undefined,
+        is_diagnostic: session_type === "practice" ? isDiagnostic : undefined,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
