@@ -18,10 +18,11 @@ import {
   HelpCircle,
   Trophy,
   BookOpen,
+  RefreshCw,
+  Home,
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import ExamReview from '@/components/exam/ExamReview';
-
 
 interface QuestionData {
   id: string;
@@ -66,6 +67,30 @@ interface ExamSessionData {
   expires_at: string | null;
 }
 
+/** Safely parse options that may be double-encoded as a JSON string */
+function safeParseOptions(options: unknown): { id: string; textAr: string }[] {
+  if (Array.isArray(options)) return options;
+  if (typeof options === 'string') {
+    try {
+      const parsed = JSON.parse(options);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* ignore */ }
+  }
+  return [];
+}
+
+/** Normalize questions_json to ensure options are always arrays */
+function normalizeQuestionsJson(questionsJson: Record<string, unknown[]>): Record<string, QuestionData[]> {
+  const result: Record<string, QuestionData[]> = {};
+  for (const [sectionId, questions] of Object.entries(questionsJson)) {
+    result[sectionId] = (questions || []).map((q: any) => ({
+      ...q,
+      options: safeParseOptions(q.options),
+    }));
+  }
+  return result;
+}
+
 export default function ExamSession() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -73,6 +98,7 @@ export default function ExamSession() {
 
   const [session, setSession] = useState<ExamSessionData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorState, setErrorState] = useState<{ message: string; detail?: string } | null>(null);
   const [currentSectionIdx, setCurrentSectionIdx] = useState(0);
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -84,13 +110,19 @@ export default function ExamSession() {
   const [reviewQuestions, setReviewQuestions] = useState<Record<string, FullQuestionData[]> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiresAtRef = useRef<Date | null>(null);
-  const serverTimeOffsetRef = useRef<number>(0); // server_time - client_time in ms
+  const serverTimeOffsetRef = useRef<number>(0);
   const attemptTokenRef = useRef<string | null>(null);
 
   // Load session and call start-exam
-  useEffect(() => {
+  const loadSession = useCallback(async () => {
     if (!sessionId) return;
-    (async () => {
+    
+    setLoading(true);
+    setErrorState(null);
+
+    try {
+      console.log('[ExamSession] Loading session:', sessionId);
+
       const { data, error } = await supabase
         .from('exam_sessions')
         .select('*')
@@ -98,12 +130,37 @@ export default function ExamSession() {
         .single();
 
       if (error || !data) {
-        toast.error('فشل في تحميل الجلسة');
-        navigate('/app/exams');
+        console.error('[ExamSession] Fetch error:', error);
+        setErrorState({ 
+          message: 'فشل في تحميل الجلسة',
+          detail: error?.message || 'الجلسة غير موجودة' 
+        });
+        setLoading(false);
         return;
       }
 
       const sessionData = data as unknown as ExamSessionData;
+
+      // Validate essential fields
+      if (!sessionData.exam_snapshot?.template?.name_ar || !sessionData.questions_json) {
+        console.error('[ExamSession] Missing essential data:', {
+          hasSnapshot: !!sessionData.exam_snapshot,
+          hasTemplate: !!sessionData.exam_snapshot?.template,
+          hasQuestions: !!sessionData.questions_json,
+        });
+        setErrorState({ 
+          message: 'بيانات الجلسة غير مكتملة',
+          detail: 'يرجى المحاولة مرة أخرى أو التواصل مع الدعم' 
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Normalize options (handle double-encoded JSON strings)
+      sessionData.questions_json = normalizeQuestionsJson(
+        sessionData.questions_json as unknown as Record<string, unknown[]>
+      );
+
       setSession(sessionData);
       setAnswers((sessionData.answers_json as Record<string, string>) || {});
 
@@ -122,13 +179,28 @@ export default function ExamSession() {
       }
 
       // Call start-exam (idempotent) to get server-controlled timing
+      console.log('[ExamSession] Calling start-exam...');
       const { data: startData, error: startError } = await supabase.functions.invoke('start-exam', {
         body: { session_id: sessionId },
       });
 
-      if (startError || !startData?.expires_at || !startData?.attempt_token) {
-        toast.error('فشل في بدء الاختبار');
-        navigate('/app/exams');
+      if (startError) {
+        console.error('[ExamSession] start-exam error:', startError);
+        setErrorState({ 
+          message: 'فشل في بدء الاختبار',
+          detail: typeof startError === 'object' ? JSON.stringify(startError) : String(startError)
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (!startData?.expires_at || !startData?.attempt_token) {
+        console.error('[ExamSession] start-exam missing fields:', startData);
+        setErrorState({ 
+          message: 'فشل في بدء الاختبار',
+          detail: startData?.error || 'استجابة غير مكتملة من الخادم'
+        });
+        setLoading(false);
         return;
       }
 
@@ -143,12 +215,10 @@ export default function ExamSession() {
       const expiresAt = new Date(startData.expires_at);
       expiresAtRef.current = expiresAt;
 
-      // Calculate remaining time using server-adjusted time
       const adjustedNow = clientNow + serverTimeOffsetRef.current;
       const remaining = Math.max(0, Math.floor((expiresAt.getTime() - adjustedNow) / 1000));
       setTimeLeft(remaining);
 
-      // Update session data with server values
       setSession(prev => prev ? {
         ...prev,
         status: 'in_progress',
@@ -156,11 +226,23 @@ export default function ExamSession() {
         expires_at: startData.expires_at,
       } : null);
 
+      console.log('[ExamSession] Session started, time remaining:', remaining);
       setLoading(false);
-    })();
+    } catch (err) {
+      console.error('[ExamSession] Unexpected error:', err);
+      setErrorState({ 
+        message: 'حدث خطأ غير متوقع',
+        detail: err instanceof Error ? err.message : 'يرجى المحاولة مرة أخرى'
+      });
+      setLoading(false);
+    }
   }, [sessionId, navigate]);
 
-  // Timer - counts down to server expires_at
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
+
+  // Timer
   useEffect(() => {
     if (showResults || loading || !session || session.status !== 'in_progress' || !expiresAtRef.current) return;
 
@@ -187,7 +269,6 @@ export default function ExamSession() {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Get flattened questions for navigation
   const sections = session?.exam_snapshot?.sections || [];
   const currentSection = sections[currentSectionIdx];
   const currentSectionQuestions = currentSection
@@ -206,7 +287,6 @@ export default function ExamSession() {
     (questionId: string, optionId: string) => {
       setAnswers((prev) => {
         const updated = { ...prev, [questionId]: optionId };
-        // Save answers periodically to DB
         if (sessionId) {
           supabase
             .from('exam_sessions')
@@ -226,10 +306,8 @@ export default function ExamSession() {
 
     if (timerRef.current) clearInterval(timerRef.current);
 
-    // Generate idempotency key to prevent duplicate submissions
     const idempotencyKey = crypto.randomUUID();
 
-    // Submit to server for scoring with attempt token
     const { data: result, error } = await supabase.functions.invoke('submit-exam', {
       body: { session_id: sessionId, answers, idempotency_key: idempotencyKey, attempt_token: attemptTokenRef.current },
     });
@@ -253,10 +331,36 @@ export default function ExamSession() {
     refreshWallet();
   }, [submitting, session, sessionId, answers, refreshWallet, navigate]);
 
+  // ── Loading State ──
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // ── Error State ──
+  if (errorState) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-6" dir="rtl">
+        <div className="text-center max-w-md space-y-4">
+          <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
+          <h2 className="text-xl font-bold text-foreground">{errorState.message}</h2>
+          {errorState.detail && (
+            <p className="text-muted-foreground text-sm">{errorState.detail}</p>
+          )}
+          <div className="flex gap-3 justify-center">
+            <Button onClick={loadSession} variant="default">
+              <RefreshCw className="h-4 w-4 ml-2" />
+              إعادة المحاولة
+            </Button>
+            <Button onClick={() => navigate('/app/exams')} variant="outline">
+              <Home className="h-4 w-4 ml-2" />
+              العودة للاختبارات
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -432,7 +536,7 @@ export default function ExamSession() {
 
               {/* Options */}
               <div className="space-y-3">
-                {currentQuestion.options.map((opt, idx) => {
+                {(currentQuestion.options || []).map((opt, idx) => {
                   const isSelected = answers[currentQuestion.id] === opt.id;
                   const optionLetters = ['أ', 'ب', 'ج', 'د'];
                   return (
