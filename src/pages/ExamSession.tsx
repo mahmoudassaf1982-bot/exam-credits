@@ -608,7 +608,7 @@ export default function ExamSession() {
           </div>
 
           {currentSectionIdx === sections.length - 1 &&
-          currentQuestionIdx === currentSectionQuestions.length - 1 ? (
+          (currentSectionQuestions.length === 0 || currentQuestionIdx === currentSectionQuestions.length - 1) ? (
             <Button
               onClick={handleSubmit}
               disabled={submitting}
