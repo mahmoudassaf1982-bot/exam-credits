@@ -63,6 +63,7 @@ interface ExamSessionData {
   score_json: Record<string, unknown> | null;
   time_limit_sec: number;
   started_at: string;
+  expires_at: string | null;
 }
 
 export default function ExamSession() {
@@ -82,8 +83,10 @@ export default function ExamSession() {
   const [scoreData, setScoreData] = useState<Record<string, unknown> | null>(null);
   const [reviewQuestions, setReviewQuestions] = useState<Record<string, FullQuestionData[]> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const expiresAtRef = useRef<Date | null>(null);
+  const serverTimeOffsetRef = useRef<number>(0); // server_time - client_time in ms
 
-  // Load session
+  // Load session and call start-exam
   useEffect(() => {
     if (!sessionId) return;
     (async () => {
@@ -103,34 +106,69 @@ export default function ExamSession() {
       setSession(sessionData);
       setAnswers((sessionData.answers_json as Record<string, string>) || {});
 
-      if (sessionData.status === 'completed') {
+      if (sessionData.status === 'completed' || sessionData.status === 'submitted') {
         setShowResults(true);
         setScoreData(sessionData.score_json);
         setReviewQuestions(sessionData.review_questions_json || null);
-      } else {
-        // Calculate remaining time
-        const started = new Date(sessionData.started_at).getTime();
-        const elapsed = Math.floor((Date.now() - started) / 1000);
-        const remaining = Math.max(0, sessionData.time_limit_sec - elapsed);
-        setTimeLeft(remaining);
+        setLoading(false);
+        return;
       }
+
+      if (sessionData.status === 'expired') {
+        toast.error('انتهى وقت الاختبار');
+        navigate('/app/exams');
+        return;
+      }
+
+      // Call start-exam (idempotent) to get server-controlled timing
+      const { data: startData, error: startError } = await supabase.functions.invoke('start-exam', {
+        body: { session_id: sessionId },
+      });
+
+      if (startError || !startData?.expires_at) {
+        toast.error('فشل في بدء الاختبار');
+        navigate('/app/exams');
+        return;
+      }
+
+      // Calculate server time offset for accurate countdown
+      const serverNow = new Date(startData.server_now).getTime();
+      const clientNow = Date.now();
+      serverTimeOffsetRef.current = serverNow - clientNow;
+
+      const expiresAt = new Date(startData.expires_at);
+      expiresAtRef.current = expiresAt;
+
+      // Calculate remaining time using server-adjusted time
+      const adjustedNow = clientNow + serverTimeOffsetRef.current;
+      const remaining = Math.max(0, Math.floor((expiresAt.getTime() - adjustedNow) / 1000));
+      setTimeLeft(remaining);
+
+      // Update session data with server values
+      setSession(prev => prev ? {
+        ...prev,
+        status: 'in_progress',
+        started_at: startData.started_at,
+        expires_at: startData.expires_at,
+      } : null);
+
       setLoading(false);
     })();
   }, [sessionId, navigate]);
 
-  // Timer
+  // Timer - counts down to server expires_at
   useEffect(() => {
-    if (showResults || loading || !session || session.status === 'completed') return;
+    if (showResults || loading || !session || session.status !== 'in_progress' || !expiresAtRef.current) return;
 
     timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current!);
-          handleSubmit();
-          return 0;
-        }
-        return prev - 1;
-      });
+      const adjustedNow = Date.now() + serverTimeOffsetRef.current;
+      const remaining = Math.max(0, Math.floor((expiresAtRef.current!.getTime() - adjustedNow) / 1000));
+      setTimeLeft(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(timerRef.current!);
+        handleSubmit();
+      }
     }, 1000);
 
     return () => {
@@ -192,9 +230,15 @@ export default function ExamSession() {
       body: { session_id: sessionId, answers, idempotency_key: idempotencyKey },
     });
 
-    if (error || !result?.score) {
+    if (error || (!result?.score && !result?.expired)) {
       toast.error('فشل في حفظ النتيجة');
       setSubmitting(false);
+      return;
+    }
+
+    if (result?.expired) {
+      toast.error('انتهى وقت الاختبار');
+      navigate('/app/exams');
       return;
     }
 
@@ -203,7 +247,7 @@ export default function ExamSession() {
     setShowResults(true);
     setSubmitting(false);
     refreshWallet();
-  }, [submitting, session, sessionId, answers, refreshWallet]);
+  }, [submitting, session, sessionId, answers, refreshWallet, navigate]);
 
   if (loading) {
     return (

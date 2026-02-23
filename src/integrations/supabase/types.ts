@@ -149,6 +149,7 @@ export type Database = {
           created_at: string
           exam_snapshot: Json | null
           exam_template_id: string
+          expires_at: string | null
           id: string
           last_submit_id: string | null
           points_cost: number
@@ -168,6 +169,7 @@ export type Database = {
           created_at?: string
           exam_snapshot?: Json | null
           exam_template_id: string
+          expires_at?: string | null
           id?: string
           last_submit_id?: string | null
           points_cost?: number
@@ -187,6 +189,7 @@ export type Database = {
           created_at?: string
           exam_snapshot?: Json | null
           exam_template_id?: string
+          expires_at?: string | null
           id?: string
           last_submit_id?: string | null
           points_cost?: number
