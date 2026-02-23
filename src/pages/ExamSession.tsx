@@ -85,6 +85,7 @@ export default function ExamSession() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiresAtRef = useRef<Date | null>(null);
   const serverTimeOffsetRef = useRef<number>(0); // server_time - client_time in ms
+  const attemptTokenRef = useRef<string | null>(null);
 
   // Load session and call start-exam
   useEffect(() => {
@@ -125,11 +126,14 @@ export default function ExamSession() {
         body: { session_id: sessionId },
       });
 
-      if (startError || !startData?.expires_at) {
+      if (startError || !startData?.expires_at || !startData?.attempt_token) {
         toast.error('فشل في بدء الاختبار');
         navigate('/app/exams');
         return;
       }
+
+      // Store attempt token in memory only
+      attemptTokenRef.current = startData.attempt_token;
 
       // Calculate server time offset for accurate countdown
       const serverNow = new Date(startData.server_now).getTime();
@@ -225,9 +229,9 @@ export default function ExamSession() {
     // Generate idempotency key to prevent duplicate submissions
     const idempotencyKey = crypto.randomUUID();
 
-    // Submit to server for scoring
+    // Submit to server for scoring with attempt token
     const { data: result, error } = await supabase.functions.invoke('submit-exam', {
-      body: { session_id: sessionId, answers, idempotency_key: idempotencyKey },
+      body: { session_id: sessionId, answers, idempotency_key: idempotencyKey, attempt_token: attemptTokenRef.current },
     });
 
     if (error || (!result?.score && !result?.expired)) {

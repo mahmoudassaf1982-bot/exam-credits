@@ -6,6 +6,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+/** SHA-256 hex hash using Web Crypto */
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -66,20 +73,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // If already started (idempotent), return existing times
-    if (session.status === "in_progress" && session.expires_at) {
-      const serverNow = new Date().toISOString();
-      return new Response(
-        JSON.stringify({
-          session_id: session.id,
-          started_at: session.started_at,
-          expires_at: session.expires_at,
-          server_now: serverNow,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     // If already completed/submitted/expired
     if (session.status === "completed" || session.status === "submitted" || session.status === "expired") {
       return new Response(
@@ -88,7 +81,32 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Start the exam: set started_at, expires_at, status
+    // Generate attempt token (random + bound to session/user/time)
+    const rawToken = crypto.randomUUID() + "-" + crypto.randomUUID();
+    const attemptToken = `${session_id}:${user.id}:${rawToken}`;
+    const tokenHash = await sha256Hex(attemptToken);
+
+    // If already in_progress (page refresh) — issue a NEW token, update hash
+    if (session.status === "in_progress" && session.expires_at) {
+      await admin
+        .from("exam_sessions")
+        .update({ attempt_token_hash: tokenHash })
+        .eq("id", session_id);
+
+      const serverNow = new Date().toISOString();
+      return new Response(
+        JSON.stringify({
+          session_id: session.id,
+          started_at: session.started_at,
+          expires_at: session.expires_at,
+          server_now: serverNow,
+          attempt_token: attemptToken,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Start the exam: set started_at, expires_at, status, and token hash
     const now = new Date();
     const expiresAt = new Date(now.getTime() + session.time_limit_sec * 1000);
 
@@ -98,6 +116,7 @@ Deno.serve(async (req) => {
         status: "in_progress",
         started_at: now.toISOString(),
         expires_at: expiresAt.toISOString(),
+        attempt_token_hash: tokenHash,
       })
       .eq("id", session_id)
       .in("status", ["not_started"]);
@@ -117,6 +136,7 @@ Deno.serve(async (req) => {
         started_at: serverNow,
         expires_at: expiresAt.toISOString(),
         server_now: serverNow,
+        attempt_token: attemptToken,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

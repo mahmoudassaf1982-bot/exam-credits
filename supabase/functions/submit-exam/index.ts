@@ -6,6 +6,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+/** SHA-256 hex hash using Web Crypto */
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -37,19 +44,19 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
-    const { session_id, answers, idempotency_key } = await req.json();
+    const { session_id, answers, idempotency_key, attempt_token } = await req.json();
 
-    if (!session_id || !answers || !idempotency_key) {
+    if (!session_id || !answers || !idempotency_key || !attempt_token) {
       return new Response(
-        JSON.stringify({ error: "session_id و answers و idempotency_key مطلوبان" }),
+        JSON.stringify({ error: "session_id و answers و idempotency_key و attempt_token مطلوبان" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Fetch session
+    // Fetch session (include attempt_token_hash for verification)
     const { data: session, error: sErr } = await admin
       .from("exam_sessions")
-      .select("id, user_id, status, exam_snapshot, questions_json, last_submit_id, expires_at, answers_json")
+      .select("id, user_id, status, exam_snapshot, questions_json, last_submit_id, expires_at, answers_json, attempt_token_hash")
       .eq("id", session_id)
       .single();
 
@@ -67,7 +74,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Anti-cheat: If already submitted/completed/expired, return existing result
+    // Anti-cheat: If already submitted/completed, return existing result
     if (session.status === "completed" || session.status === "submitted") {
       const { data: existingSub } = await admin
         .from("exam_submissions")
@@ -93,10 +100,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // SERVER-SIDE TIME ENFORCEMENT
-    const now = new Date();
-    let finalAnswers = answers;
-
     if (session.status === "expired") {
       return new Response(
         JSON.stringify({ error: "انتهى وقت الاختبار", expired: true }),
@@ -104,12 +107,24 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ── ATTEMPT TOKEN VERIFICATION ──
+    const submittedHash = await sha256Hex(attempt_token);
+    if (!session.attempt_token_hash || submittedHash !== session.attempt_token_hash) {
+      console.warn(`Token mismatch for session ${session_id}, user ${user.id}`);
+      return new Response(
+        JSON.stringify({ error: "رمز الجلسة غير صالح أو منتهي الصلاحية" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // SERVER-SIDE TIME ENFORCEMENT
+    const now = new Date();
+    let finalAnswers = answers;
+
     if (session.expires_at && now > new Date(session.expires_at)) {
-      // Time expired - auto-submit with last saved answers from DB
       console.log("Session expired server-side, auto-submitting with saved answers");
       finalAnswers = (session.answers_json as Record<string, string>) || {};
 
-      // Mark as expired first
       await admin
         .from("exam_sessions")
         .update({ status: "expired" })
@@ -252,7 +267,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Update session
+    // Update session — INVALIDATE token by setting hash to NULL (one-time use)
     await admin
       .from("exam_sessions")
       .update({
@@ -263,6 +278,7 @@ Deno.serve(async (req) => {
         completed_at: new Date().toISOString(),
         submitted_at: new Date().toISOString(),
         last_submit_id: submission.id,
+        attempt_token_hash: null,
       })
       .eq("id", session_id);
 
