@@ -98,7 +98,22 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
-    const { exam_template_id, session_type } = await req.json();
+    const body = await req.json();
+    const { exam_template_id, session_type } = body;
+
+    // ── Tamper detection: reject any client-sent ordering params ──
+    const tamperKeys = ["seed", "shuffle", "order", "question_order", "sort"];
+    const detectedTamper = tamperKeys.filter((k) => k in body);
+    if (detectedTamper.length > 0) {
+      console.warn(`Order tamper attempt by ${user.id}: ${detectedTamper.join(", ")}`);
+      // Log to sync_audit_log (best-effort)
+      await admin.from("sync_audit_log").insert({
+        exam_template_id: exam_template_id || "unknown",
+        action: "order_tamper_attempt",
+        performed_by: user.id,
+        details: { detected_keys: detectedTamper, session_type },
+      }).then(() => {});
+    }
 
     if (!exam_template_id || !session_type) {
       return new Response(
@@ -310,7 +325,17 @@ Deno.serve(async (req) => {
       totalQuestionCount += sectionQuestions.length;
     }
 
-    // ── 5. Build frozen snapshot ──
+    // ── 5. Build deterministic question_order ──
+    // Flatten all question IDs in section order for the locked order
+    const questionOrder: string[] = [];
+    for (const section of sections as Section[]) {
+      const sqs = assembledQuestions[section.id] || [];
+      for (const q of sqs as any[]) {
+        questionOrder.push(q.id);
+      }
+    }
+
+    // ── 6. Build frozen snapshot ──
     const examSnapshot = {
       template: {
         id: template.id,
@@ -331,7 +356,7 @@ Deno.serve(async (req) => {
       })),
     };
 
-    // ── 6. Create session ──
+    // ── 7. Create session with locked order ──
     const { data: session, error: sessionErr } = await admin
       .from("exam_sessions")
       .insert({
@@ -344,6 +369,8 @@ Deno.serve(async (req) => {
         answers_json: {},
         time_limit_sec: template.default_time_limit_sec,
         points_cost: isDiamond ? 0 : pointsCost,
+        question_order: questionOrder,
+        order_locked: true,
       })
       .select("id")
       .single();

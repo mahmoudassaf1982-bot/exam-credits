@@ -153,7 +153,9 @@ export type Database = {
           expires_at: string | null
           id: string
           last_submit_id: string | null
+          order_locked: boolean
           points_cost: number
+          question_order: Json
           questions_json: Json | null
           review_questions_json: Json | null
           score_json: Json | null
@@ -174,7 +176,9 @@ export type Database = {
           expires_at?: string | null
           id?: string
           last_submit_id?: string | null
+          order_locked?: boolean
           points_cost?: number
+          question_order?: Json
           questions_json?: Json | null
           review_questions_json?: Json | null
           score_json?: Json | null
@@ -195,7 +199,9 @@ export type Database = {
           expires_at?: string | null
           id?: string
           last_submit_id?: string | null
+          order_locked?: boolean
           points_cost?: number
+          question_order?: Json
           questions_json?: Json | null
           review_questions_json?: Json | null
           score_json?: Json | null

@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.submit-exam]
 verify_jwt = false
+
+[functions.start-exam]
+verify_jwt = false
