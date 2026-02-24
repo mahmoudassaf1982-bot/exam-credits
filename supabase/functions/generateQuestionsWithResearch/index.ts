@@ -18,7 +18,10 @@ interface GenerateRequest {
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 
 function jsonResponse(body: unknown, status = 200) {
-  return Response.json(body, { status, headers: jsonHeaders });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 function buildStrictJsonSchema(questionCount: number) {
@@ -645,14 +648,22 @@ serve(async (req) => {
     stage = "done";
     console.log("[generateQuestionsWithResearch] ✅ Inserted", inserted?.length, "questions");
 
-    return jsonResponse({
+    const insertedList = inserted || [];
+    const responsePayload: Record<string, unknown> = {
       ok: true,
       stage,
-      inserted_count: inserted?.length || 0,
-      inserted_ids: (inserted || []).map((q: any) => q.id),
-      questions: inserted || [],
+      inserted_count: insertedList.length,
+      inserted_ids: insertedList.map((q: any) => q.id),
+      questions: insertedList,
       warnings: [],
-      ...(debug ? { details: debugDetails } : {}),
+    };
+    if (debug) responsePayload.details = debugDetails;
+
+    const jsonStr = JSON.stringify(responsePayload);
+    console.log("[generateQuestionsWithResearch] ✅ Response size:", jsonStr.length, "bytes");
+    return new Response(jsonStr, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
     console.error("[generateQuestionsWithResearch] Error:", e);
