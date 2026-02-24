@@ -101,21 +101,28 @@ export default function AdminAIGenerator() {
       data = JSON.parse(responseText);
     } catch {
       console.error('Non-JSON response:', responseText.substring(0, 300));
-      throw new Error('الخادم أرجع استجابة غير صالحة — قد يكون السبب انتهاء المهلة الزمنية. جرّب عدد أسئلة أقل.');
+      setDebugInfo({ stage: 'json_parse', error: 'NON_JSON_RESPONSE', rawExcerpt: responseText.substring(0, 500) });
+      throw new Error('[json_parse] - الخادم أرجع استجابة غير صالحة');
     }
-    if (!response.ok || data?.ok === false) {
-      const stage = data?.stage || 'unknown';
-      const errMsg = data?.error || `HTTP ${response.status}`;
-      const details = data?.details || {};
-      console.log('AI_DEBUG_RESPONSE', response);
-      console.error('[AI-Gen DEBUG]', { stage, error: errMsg, details });
-      setDebugInfo({ stage, error: errMsg, rawExcerpt: details.raw_excerpt || details.raw_output_excerpt || details.raw_preview || JSON.stringify(details).substring(0, 500) });
-      throw new Error(`[${stage}] - ${errMsg}`);
+
+    console.log('AI_GENERATOR_RESPONSE', data);
+
+    // SUCCESS: data.ok is true AND we have questions
+    if (data?.ok === true && (data?.questions?.length > 0 || data?.count > 0)) {
+      return (data.questions || []).map((q: any) => ({
+        ...q,
+        options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+      }));
     }
-    return (data?.questions || []).map((q: any) => ({
-      ...q,
-      options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-    }));
+
+    // FAILURE: explicit ok:false OR no questions returned
+    const stage = data?.stage || 'unknown';
+    const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
+    const details = data?.details || {};
+    console.log('AI_DEBUG_RESPONSE', { status: response.status, data });
+    console.error('[AI-Gen DEBUG]', { stage, error: errMsg, details });
+    setDebugInfo({ stage, error: errMsg, rawExcerpt: details.raw_excerpt || details.raw_output_excerpt || details.raw_preview || JSON.stringify(details).substring(0, 500) });
+    throw new Error(`[${stage}] - ${errMsg}`);
   };
 
   const handleGenerate = async () => {
