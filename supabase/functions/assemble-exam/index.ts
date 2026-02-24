@@ -6,6 +6,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// ── Constants ──
+const PRACTICE_QUESTION_COUNT = 10;
+const PRACTICE_WEAK_RATIO = 0.6;   // 60% from weak sections
+const PRACTICE_MEDIUM_RATIO = 0.3; // 30% from medium sections
+const PRACTICE_RANDOM_RATIO = 0.1; // 10% random review
+
 // ── Types ──
 
 interface Section {
@@ -25,6 +31,12 @@ interface SectionScore {
   name: string;
 }
 
+interface SectionPerformance {
+  sectionId: string;
+  accuracy: number; // 0-100
+  tier: "weak" | "medium" | "strong";
+}
+
 // ── Helpers ──
 
 function computeDifficultyCounts(
@@ -39,6 +51,23 @@ function computeDifficultyCounts(
   return { easy, medium, hard };
 }
 
+/** Build adaptive difficulty mix based on past accuracy */
+function adaptiveDifficultyMix(accuracy: number): { easy: number; medium: number; hard: number } {
+  if (accuracy >= 80) {
+    // Strong: push harder
+    return { easy: 10, medium: 30, hard: 60 };
+  } else if (accuracy >= 60) {
+    // Medium: balanced with slight challenge
+    return { easy: 20, medium: 50, hard: 30 };
+  } else if (accuracy >= 40) {
+    // Weak: more easy/medium to build confidence
+    return { easy: 40, medium: 40, hard: 20 };
+  } else {
+    // Very weak: mostly easy
+    return { easy: 60, medium: 30, hard: 10 };
+  }
+}
+
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -47,23 +76,29 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-/** Find the weakest section from past session scores */
-function findWeakestSectionId(
+/** Categorize sections into weak/medium/strong based on past scores */
+function categorizeSections(
   sectionScores: Record<string, SectionScore>,
-  validSectionIds: Set<string>
-): string | null {
-  let weakestId: string | null = null;
-  let weakestPct = Infinity;
+  validSections: Section[]
+): SectionPerformance[] {
+  const performances: SectionPerformance[] = [];
 
-  for (const [sId, score] of Object.entries(sectionScores)) {
-    if (!validSectionIds.has(sId)) continue;
-    const pct = score.total > 0 ? score.correct / score.total : 0;
-    if (pct < weakestPct) {
-      weakestPct = pct;
-      weakestId = sId;
+  for (const section of validSections) {
+    const score = sectionScores[section.id];
+    let accuracy = 50; // default if no data
+    if (score && score.total > 0) {
+      accuracy = Math.round((score.correct / score.total) * 100);
     }
+
+    let tier: "weak" | "medium" | "strong";
+    if (accuracy < 50) tier = "weak";
+    else if (accuracy < 75) tier = "medium";
+    else tier = "strong";
+
+    performances.push({ sectionId: section.id, accuracy, tier });
   }
-  return weakestId;
+
+  return performances;
 }
 
 /** Count available approved questions for a section (with fallback pools) */
@@ -73,7 +108,6 @@ async function countAvailableQuestions(
   countryId: string,
   examTemplateId: string
 ): Promise<number> {
-  // Count section-specific questions
   const { count: sectionCount } = await admin
     .from("questions")
     .select("id", { count: "exact", head: true })
@@ -83,7 +117,6 @@ async function countAvailableQuestions(
 
   if ((sectionCount ?? 0) > 0) return sectionCount ?? 0;
 
-  // Fallback: template-level questions
   const { count: templateCount } = await admin
     .from("questions")
     .select("id", { count: "exact", head: true })
@@ -93,7 +126,6 @@ async function countAvailableQuestions(
 
   if ((templateCount ?? 0) > 0) return templateCount ?? 0;
 
-  // Fallback: all country questions
   const { count: countryCount } = await admin
     .from("questions")
     .select("id", { count: "exact", head: true })
@@ -103,15 +135,16 @@ async function countAvailableQuestions(
   return countryCount ?? 0;
 }
 
-/** Fetch questions for a single section with difficulty mix and fallback */
+/** Fetch questions for a single section with a specific difficulty mix and fallback */
 async function fetchSectionQuestions(
   admin: ReturnType<typeof createClient>,
   section: Section,
   targetCount: number,
   template: { country_id: string; id: string },
+  difficultyMixOverride: { easy: number; medium: number; hard: number } | null,
   excludeIds: string[] = []
 ) {
-  const mix = section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
+  const mix = difficultyMixOverride ?? section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
   const { easy, medium, hard } = computeDifficultyCounts(targetCount, mix);
   const topicFilters = section.topic_filter_json ?? [];
 
@@ -191,6 +224,20 @@ async function fetchSectionQuestions(
   }
 
   return { questions, usedIds: [...usedIds] };
+}
+
+/** Distribute question count across sections in a tier, proportionally */
+function distributeAcrossSections(sectionIds: string[], totalCount: number): Map<string, number> {
+  const result = new Map<string, number>();
+  if (sectionIds.length === 0 || totalCount <= 0) return result;
+
+  const perSection = Math.floor(totalCount / sectionIds.length);
+  let remainder = totalCount - perSection * sectionIds.length;
+
+  for (const id of sectionIds) {
+    result.set(id, perSection + (remainder-- > 0 ? 1 : 0));
+  }
+  return result;
 }
 
 // ── Main Handler ──
@@ -277,6 +324,8 @@ Deno.serve(async (req) => {
       );
     }
 
+    const typedSections = sections as Section[];
+
     // ── 3. Points cost & deduction ──
     let pointsCost = 0;
     if (session_type === "simulation") pointsCost = template.simulation_cost_points;
@@ -327,12 +376,22 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── 4. Adaptive practice logic ──
+    // ══════════════════════════════════════════════════
+    // BRANCH: PRACTICE (Smart Training) vs SIMULATION
+    // ══════════════════════════════════════════════════
+
+    const assembledQuestions: Record<string, unknown[]> = {};
+    const answersKey: Record<string, Record<string, { correct_option_id: string; explanation?: string }>> = {};
+    let totalQuestionCount = 0;
+    let practiceMode: "diagnostic" | "adaptive" = "diagnostic";
     let isDiagnostic = false;
-    let targetSectionId: string | null = null;
-    let practiceMode: "diagnostic" | "weakest" | "mixed" = "diagnostic";
+    let practiceMetadata: Record<string, unknown> = {};
 
     if (session_type === "practice") {
+      // ─── SMART TRAINING: 10 questions, weakness-based distribution ───
+      const totalPracticeQuestions = PRACTICE_QUESTION_COUNT;
+
+      // Check for past performance data
       const { data: pastSessions } = await admin
         .from("exam_sessions")
         .select("score_json")
@@ -341,160 +400,252 @@ Deno.serve(async (req) => {
         .in("status", ["completed", "submitted"])
         .not("score_json", "is", null)
         .order("completed_at", { ascending: false })
-        .limit(1);
+        .limit(5); // Use last 5 sessions for better accuracy
+
+      let sectionDistribution: Map<string, number>;
+      let sectionDifficultyMap: Map<string, { easy: number; medium: number; hard: number }>;
+      let activeSections: Section[];
 
       if (!pastSessions || pastSessions.length === 0) {
+        // ── NO HISTORY: Diagnostic mode — equal distribution, default difficulty ──
         isDiagnostic = true;
         practiceMode = "diagnostic";
+        activeSections = typedSections;
+
+        sectionDistribution = distributeAcrossSections(
+          typedSections.map((s) => s.id),
+          totalPracticeQuestions
+        );
+        sectionDifficultyMap = new Map(
+          typedSections.map((s) => [s.id, { easy: 30, medium: 50, hard: 20 }])
+        );
+
+        console.log(`[assemble-exam] Practice DIAGNOSTIC: ${totalPracticeQuestions} questions, equal across ${typedSections.length} sections`);
       } else {
-        const lastScore = pastSessions[0].score_json as {
-          section_scores?: Record<string, SectionScore>;
-        };
+        // ── HAS HISTORY: Adaptive mode — weighted by weakness ──
+        practiceMode = "adaptive";
 
-        if (lastScore?.section_scores) {
-          const validSectionIds = new Set((sections as Section[]).map((s) => s.id));
-          const weakestId = findWeakestSectionId(lastScore.section_scores, validSectionIds);
-
-          if (weakestId) {
-            const qCount = await countAvailableQuestions(admin, weakestId, template.country_id, template.id);
-            if (qCount > 0) {
-              targetSectionId = weakestId;
-              practiceMode = "weakest";
-            } else {
-              practiceMode = "mixed";
+        // Aggregate scores across last N sessions
+        const aggregatedScores: Record<string, { correct: number; total: number; name: string }> = {};
+        for (const ps of pastSessions) {
+          const scoreJson = ps.score_json as { section_scores?: Record<string, SectionScore> };
+          if (!scoreJson?.section_scores) continue;
+          for (const [sId, sc] of Object.entries(scoreJson.section_scores)) {
+            if (!aggregatedScores[sId]) {
+              aggregatedScores[sId] = { correct: 0, total: 0, name: sc.name };
             }
-          } else {
-            practiceMode = "mixed";
+            aggregatedScores[sId].correct += sc.correct;
+            aggregatedScores[sId].total += sc.total;
           }
-        } else {
-          isDiagnostic = true;
-          practiceMode = "diagnostic";
         }
-      }
-    }
 
-    // ── 5. Determine which sections to use and their exact question counts ──
-    const typedSections = sections as Section[];
-    let activeSections: Section[];
-    let sectionQuestionCounts: Map<string, number>;
+        // Categorize sections
+        const performances = categorizeSections(aggregatedScores, typedSections);
 
-    if (session_type === "practice" && practiceMode === "weakest" && targetSectionId) {
-      // Weakest section mode: use only that section with template's total question count
-      const targetSection = typedSections.find((s) => s.id === targetSectionId)!;
-      activeSections = [targetSection];
-      sectionQuestionCounts = new Map([[targetSectionId, template.default_question_count]]);
-    } else {
-      // All other modes: use ALL sections with their exact blueprint question_count
-      activeSections = typedSections;
-      sectionQuestionCounts = new Map(typedSections.map((s) => [s.id, s.question_count]));
-    }
+        const weakSections = performances.filter((p) => p.tier === "weak");
+        const mediumSections = performances.filter((p) => p.tier === "medium");
+        const strongSections = performances.filter((p) => p.tier === "strong");
 
-    // ── 6. VALIDATE: check each section has enough questions before proceeding ──
-    const insufficientSections: { name: string; required: number; available: number }[] = [];
+        // Calculate question counts per tier
+        let weakCount = Math.round(totalPracticeQuestions * PRACTICE_WEAK_RATIO);
+        let mediumCount = Math.round(totalPracticeQuestions * PRACTICE_MEDIUM_RATIO);
+        let randomCount = totalPracticeQuestions - weakCount - mediumCount;
 
-    for (const section of activeSections) {
-      const required = sectionQuestionCounts.get(section.id) ?? section.question_count;
-      const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id);
-
-      if (available < required) {
-        insufficientSections.push({
-          name: section.name_ar,
-          required,
-          available,
-        });
-      }
-    }
-
-    if (insufficientSections.length > 0) {
-      const details = insufficientSections
-        .map((s) => `${s.name}: مطلوب ${s.required}، متوفر ${s.available}`)
-        .join(" | ");
-
-      console.error(`[assemble-exam] Insufficient questions: ${details}`);
-
-      // Refund points if already deducted
-      if (!isDiamond && pointsCost > 0) {
-        const { data: wallet } = await admin
-          .from("wallets")
-          .select("balance")
-          .eq("user_id", user.id)
-          .single();
-
-        if (wallet) {
-          await admin
-            .from("wallets")
-            .update({ balance: wallet.balance + pointsCost })
-            .eq("user_id", user.id);
-
-          await admin.from("transactions").insert({
-            user_id: user.id,
-            type: "credit",
-            amount: pointsCost,
-            reason: "refund_insufficient_questions",
-            meta_json: { exam_template_id, session_type, insufficient_sections: insufficientSections },
-          });
+        // If no weak sections, redistribute to medium/random
+        if (weakSections.length === 0) {
+          mediumCount += weakCount;
+          weakCount = 0;
         }
-      }
+        // If no medium sections, redistribute to weak/random
+        if (mediumSections.length === 0) {
+          if (weakSections.length > 0) {
+            weakCount += mediumCount;
+          } else {
+            randomCount += mediumCount;
+          }
+          mediumCount = 0;
+        }
 
-      return new Response(
-        JSON.stringify({
-          error: "عدد الأسئلة المتوفرة غير كافٍ لبعض الأقسام",
-          details: insufficientSections,
-          message: details,
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+        // Distribute within tiers
+        const weakDist = distributeAcrossSections(weakSections.map((s) => s.sectionId), weakCount);
+        const medDist = distributeAcrossSections(mediumSections.map((s) => s.sectionId), mediumCount);
+        // Random comes from all sections (including strong)
+        const allSectionIds = typedSections.map((s) => s.id);
+        const randomDist = distributeAcrossSections(allSectionIds, randomCount);
 
-    // ── 7. Fetch questions for ALL sections using exact blueprint counts ──
-    const assembledQuestions: Record<string, unknown[]> = {};
-    const answersKey: Record<string, Record<string, { correct_option_id: string; explanation?: string }>> = {};
-    let totalQuestionCount = 0;
-    const allUsedIds: string[] = [];
+        // Merge distributions
+        sectionDistribution = new Map<string, number>();
+        for (const s of typedSections) {
+          const total = (weakDist.get(s.id) ?? 0) + (medDist.get(s.id) ?? 0) + (randomDist.get(s.id) ?? 0);
+          if (total > 0) sectionDistribution.set(s.id, total);
+        }
 
-    for (const section of activeSections) {
-      const requiredCount = sectionQuestionCounts.get(section.id) ?? section.question_count;
+        // Build adaptive difficulty per section
+        sectionDifficultyMap = new Map();
+        for (const perf of performances) {
+          sectionDifficultyMap.set(perf.sectionId, adaptiveDifficultyMix(perf.accuracy));
+        }
 
-      const { questions, usedIds } = await fetchSectionQuestions(
-        admin,
-        section,
-        requiredCount,
-        { country_id: template.country_id, id: template.id },
-        allUsedIds
-      );
-      allUsedIds.push(...usedIds);
+        activeSections = typedSections.filter((s) => (sectionDistribution.get(s.id) ?? 0) > 0);
 
-      const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
-      const strippedQuestions = questions.map((q: any) => {
-        sectionAnswerKeys[q.id] = {
-          correct_option_id: q.correct_option_id,
-          explanation: q.explanation || undefined,
+        practiceMetadata = {
+          section_performances: performances.map((p) => ({
+            section_id: p.sectionId,
+            section_name: typedSections.find((s) => s.id === p.sectionId)?.name_ar,
+            accuracy: p.accuracy,
+            tier: p.tier,
+            questions_assigned: sectionDistribution.get(p.sectionId) ?? 0,
+          })),
+          distribution: { weak: weakCount, medium: mediumCount, random: randomCount },
         };
-        let parsedOptions = q.options;
-        if (typeof parsedOptions === "string") {
-          try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = []; }
+
+        console.log(`[assemble-exam] Practice ADAPTIVE: weak=${weakCount} (${weakSections.length} sections), medium=${mediumCount} (${mediumSections.length} sections), random=${randomCount}`);
+      }
+
+      // Fetch questions per section with adaptive difficulty
+      const allUsedIds: string[] = [];
+      for (const section of activeSections!) {
+        const count = sectionDistribution!.get(section.id) ?? 0;
+        if (count <= 0) continue;
+
+        const diffMix = sectionDifficultyMap!.get(section.id) ?? null;
+
+        const { questions, usedIds } = await fetchSectionQuestions(
+          admin,
+          section,
+          count,
+          { country_id: template.country_id, id: template.id },
+          diffMix,
+          allUsedIds
+        );
+        allUsedIds.push(...usedIds);
+
+        const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
+        const strippedQuestions = questions.map((q: any) => {
+          sectionAnswerKeys[q.id] = {
+            correct_option_id: q.correct_option_id,
+            explanation: q.explanation || undefined,
+          };
+          let parsedOptions = q.options;
+          if (typeof parsedOptions === "string") {
+            try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = []; }
+          }
+          return { id: q.id, text_ar: q.text_ar, options: parsedOptions, difficulty: q.difficulty, topic: q.topic };
+        });
+
+        assembledQuestions[section.id] = shuffle(strippedQuestions);
+        answersKey[section.id] = sectionAnswerKeys;
+        totalQuestionCount += strippedQuestions.length;
+
+        console.log(`[assemble-exam] Practice section "${section.name_ar}": target=${count}, fetched=${strippedQuestions.length}, difficulty=${JSON.stringify(diffMix)}`);
+      }
+
+      // Validate we got enough questions total
+      if (totalQuestionCount === 0) {
+        // Refund
+        if (!isDiamond && pointsCost > 0) {
+          const { data: wallet } = await admin.from("wallets").select("balance").eq("user_id", user.id).single();
+          if (wallet) {
+            await admin.from("wallets").update({ balance: wallet.balance + pointsCost }).eq("user_id", user.id);
+            await admin.from("transactions").insert({
+              user_id: user.id, type: "credit", amount: pointsCost,
+              reason: "refund_insufficient_questions",
+              meta_json: { exam_template_id, session_type },
+            });
+          }
         }
-        return { id: q.id, text_ar: q.text_ar, options: parsedOptions, difficulty: q.difficulty, topic: q.topic };
-      });
+        return new Response(
+          JSON.stringify({ error: "لا توجد أسئلة كافية لبدء جلسة التدريب" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
-      assembledQuestions[section.id] = shuffle(strippedQuestions);
-      answersKey[section.id] = sectionAnswerKeys;
-      totalQuestionCount += strippedQuestions.length;
+    } else {
+      // ─── SIMULATION MODE: strict blueprint ───
+      // Validate each section has enough questions
+      const insufficientSections: { name: string; required: number; available: number }[] = [];
 
-      console.log(`[assemble-exam] Section "${section.name_ar}": required=${requiredCount}, fetched=${strippedQuestions.length}`);
+      for (const section of typedSections) {
+        const required = section.question_count;
+        const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id);
+        if (available < required) {
+          insufficientSections.push({ name: section.name_ar, required, available });
+        }
+      }
+
+      if (insufficientSections.length > 0) {
+        const details = insufficientSections
+          .map((s) => `${s.name}: مطلوب ${s.required}، متوفر ${s.available}`)
+          .join(" | ");
+
+        console.error(`[assemble-exam] Insufficient questions: ${details}`);
+
+        if (!isDiamond && pointsCost > 0) {
+          const { data: wallet } = await admin.from("wallets").select("balance").eq("user_id", user.id).single();
+          if (wallet) {
+            await admin.from("wallets").update({ balance: wallet.balance + pointsCost }).eq("user_id", user.id);
+            await admin.from("transactions").insert({
+              user_id: user.id, type: "credit", amount: pointsCost,
+              reason: "refund_insufficient_questions",
+              meta_json: { exam_template_id, session_type, insufficient_sections: insufficientSections },
+            });
+          }
+        }
+
+        return new Response(
+          JSON.stringify({ error: "عدد الأسئلة المتوفرة غير كافٍ لبعض الأقسام", details: insufficientSections, message: details }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Fetch exact blueprint counts per section
+      const allUsedIds: string[] = [];
+      for (const section of typedSections) {
+        const { questions, usedIds } = await fetchSectionQuestions(
+          admin,
+          section,
+          section.question_count,
+          { country_id: template.country_id, id: template.id },
+          null, // use section's own difficulty mix
+          allUsedIds
+        );
+        allUsedIds.push(...usedIds);
+
+        const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
+        const strippedQuestions = questions.map((q: any) => {
+          sectionAnswerKeys[q.id] = {
+            correct_option_id: q.correct_option_id,
+            explanation: q.explanation || undefined,
+          };
+          let parsedOptions = q.options;
+          if (typeof parsedOptions === "string") {
+            try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = []; }
+          }
+          return { id: q.id, text_ar: q.text_ar, options: parsedOptions, difficulty: q.difficulty, topic: q.topic };
+        });
+
+        assembledQuestions[section.id] = shuffle(strippedQuestions);
+        answersKey[section.id] = sectionAnswerKeys;
+        totalQuestionCount += strippedQuestions.length;
+
+        console.log(`[assemble-exam] Simulation section "${section.name_ar}": required=${section.question_count}, fetched=${strippedQuestions.length}`);
+      }
     }
 
-    // ── 8. Build question_order ──
+    // ── Build question_order ──
     const questionOrder: string[] = [];
-    for (const section of activeSections) {
+    const snapshotSections: Section[] = [];
+    for (const section of typedSections) {
       const sqs = assembledQuestions[section.id] || [];
+      if ((sqs as any[]).length === 0) continue;
+      snapshotSections.push(section);
       for (const q of sqs as any[]) {
         questionOrder.push(q.id);
       }
     }
 
-    // ── 9. Build frozen snapshot ──
-    const examSnapshot = {
+    // ── Build frozen snapshot ──
+    const examSnapshot: Record<string, unknown> = {
       template: {
         id: template.id,
         name_ar: template.name_ar,
@@ -503,7 +654,7 @@ Deno.serve(async (req) => {
         default_time_limit_sec: template.default_time_limit_sec,
         default_question_count: template.default_question_count,
       },
-      sections: activeSections.map((s) => ({
+      sections: snapshotSections.map((s) => ({
         id: s.id,
         name_ar: s.name_ar,
         order: s.order,
@@ -512,15 +663,20 @@ Deno.serve(async (req) => {
         difficulty_mix_json: s.difficulty_mix_json,
         topic_filter_json: s.topic_filter_json,
       })),
-      practice_mode: session_type === "practice" ? practiceMode : undefined,
-      is_diagnostic: session_type === "practice" ? isDiagnostic : undefined,
-      target_section_id: targetSectionId || undefined,
-      target_section_name: targetSectionId
-        ? typedSections.find((s) => s.id === targetSectionId)?.name_ar
-        : undefined,
     };
 
-    // ── 10. Create session ──
+    if (session_type === "practice") {
+      examSnapshot.practice_mode = practiceMode;
+      examSnapshot.is_diagnostic = isDiagnostic;
+      examSnapshot.practice_metadata = practiceMetadata;
+    }
+
+    // ── Create session ──
+    // Practice gets a shorter time limit (10 questions → ~10 min)
+    const timeLimitSec = session_type === "practice"
+      ? Math.max(600, totalQuestionCount * 60) // 1 min per question, min 10 min
+      : template.default_time_limit_sec;
+
     const { data: session, error: sessionErr } = await admin
       .from("exam_sessions")
       .insert({
@@ -531,7 +687,7 @@ Deno.serve(async (req) => {
         exam_snapshot: examSnapshot,
         questions_json: assembledQuestions,
         answers_json: {},
-        time_limit_sec: template.default_time_limit_sec,
+        time_limit_sec: timeLimitSec,
         points_cost: isDiamond ? 0 : pointsCost,
         question_order: questionOrder,
         order_locked: true,
@@ -550,22 +706,17 @@ Deno.serve(async (req) => {
     // Store answer keys
     const { error: keyErr } = await admin
       .from("exam_answer_keys")
-      .insert({
-        session_id: session.id,
-        answers_key_json: answersKey,
-      });
+      .insert({ session_id: session.id, answers_key_json: answersKey });
 
-    if (keyErr) {
-      console.error("Answer keys storage error:", keyErr);
-    }
+    if (keyErr) console.error("Answer keys storage error:", keyErr);
 
-    console.log(`[assemble-exam] Session ${session.id} created: ${totalQuestionCount} questions across ${activeSections.length} sections`);
+    console.log(`[assemble-exam] Session ${session.id} created: ${totalQuestionCount} questions, type=${session_type}, mode=${session_type === "practice" ? practiceMode : "blueprint"}`);
 
     return new Response(
       JSON.stringify({
         session_id: session.id,
         total_questions: totalQuestionCount,
-        sections_count: activeSections.length,
+        sections_count: snapshotSections.length,
         points_deducted: isDiamond ? 0 : pointsCost,
         practice_mode: session_type === "practice" ? practiceMode : undefined,
         is_diagnostic: session_type === "practice" ? isDiagnostic : undefined,
