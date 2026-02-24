@@ -648,9 +648,10 @@ serve(async (req) => {
     return jsonResponse({
       ok: true,
       stage,
-      success: true,
-      count: inserted?.length || 0,
+      inserted_count: inserted?.length || 0,
+      inserted_ids: (inserted || []).map((q: any) => q.id),
       questions: inserted || [],
+      warnings: [],
       ...(debug ? { details: debugDetails } : {}),
     });
   } catch (e) {
