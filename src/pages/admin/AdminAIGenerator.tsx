@@ -107,9 +107,10 @@ export default function AdminAIGenerator() {
       const stage = data?.stage || 'unknown';
       const errMsg = data?.error || `HTTP ${response.status}`;
       const details = data?.details || {};
+      console.log('AI_DEBUG_RESPONSE', response);
       console.error('[AI-Gen DEBUG]', { stage, error: errMsg, details });
-      setDebugInfo({ stage, error: errMsg, rawExcerpt: details.raw_excerpt || details.raw_preview || JSON.stringify(details).substring(0, 500) });
-      throw new Error(`[${stage}] ${errMsg}`);
+      setDebugInfo({ stage, error: errMsg, rawExcerpt: details.raw_excerpt || details.raw_output_excerpt || details.raw_preview || JSON.stringify(details).substring(0, 500) });
+      throw new Error(`[${stage}] - ${errMsg}`);
     }
     return (data?.questions || []).map((q: any) => ({
       ...q,
@@ -154,7 +155,7 @@ export default function AdminAIGenerator() {
       toast({ title: 'تم توليد الأسئلة بنجاح! ✨', description: `تم توليد ${allQuestions.length} سؤال وحفظها في بنك الأسئلة` });
     } catch (e: any) {
       setProgress('');
-      toast({ title: 'خطأ', description: e.message || 'حدث خطأ', variant: 'destructive' });
+      toast({ title: 'خطأ', description: e?.message ?? 'UNKNOWN_DEBUG_ERROR', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
