@@ -64,11 +64,25 @@ export default function AdminAIGenerator() {
     setResults([]);
 
     try {
-      const { data, error } = await supabase.functions.invoke('generateQuestionsWithResearch', {
-        body: { country, examTemplateId: examTemplateId || null, numberOfQuestions, difficulty },
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generateQuestionsWithResearch`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ country, examTemplateId: examTemplateId || null, numberOfQuestions, difficulty }),
+        signal: controller.signal,
       });
 
-      if (error) throw new Error(error.message);
+      clearTimeout(timeout);
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
       if (data?.error) throw new Error(data.error);
 
       const questions = (data?.questions || []).map((q: any) => ({
