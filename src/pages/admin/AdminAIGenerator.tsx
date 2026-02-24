@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, CheckCircle } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,6 +23,23 @@ interface ExamTemplate { id: string; country_id: string; name_ar: string; }
 
 const optionLabels = ['أ', 'ب', 'ج', 'د'];
 
+function DebugDetails({ rawExcerpt }: { rawExcerpt: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        تفاصيل الاستجابة
+      </button>
+      {open && (
+        <pre dir="ltr" className="mt-2 p-3 bg-muted rounded text-xs overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
+          {rawExcerpt}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 export default function AdminAIGenerator() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -35,6 +52,7 @@ export default function AdminAIGenerator() {
   const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
   const [progress, setProgress] = useState('');
+  const [debugInfo, setDebugInfo] = useState<{ stage: string; error: string; rawExcerpt: string } | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -71,7 +89,7 @@ export default function AdminAIGenerator() {
         'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       },
-      body: JSON.stringify({ country, examTemplateId: examTemplateId || null, numberOfQuestions: count, difficulty }),
+      body: JSON.stringify({ country, examTemplateId: examTemplateId || null, numberOfQuestions: count, difficulty, debug: true }),
       signal: controller.signal,
     });
 
@@ -85,8 +103,14 @@ export default function AdminAIGenerator() {
       console.error('Non-JSON response:', responseText.substring(0, 300));
       throw new Error('الخادم أرجع استجابة غير صالحة — قد يكون السبب انتهاء المهلة الزمنية. جرّب عدد أسئلة أقل.');
     }
-    if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
-    if (data?.error) throw new Error(data.error);
+    if (!response.ok || data?.ok === false) {
+      const stage = data?.stage || 'unknown';
+      const errMsg = data?.error || `HTTP ${response.status}`;
+      const details = data?.details || {};
+      console.error('[AI-Gen DEBUG]', { stage, error: errMsg, details });
+      setDebugInfo({ stage, error: errMsg, rawExcerpt: details.raw_excerpt || details.raw_preview || JSON.stringify(details).substring(0, 500) });
+      throw new Error(`[${stage}] ${errMsg}`);
+    }
     return (data?.questions || []).map((q: any) => ({
       ...q,
       options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
@@ -98,6 +122,7 @@ export default function AdminAIGenerator() {
     setLoading(true);
     setResults([]);
     setProgress('');
+    setDebugInfo(null);
 
     try {
       const BATCH_SIZE = 15;
@@ -195,6 +220,23 @@ export default function AdminAIGenerator() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {debugInfo && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="border-destructive">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                فشل التوليد — المرحلة: <code className="bg-muted px-2 py-0.5 rounded text-sm">{debugInfo.stage}</code>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm font-medium">{debugInfo.error}</p>
+              {debugInfo.rawExcerpt && <DebugDetails rawExcerpt={debugInfo.rawExcerpt} />}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {results.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
