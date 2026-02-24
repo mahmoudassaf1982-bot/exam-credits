@@ -34,6 +34,7 @@ export default function AdminAIGenerator() {
   const [examTemplateId, setExamTemplateId] = useState('');
   const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
+  const [progress, setProgress] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -58,48 +59,76 @@ export default function AdminAIGenerator() {
     }
   }, [country, filteredExams]);
 
+  const callGenerate = async (count: number): Promise<any[]> => {
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generateQuestionsWithResearch`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 300000);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({ country, examTemplateId: examTemplateId || null, numberOfQuestions: count, difficulty }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    const responseText = await response.text();
+    let data: any;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      console.error('Non-JSON response:', responseText.substring(0, 300));
+      throw new Error('الخادم أرجع استجابة غير صالحة — قد يكون السبب انتهاء المهلة الزمنية. جرّب عدد أسئلة أقل.');
+    }
+    if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+    if (data?.error) throw new Error(data.error);
+    return (data?.questions || []).map((q: any) => ({
+      ...q,
+      options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+    }));
+  };
+
   const handleGenerate = async () => {
     if (!country) { toast({ title: 'يرجى اختيار الدولة', variant: 'destructive' }); return; }
     setLoading(true);
     setResults([]);
+    setProgress('');
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generateQuestionsWithResearch`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+      const BATCH_SIZE = 15;
+      const allQuestions: any[] = [];
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify({ country, examTemplateId: examTemplateId || null, numberOfQuestions, difficulty }),
-        signal: controller.signal,
-      });
+      if (numberOfQuestions <= BATCH_SIZE) {
+        setProgress(`جارٍ توليد ${numberOfQuestions} سؤال...`);
+        const questions = await callGenerate(numberOfQuestions);
+        allQuestions.push(...questions);
+      } else {
+        // Split into batches to avoid gateway timeout
+        const batches: number[] = [];
+        let remaining = numberOfQuestions;
+        while (remaining > 0) {
+          const batch = Math.min(remaining, BATCH_SIZE);
+          batches.push(batch);
+          remaining -= batch;
+        }
 
-      clearTimeout(timeout);
-
-      const responseText = await response.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        console.error('Non-JSON response:', responseText.substring(0, 200));
-        throw new Error('الخادم أرجع استجابة غير صالحة. يرجى المحاولة مرة أخرى.');
+        for (let i = 0; i < batches.length; i++) {
+          setProgress(`جارٍ توليد الدفعة ${i + 1} من ${batches.length} (${allQuestions.length}/${numberOfQuestions} سؤال)...`);
+          const questions = await callGenerate(batches[i]);
+          allQuestions.push(...questions);
+        }
       }
-      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
-      if (data?.error) throw new Error(data.error);
 
-      const questions = (data?.questions || []).map((q: any) => ({
-        ...q,
-        options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-      }));
-
-      setResults(questions);
-      toast({ title: 'تم توليد الأسئلة بنجاح! ✨', description: `تم توليد ${questions.length} سؤال وحفظها في بنك الأسئلة` });
+      setResults(allQuestions);
+      setProgress('');
+      toast({ title: 'تم توليد الأسئلة بنجاح! ✨', description: `تم توليد ${allQuestions.length} سؤال وحفظها في بنك الأسئلة` });
     } catch (e: any) {
+      setProgress('');
       toast({ title: 'خطأ', description: e.message || 'حدث خطأ', variant: 'destructive' });
     } finally {
       setLoading(false);
@@ -158,8 +187,11 @@ export default function AdminAIGenerator() {
               </div>
             </div>
             <Button onClick={handleGenerate} disabled={loading || !country} className="w-full gradient-primary text-primary-foreground" size="lg">
-              {loading ? <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</> : <><Sparkles className="h-4 w-4 ml-2" />توليد الأسئلة</>}
+              {loading ? <><Loader2 className="h-4 w-4 animate-spin ml-2" />{progress || 'جارٍ التوليد...'}</> : <><Sparkles className="h-4 w-4 ml-2" />توليد الأسئلة</>}
             </Button>
+            {numberOfQuestions > 15 && !loading && (
+              <p className="text-xs text-muted-foreground text-center">سيتم تقسيم التوليد إلى دفعات لضمان الاستقرار</p>
+            )}
           </CardContent>
         </Card>
       </motion.div>
