@@ -57,9 +57,13 @@ interface ExamSessionData {
       default_time_limit_sec: number;
     };
     sections: SectionSnapshot[];
-    practice_mode?: 'diagnostic' | 'weakest' | 'mixed';
+    practice_mode?: 'diagnostic' | 'adaptive' | 'weakest' | 'mixed';
     is_diagnostic?: boolean;
     target_section_name?: string;
+    practice_metadata?: {
+      section_performances?: { section_name: string; accuracy: number; tier: string; questions_assigned: number }[];
+      distribution?: { weak: number; medium: number; random: number };
+    };
   };
   questions_json: Record<string, QuestionData[]>;
   review_questions_json: Record<string, FullQuestionData[]> | null;
@@ -402,10 +406,10 @@ export default function ExamSession() {
             <p className="mt-2 text-muted-foreground">
               {session.session_type === 'practice'
                 ? session.exam_snapshot.is_diagnostic
-                  ? `تدريب تشخيصي - ${session.exam_snapshot.template.name_ar}`
-                  : session.exam_snapshot.practice_mode === 'weakest'
-                  ? `تدريب ذكي (${session.exam_snapshot.target_section_name}) - ${session.exam_snapshot.template.name_ar}`
-                  : `تدريب ذكي - ${session.exam_snapshot.template.name_ar}`
+                   ? `تدريب تشخيصي - ${session.exam_snapshot.template.name_ar}`
+                   : session.exam_snapshot.practice_mode === 'adaptive'
+                   ? `تدريب ذكي تكيّفي - ${session.exam_snapshot.template.name_ar}`
+                   : `تدريب ذكي - ${session.exam_snapshot.template.name_ar}`
                 : session.exam_snapshot.template.name_ar}
             </p>
 
@@ -491,10 +495,10 @@ export default function ExamSession() {
             <h2 className="font-bold text-sm sm:text-base truncate max-w-[200px]">
               {session.session_type === 'practice'
                 ? session.exam_snapshot.is_diagnostic
-                  ? '🔍 تدريب تشخيصي'
-                  : session.exam_snapshot.practice_mode === 'weakest'
-                  ? `🎯 تدريب ذكي: ${session.exam_snapshot.target_section_name || ''}`
-                  : '🧠 تدريب ذكي'
+                   ? '🔍 تدريب تشخيصي'
+                   : session.exam_snapshot.practice_mode === 'adaptive'
+                   ? '🎯 تدريب ذكي تكيّفي'
+                   : '🧠 تدريب ذكي'
                 : session.exam_snapshot.template.name_ar}
             </h2>
             {currentSection && (
