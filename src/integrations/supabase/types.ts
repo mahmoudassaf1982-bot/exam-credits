@@ -480,6 +480,63 @@ export type Database = {
         }
         Relationships: []
       }
+      question_drafts: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          count: number
+          country_id: string
+          created_at: string
+          created_by: string
+          difficulty: string
+          draft_questions_json: Json
+          exam_template_id: string | null
+          generator_model: string
+          id: string
+          notes: string | null
+          reviewer_model: string
+          reviewer_report_json: Json | null
+          section_id: string | null
+          status: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          count?: number
+          country_id: string
+          created_at?: string
+          created_by: string
+          difficulty?: string
+          draft_questions_json?: Json
+          exam_template_id?: string | null
+          generator_model?: string
+          id?: string
+          notes?: string | null
+          reviewer_model?: string
+          reviewer_report_json?: Json | null
+          section_id?: string | null
+          status?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          count?: number
+          country_id?: string
+          created_at?: string
+          created_by?: string
+          difficulty?: string
+          draft_questions_json?: Json
+          exam_template_id?: string | null
+          generator_model?: string
+          id?: string
+          notes?: string | null
+          reviewer_model?: string
+          reviewer_report_json?: Json | null
+          section_id?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       questions: {
         Row: {
           correct_option_id: string
@@ -487,6 +544,7 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           difficulty: string
+          draft_id: string | null
           exam_template_id: string | null
           explanation: string | null
           id: string
@@ -504,6 +562,7 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           difficulty?: string
+          draft_id?: string | null
           exam_template_id?: string | null
           explanation?: string | null
           id?: string
@@ -521,6 +580,7 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           difficulty?: string
+          draft_id?: string | null
           exam_template_id?: string | null
           explanation?: string | null
           id?: string
@@ -532,7 +592,15 @@ export type Database = {
           text_ar?: string
           topic?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "questions_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "question_drafts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       score_predictions: {
         Row: {
