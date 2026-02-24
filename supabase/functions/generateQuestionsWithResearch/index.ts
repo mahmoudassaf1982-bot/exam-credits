@@ -12,6 +12,7 @@ interface GenerateRequest {
   examTemplateId?: string | null;
   numberOfQuestions: number;
   difficulty: string;
+  debug?: boolean;
 }
 
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
@@ -62,34 +63,48 @@ function buildStrictJsonSchema(questionCount: number) {
   };
 }
 
-function parseQuestionsFromRaw(raw: string): { ok: true; questions: any[] } | { ok: false; reason: string } {
-  let cleaned = raw.trim();
-  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) cleaned = codeBlockMatch[1].trim();
+function parseQuestionsFromRaw(raw: string):
+  | { ok: true; questions: any[]; normalized: string }
+  | { ok: false; reason: string; parsingError?: string; candidate?: string } {
+  const withoutFences = raw
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
 
-  const firstBracket = cleaned.search(/[\[{]/);
-  if (firstBracket > 0) cleaned = cleaned.slice(firstBracket);
-
-  const lastArrayEnd = cleaned.lastIndexOf("]");
-  const lastObjEnd = cleaned.lastIndexOf("}");
-  const endIndex = Math.max(lastArrayEnd, lastObjEnd);
-  if (endIndex > -1) cleaned = cleaned.slice(0, endIndex + 1);
+  const arrayMatch = withoutFences.match(/\[[\s\S]*\]/);
+  const objectMatch = withoutFences.match(/\{[\s\S]*\}/);
+  const extracted = (arrayMatch?.[0] || objectMatch?.[0] || withoutFences).trim();
 
   const attempts = [
-    cleaned,
-    cleaned.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]").replace(/[\x00-\x1F\x7F]/g, ""),
+    extracted,
+    extracted
+      .replace(/,\s*}/g, "}")
+      .replace(/,\s*]/g, "]")
+      .replace(/[\x00-\x1F\x7F]/g, ""),
   ];
 
+  let lastError = "UNKNOWN_PARSE_ERROR";
   for (const candidate of attempts) {
     try {
       const parsed = JSON.parse(candidate);
-      if (Array.isArray(parsed) && parsed.length > 0) return { ok: true, questions: parsed };
-    } catch {
-      // try next repair attempt
+      if (!Array.isArray(parsed)) {
+        return { ok: false, reason: "PARSED_JSON_IS_NOT_ARRAY", candidate: candidate.substring(0, 2000) };
+      }
+      if (parsed.length === 0) {
+        return { ok: false, reason: "PARSED_ARRAY_IS_EMPTY", candidate: candidate.substring(0, 2000) };
+      }
+      return { ok: true, questions: parsed, normalized: candidate };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : "UNKNOWN_PARSE_ERROR";
     }
   }
 
-  return { ok: false, reason: "INVALID_OR_EMPTY_JSON" };
+  return {
+    ok: false,
+    reason: "INVALID_OR_EMPTY_JSON",
+    parsingError: lastError,
+    candidate: extracted.substring(0, 2000),
+  };
 }
 // ─── Blueprint Types ─────────────────────────────────────────────────
 
@@ -342,12 +357,46 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let stage = "validate_input";
+  let debug = false;
+  const debugDetails: Record<string, unknown> = {};
+
   try {
     const params: GenerateRequest = await req.json();
+    debug = Boolean(params?.debug);
+
+    if (debug) {
+      debugDetails.request = {
+        country: params?.country,
+        examTemplateId: params?.examTemplateId ?? null,
+        numberOfQuestions: params?.numberOfQuestions,
+        difficulty: params?.difficulty,
+      };
+    }
+
+    if (!params?.country || !params?.difficulty || !Number.isFinite(params?.numberOfQuestions) || params.numberOfQuestions < 1) {
+      return jsonResponse({
+        ok: false,
+        stage,
+        error: "INVALID_INPUT",
+        details: {
+          message: "country, difficulty, numberOfQuestions are required",
+          ...(debug ? debugDetails : {}),
+        },
+      }, 400);
+    }
+
     console.log("[generateQuestionsWithResearch] params:", JSON.stringify(params));
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    if (!LOVABLE_API_KEY) {
+      return jsonResponse({
+        ok: false,
+        stage,
+        error: "MISSING_API_KEY",
+        details: { ...(debug ? debugDetails : {}) },
+      }, 500);
+    }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -360,11 +409,12 @@ serve(async (req) => {
       baseline_time: blueprint.exam.format.baseline_time_seconds,
     }));
 
+    stage = "call_model";
+
     const liteMode = params.numberOfQuestions === 1;
     const systemPrompt = buildSystemPrompt(blueprint);
     const userPrompt = buildUserPrompt(blueprint, params.difficulty, liteMode);
 
-    // Prefer fast models to avoid gateway timeouts on generation-heavy prompts
     const model = params.numberOfQuestions <= 3
       ? "google/gemini-3-flash-preview"
       : "google/gemini-2.5-flash";
@@ -396,18 +446,9 @@ serve(async (req) => {
       body: JSON.stringify(requestBody),
     });
 
-    // Fallback for providers/models that don't support strict response_format
     if (aiResponse.status === 400) {
       const errText = await aiResponse.text();
       console.warn("[generateQuestionsWithResearch] response_format rejected, retrying without schema:", errText.substring(0, 300));
-
-      const fallbackBody = {
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      };
 
       aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
@@ -415,104 +456,165 @@ serve(async (req) => {
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(fallbackBody),
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
       });
     }
 
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
-      console.error("[generateQuestionsWithResearch] AI error:", aiResponse.status, errText);
-      if (aiResponse.status === 429) {
-        return jsonResponse({ error: "تم تجاوز حد الطلبات، حاول مرة أخرى لاحقاً" }, 429);
-      }
-      if (aiResponse.status === 402) {
-        return jsonResponse({ error: "يرجى إضافة رصيد للمنصة" }, 402);
-      }
+      const status = aiResponse.status;
       return jsonResponse({
-        error: `AI gateway error: ${aiResponse.status}`,
-        details: errText.substring(0, 2000),
-      }, 500);
+        ok: false,
+        stage,
+        error: status === 429
+          ? "RATE_LIMITED"
+          : status === 402
+            ? "INSUFFICIENT_CREDITS"
+            : "AI_GATEWAY_ERROR",
+        details: {
+          status,
+          response_excerpt: errText.substring(0, 1200),
+          ...(debug ? debugDetails : {}),
+        },
+      }, status === 429 || status === 402 ? status : 500);
     }
 
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content || "";
-    console.log("[generateQuestionsWithResearch] AI response length:", rawContent.length);
-    console.log("[generateQuestionsWithResearch] AI raw response preview:", rawContent.substring(0, 1000));
+    const rawOutputLength = rawContent.length;
+    const rawOutputExcerpt = rawContent.substring(0, 500);
+
+    console.log("[generateQuestionsWithResearch] AI response length:", rawOutputLength);
+    console.log("[generateQuestionsWithResearch] AI raw response preview:", rawOutputExcerpt);
+
+    if (debug) {
+      debugDetails.raw_output_length = rawOutputLength;
+      debugDetails.raw_output_excerpt = rawOutputExcerpt;
+      debugDetails.model = model;
+    }
+
+    stage = "parse_output";
 
     const parsed = parseQuestionsFromRaw(rawContent);
     if (!parsed.ok) {
       return jsonResponse({
-        error: "فشل في تحليل استجابة الذكاء الاصطناعي",
-        cause: parsed.reason,
-        model,
-        response_length: rawContent.length,
-        raw_response: rawContent.substring(0, 4000),
-      }, 502);
+        ok: false,
+        stage,
+        error: "FAILED_TO_PARSE_MODEL_OUTPUT",
+        details: {
+          reason: parsed.reason,
+          parsing_error: parsed.parsingError || null,
+          extracted_candidate_excerpt: parsed.candidate?.substring(0, 500) || null,
+          ...(debug ? debugDetails : {}),
+        },
+      }, 500);
     }
 
     const questions = parsed.questions;
 
-    if (!Array.isArray(questions) || questions.length === 0) {
-      return jsonResponse({
-        error: "لم يتم توليد أي أسئلة",
-        model,
-        response_length: rawContent.length,
-        raw_response: rawContent.substring(0, 1500),
-      }, 502);
-    }
-
     if (questions.length !== params.numberOfQuestions) {
       return jsonResponse({
-        error: "عدد الأسئلة المولّدة لا يطابق المطلوب",
-        requested: params.numberOfQuestions,
-        received: questions.length,
-        model,
-        response_length: rawContent.length,
-        raw_response: rawContent.substring(0, 2000),
-      }, 502);
+        ok: false,
+        stage,
+        error: "QUESTION_COUNT_MISMATCH",
+        details: {
+          requested: params.numberOfQuestions,
+          received: questions.length,
+          ...(debug ? debugDetails : {}),
+        },
+      }, 500);
     }
+
+    stage = "normalize";
 
     const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
     const optionIds = ["a", "b", "c", "d"];
+    const dbRows: any[] = [];
 
-    const dbRows = questions.map((q: any) => {
-      // Support both new format (options as object {A,B,C,D}) and legacy (array)
-      let optionsArr: string[];
-      if (q.options && typeof q.options === "object" && !Array.isArray(q.options)) {
-        optionsArr = [q.options.A, q.options.B, q.options.C, q.options.D];
-      } else {
-        optionsArr = q.options || [];
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const missingFields: string[] = [];
+
+      if (!q || typeof q !== "object") missingFields.push("question_object");
+      if (!q?.question_text || typeof q.question_text !== "string") missingFields.push("question_text");
+      if (!q?.options) missingFields.push("options");
+      if (!q?.correct_answer && typeof q?.correct_answer_index !== "number") missingFields.push("correct_answer");
+      if (typeof q?.explanation !== "string" || !q.explanation.trim()) missingFields.push("explanation");
+
+      let optionsArr: string[] = [];
+      if (q?.options && typeof q.options === "object" && !Array.isArray(q.options)) {
+        optionsArr = [q.options.A, q.options.B, q.options.C, q.options.D].filter(Boolean);
+      } else if (Array.isArray(q?.options)) {
+        optionsArr = q.options.filter((opt: unknown) => typeof opt === "string");
+      }
+      if (optionsArr.length !== 4) missingFields.push("options[4]");
+
+      if (missingFields.length > 0) {
+        return jsonResponse({
+          ok: false,
+          stage,
+          error: "SCHEMA_MISMATCH",
+          details: {
+            index: i,
+            missing_fields: missingFields,
+            question_excerpt: typeof q?.question_text === "string" ? q.question_text.substring(0, 140) : null,
+            ...(debug ? debugDetails : {}),
+          },
+        }, 500);
       }
 
-      const options = optionsArr.map((text: string, i: number) => ({
-        id: optionIds[i] || `opt_${i}`,
+      const options = optionsArr.map((text: string, idx: number) => ({
+        id: optionIds[idx] || `opt_${idx}`,
         textAr: text,
       }));
 
-      // Support both new format (correct_answer: "A") and legacy (correct_answer_index: 0)
       let correctIdx = 0;
       if (q.correct_answer && typeof q.correct_answer === "string") {
-        correctIdx = letterToIndex[q.correct_answer.toUpperCase()] ?? 0;
+        correctIdx = letterToIndex[q.correct_answer.toUpperCase()] ?? -1;
       } else if (typeof q.correct_answer_index === "number") {
         correctIdx = q.correct_answer_index;
+      }
+
+      if (correctIdx < 0 || correctIdx > 3) {
+        return jsonResponse({
+          ok: false,
+          stage,
+          error: "SCHEMA_MISMATCH",
+          details: {
+            index: i,
+            missing_fields: ["correct_answer_validity"],
+            ...(debug ? debugDetails : {}),
+          },
+        }, 500);
       }
 
       const section = q.metadata?.section || q.topic || blueprint.exam.name;
       const difficulty = q.metadata?.difficulty || q.difficulty || params.difficulty || "medium";
 
-      return {
+      const row = {
         country_id: params.country,
         exam_template_id: params.examTemplateId || null,
+        section_id: null,
         topic: section,
         difficulty,
         text_ar: q.question_text,
-        options: options,
-        correct_option_id: optionIds[correctIdx] || "a",
-        explanation: q.explanation || null,
+        options,
+        correct_option_id: optionIds[correctIdx],
+        explanation: q.explanation,
         is_approved: false,
         source: "ai",
       };
-    });
+
+      dbRows.push(row);
+    }
+
+    stage = "db_insert";
 
     const { data: inserted, error: insertError } = await supabase
       .from("questions")
@@ -520,16 +622,44 @@ serve(async (req) => {
       .select();
 
     if (insertError) {
-      console.error("[generateQuestionsWithResearch] Insert error:", insertError);
-      throw new Error("فشل في حفظ الأسئلة: " + insertError.message);
+      const likelyField =
+        insertError.message.match(/column\s+"([^"]+)"/i)?.[1] ||
+        insertError.details?.match(/\(([^)]+)\)/)?.[1] ||
+        null;
+
+      return jsonResponse({
+        ok: false,
+        stage,
+        error: "DB_INSERT_FAILED",
+        details: {
+          message: insertError.message,
+          code: insertError.code,
+          hint: insertError.hint,
+          db_details: insertError.details,
+          likely_field: likelyField,
+          ...(debug ? debugDetails : {}),
+        },
+      }, 500);
     }
 
+    stage = "done";
     console.log("[generateQuestionsWithResearch] ✅ Inserted", inserted?.length, "questions");
 
-    return jsonResponse({ success: true, questions: inserted, count: inserted?.length });
+    return jsonResponse({
+      ok: true,
+      stage,
+      success: true,
+      count: inserted?.length || 0,
+      questions: inserted || [],
+      ...(debug ? { details: debugDetails } : {}),
+    });
   } catch (e) {
     console.error("[generateQuestionsWithResearch] Error:", e);
-    const message = e instanceof Error ? e.message : "حدث خطأ أثناء توليد الأسئلة.";
-    return jsonResponse({ error: message }, 500);
+    return jsonResponse({
+      ok: false,
+      stage,
+      error: e instanceof Error ? e.message : "حدث خطأ أثناء توليد الأسئلة.",
+      details: debug ? debugDetails : {},
+    }, 500);
   }
 });
