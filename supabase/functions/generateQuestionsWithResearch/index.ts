@@ -14,6 +14,83 @@ interface GenerateRequest {
   difficulty: string;
 }
 
+const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+
+function jsonResponse(body: unknown, status = 200) {
+  return Response.json(body, { status, headers: jsonHeaders });
+}
+
+function buildStrictJsonSchema(questionCount: number) {
+  return {
+    type: "array",
+    minItems: questionCount,
+    maxItems: questionCount,
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["question_text", "options", "correct_answer", "explanation", "metadata"],
+      properties: {
+        question_text: { type: "string" },
+        options: {
+          type: "object",
+          additionalProperties: false,
+          required: ["A", "B", "C", "D"],
+          properties: {
+            A: { type: "string" },
+            B: { type: "string" },
+            C: { type: "string" },
+            D: { type: "string" },
+          },
+        },
+        correct_answer: { type: "string", enum: ["A", "B", "C", "D"] },
+        explanation: { type: "string" },
+        metadata: {
+          type: "object",
+          additionalProperties: true,
+          required: ["difficulty", "expected_time_seconds", "source_refs"],
+          properties: {
+            section: { type: "string" },
+            difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+            thinking_type: { type: "string" },
+            purpose: { type: "string" },
+            expected_time_seconds: { type: "number" },
+            source_refs: { type: "array", items: { type: "string" } },
+          },
+        },
+      },
+    },
+  };
+}
+
+function parseQuestionsFromRaw(raw: string): { ok: true; questions: any[] } | { ok: false; reason: string } {
+  let cleaned = raw.trim();
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) cleaned = codeBlockMatch[1].trim();
+
+  const firstBracket = cleaned.search(/[\[{]/);
+  if (firstBracket > 0) cleaned = cleaned.slice(firstBracket);
+
+  const lastArrayEnd = cleaned.lastIndexOf("]");
+  const lastObjEnd = cleaned.lastIndexOf("}");
+  const endIndex = Math.max(lastArrayEnd, lastObjEnd);
+  if (endIndex > -1) cleaned = cleaned.slice(0, endIndex + 1);
+
+  const attempts = [
+    cleaned,
+    cleaned.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]").replace(/[\x00-\x1F\x7F]/g, ""),
+  ];
+
+  for (const candidate of attempts) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed) && parsed.length > 0) return { ok: true, questions: parsed };
+    } catch {
+      // try next repair attempt
+    }
+  }
+
+  return { ok: false, reason: "INVALID_OR_EMPTY_JSON" };
+}
 // ─── Blueprint Types ─────────────────────────────────────────────────
 
 interface ExamBlueprint {
@@ -242,9 +319,15 @@ You must generate EXACTLY the requested number of questions, matching:
 6. Distribute questions across sections evenly per weights above.`;
 }
 
-function buildUserPrompt(blueprint: ExamBlueprint, difficulty: string): string {
+function buildUserPrompt(blueprint: ExamBlueprint, difficulty: string, liteMode: boolean): string {
   const diffMap: Record<string, string> = { easy: "سهل", medium: "متوسط", hard: "صعب" };
   const diffAr = diffMap[difficulty] || difficulty;
+
+  if (liteMode) {
+    return `Generate exactly ${blueprint.exam.format.questions_total} questions only.
+Return JSON array only with keys: question_text, options(A/B/C/D), correct_answer, explanation, metadata.
+Keep each question short (<=2 lines), Arabic formal style, and no extra prose.`;
+  }
 
   return `Generate exactly ${blueprint.exam.format.questions_total} questions at difficulty level "${diffAr}" for "${blueprint.exam.name}".
 Apply all 7 EEDE phases (Understanding → Planning → Construction → Calibration → Self-Review → Output → Explanation).
@@ -277,64 +360,116 @@ serve(async (req) => {
       baseline_time: blueprint.exam.format.baseline_time_seconds,
     }));
 
+    const liteMode = params.numberOfQuestions === 1;
     const systemPrompt = buildSystemPrompt(blueprint);
-    const userPrompt = buildUserPrompt(blueprint, params.difficulty);
+    const userPrompt = buildUserPrompt(blueprint, params.difficulty, liteMode);
 
-    // Use flash for speed (pro times out on large batches due to gateway limits)
-    const model = params.numberOfQuestions <= 10
-      ? "google/gemini-2.5-pro"
+    // Prefer fast models to avoid gateway timeouts on generation-heavy prompts
+    const model = params.numberOfQuestions <= 3
+      ? "google/gemini-3-flash-preview"
       : "google/gemini-2.5-flash";
-    console.log("[generateQuestionsWithResearch] Using model:", model, "for", params.numberOfQuestions, "questions");
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    console.log("[generateQuestionsWithResearch] Using model:", model, "for", params.numberOfQuestions, "questions", "liteMode:", liteMode);
+
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "generated_exam_questions",
+          strict: true,
+          schema: buildStrictJsonSchema(params.numberOfQuestions),
+        },
+      },
+    };
+
+    let aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
+      body: JSON.stringify(requestBody),
+    });
+
+    // Fallback for providers/models that don't support strict response_format
+    if (aiResponse.status === 400) {
+      const errText = await aiResponse.text();
+      console.warn("[generateQuestionsWithResearch] response_format rejected, retrying without schema:", errText.substring(0, 300));
+
+      const fallbackBody = {
         model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-      }),
-    });
+      };
+
+      aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(fallbackBody),
+      });
+    }
 
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
       console.error("[generateQuestionsWithResearch] AI error:", aiResponse.status, errText);
       if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: "تم تجاوز حد الطلبات، حاول مرة أخرى لاحقاً" }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse({ error: "تم تجاوز حد الطلبات، حاول مرة أخرى لاحقاً" }, 429);
       }
       if (aiResponse.status === 402) {
-        return new Response(JSON.stringify({ error: "يرجى إضافة رصيد للمنصة" }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse({ error: "يرجى إضافة رصيد للمنصة" }, 402);
       }
-      throw new Error(`AI gateway error: ${aiResponse.status}`);
+      return jsonResponse({
+        error: `AI gateway error: ${aiResponse.status}`,
+        details: errText.substring(0, 2000),
+      }, 500);
     }
 
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content || "";
     console.log("[generateQuestionsWithResearch] AI response length:", rawContent.length);
+    console.log("[generateQuestionsWithResearch] AI raw response preview:", rawContent.substring(0, 1000));
 
-    let jsonStr = rawContent.trim();
-    const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
-
-    let questions: any[];
-    try {
-      questions = JSON.parse(jsonStr);
-    } catch {
-      console.error("[generateQuestionsWithResearch] JSON parse error, raw:", jsonStr.substring(0, 500));
-      throw new Error("فشل في تحليل استجابة الذكاء الاصطناعي");
+    const parsed = parseQuestionsFromRaw(rawContent);
+    if (!parsed.ok) {
+      return jsonResponse({
+        error: "فشل في تحليل استجابة الذكاء الاصطناعي",
+        cause: parsed.reason,
+        model,
+        response_length: rawContent.length,
+        raw_response: rawContent.substring(0, 4000),
+      }, 502);
     }
 
+    const questions = parsed.questions;
+
     if (!Array.isArray(questions) || questions.length === 0) {
-      throw new Error("لم يتم توليد أي أسئلة");
+      return jsonResponse({
+        error: "لم يتم توليد أي أسئلة",
+        model,
+        response_length: rawContent.length,
+        raw_response: rawContent.substring(0, 1500),
+      }, 502);
+    }
+
+    if (questions.length !== params.numberOfQuestions) {
+      return jsonResponse({
+        error: "عدد الأسئلة المولّدة لا يطابق المطلوب",
+        requested: params.numberOfQuestions,
+        received: questions.length,
+        model,
+        response_length: rawContent.length,
+        raw_response: rawContent.substring(0, 2000),
+      }, 502);
     }
 
     const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
@@ -391,13 +526,10 @@ serve(async (req) => {
 
     console.log("[generateQuestionsWithResearch] ✅ Inserted", inserted?.length, "questions");
 
-    return new Response(JSON.stringify({ success: true, questions: inserted, count: inserted?.length }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ success: true, questions: inserted, count: inserted?.length });
   } catch (e) {
     console.error("[generateQuestionsWithResearch] Error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "حدث خطأ أثناء توليد الأسئلة." }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const message = e instanceof Error ? e.message : "حدث خطأ أثناء توليد الأسئلة.";
+    return jsonResponse({ error: message }, 500);
   }
 });
