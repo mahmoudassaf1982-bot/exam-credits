@@ -280,6 +280,12 @@ serve(async (req) => {
     const systemPrompt = buildSystemPrompt(blueprint);
     const userPrompt = buildUserPrompt(blueprint, params.difficulty);
 
+    // Use flash for speed (pro times out on large batches due to gateway limits)
+    const model = params.numberOfQuestions <= 10
+      ? "google/gemini-2.5-pro"
+      : "google/gemini-2.5-flash";
+    console.log("[generateQuestionsWithResearch] Using model:", model, "for", params.numberOfQuestions, "questions");
+
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -287,7 +293,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
