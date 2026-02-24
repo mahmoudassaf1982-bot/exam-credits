@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useExamTemplates } from '@/hooks/useExamTemplates';
 import { SessionCostDialog } from '@/components/SessionCostDialog';
+import { PredictiveScoreCard } from '@/components/PredictiveScoreCard';
 import type { ExamTemplate, SessionType } from '@/types';
 import {
   BookOpen,
@@ -173,6 +174,11 @@ export default function Exams() {
                   </AnimatePresence>
                 </div>
               )}
+
+              {/* Predictive Score */}
+              <div className="px-4 pt-4">
+                <PredictiveScoreCard examTemplateId={exam.id} />
+              </div>
 
               {/* Session types */}
               <div className="p-4 space-y-3">

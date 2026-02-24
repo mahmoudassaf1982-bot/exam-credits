@@ -151,6 +151,102 @@ async function updateSkillMemory(
   }
 }
 
+/** Calculate and store predictive score based on skill memory + exam blueprint */
+async function updatePredictiveScore(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  examTemplateId: string
+) {
+  // 1. Fetch exam blueprint sections
+  const { data: sections } = await admin
+    .from("exam_sections")
+    .select("id, name_ar, question_count")
+    .eq("exam_template_id", examTemplateId)
+    .order("order", { ascending: true });
+
+  if (!sections || sections.length === 0) {
+    console.log("[predictive-score] No sections found for template");
+    return;
+  }
+
+  const totalBlueprintQuestions = sections.reduce((sum: number, s: any) => sum + s.question_count, 0);
+  if (totalBlueprintQuestions === 0) return;
+
+  // 2. Fetch skill memory for all sections
+  const { data: skillMemory } = await admin
+    .from("skill_memory")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("exam_template_id", examTemplateId);
+
+  const skillMap = new Map((skillMemory || []).map((sm: any) => [sm.section_id, sm]));
+
+  // 3. Calculate weighted prediction
+  let weightedSum = 0;
+  const breakdown: any[] = [];
+
+  for (const section of sections) {
+    const weight = section.question_count / totalBlueprintQuestions;
+    const sm = skillMap.get(section.id) as any;
+    const skillScore = sm ? Number(sm.skill_score) : 50; // default 50 if no data
+    const contribution = skillScore * weight;
+    weightedSum += contribution;
+
+    breakdown.push({
+      section_id: section.id,
+      section_name: section.name_ar,
+      skill_score: Math.round(skillScore),
+      weight: Math.round(weight * 100),
+      weighted_contribution: Math.round(contribution * 10) / 10,
+    });
+  }
+
+  const predictedScore = Math.round(weightedSum);
+
+  // 4. Calculate confidence level
+  const { data: sessionCounts } = await admin
+    .from("exam_sessions")
+    .select("session_type")
+    .eq("user_id", userId)
+    .eq("exam_template_id", examTemplateId)
+    .in("status", ["completed", "submitted"]);
+
+  const trainingCount = (sessionCounts || []).filter((s: any) => s.session_type === "practice").length;
+  const examCount = (sessionCounts || []).filter((s: any) => s.session_type === "simulation").length;
+  const totalSessions = trainingCount + examCount;
+
+  let confidenceLevel = "low";
+  if (totalSessions > 5 && examCount >= 1) {
+    confidenceLevel = "high";
+  } else if (totalSessions >= 2) {
+    confidenceLevel = "medium";
+  }
+
+  // 5. Upsert prediction
+  const { error } = await admin
+    .from("score_predictions")
+    .upsert({
+      user_id: userId,
+      exam_template_id: examTemplateId,
+      predicted_score: predictedScore,
+      confidence_level: confidenceLevel,
+      section_breakdown: breakdown,
+      training_session_count: trainingCount,
+      exam_session_count: examCount,
+      calculated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,exam_template_id" });
+
+  if (error) {
+    console.error("[predictive-score] Upsert failed:", error);
+    return;
+  }
+
+  console.log(
+    `[predictive-score] User ${userId}: predicted=${predictedScore}%, confidence=${confidenceLevel}, ` +
+    `sections=${breakdown.map((b: any) => `${b.section_name}:${b.skill_score}%×${b.weight}%`).join(", ")}`
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -434,8 +530,14 @@ Deno.serve(async (req) => {
       );
       console.log(`[submit-exam] Skill memory updated for session ${session_id}, type=${session.session_type}`);
     } catch (smErr) {
-      // Non-blocking: don't fail the submission if skill memory update fails
       console.error("[submit-exam] Skill memory update failed:", smErr);
+    }
+
+    // ── UPDATE PREDICTIVE SCORE ──
+    try {
+      await updatePredictiveScore(admin, user.id, session.exam_template_id);
+    } catch (predErr) {
+      console.error("[submit-exam] Predictive score update failed:", predErr);
     }
 
     return new Response(

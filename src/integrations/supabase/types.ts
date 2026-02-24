@@ -528,6 +528,45 @@ export type Database = {
         }
         Relationships: []
       }
+      score_predictions: {
+        Row: {
+          calculated_at: string
+          confidence_level: string
+          created_at: string
+          exam_session_count: number
+          exam_template_id: string
+          id: string
+          predicted_score: number
+          section_breakdown: Json
+          training_session_count: number
+          user_id: string
+        }
+        Insert: {
+          calculated_at?: string
+          confidence_level?: string
+          created_at?: string
+          exam_session_count?: number
+          exam_template_id: string
+          id?: string
+          predicted_score?: number
+          section_breakdown?: Json
+          training_session_count?: number
+          user_id: string
+        }
+        Update: {
+          calculated_at?: string
+          confidence_level?: string
+          created_at?: string
+          exam_session_count?: number
+          exam_template_id?: string
+          id?: string
+          predicted_score?: number
+          section_breakdown?: Json
+          training_session_count?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       skill_memory: {
         Row: {
           created_at: string
