@@ -81,7 +81,14 @@ export default function AdminAIGenerator() {
 
       clearTimeout(timeout);
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.error('Non-JSON response:', responseText.substring(0, 200));
+        throw new Error('الخادم أرجع استجابة غير صالحة. يرجى المحاولة مرة أخرى.');
+      }
       if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
       if (data?.error) throw new Error(data.error);
 
