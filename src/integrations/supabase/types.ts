@@ -485,6 +485,7 @@ export type Database = {
           correct_option_id: string
           country_id: string
           created_at: string
+          deleted_at: string | null
           difficulty: string
           exam_template_id: string | null
           explanation: string | null
@@ -493,6 +494,7 @@ export type Database = {
           options: Json
           section_id: string | null
           source: string
+          status: string
           text_ar: string
           topic: string
         }
@@ -500,6 +502,7 @@ export type Database = {
           correct_option_id: string
           country_id: string
           created_at?: string
+          deleted_at?: string | null
           difficulty?: string
           exam_template_id?: string | null
           explanation?: string | null
@@ -508,6 +511,7 @@ export type Database = {
           options?: Json
           section_id?: string | null
           source?: string
+          status?: string
           text_ar: string
           topic: string
         }
@@ -515,6 +519,7 @@ export type Database = {
           correct_option_id?: string
           country_id?: string
           created_at?: string
+          deleted_at?: string | null
           difficulty?: string
           exam_template_id?: string | null
           explanation?: string | null
@@ -523,6 +528,7 @@ export type Database = {
           options?: Json
           section_id?: string | null
           source?: string
+          status?: string
           text_ar?: string
           topic?: string
         }
@@ -774,6 +780,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      bulk_soft_delete_questions: {
+        Args: { question_ids: string[] }
+        Returns: number
+      }
+      bulk_update_question_status: {
+        Args: { new_status: string; question_ids: string[] }
+        Returns: number
+      }
+      bulk_update_status_by_filter: {
+        Args: {
+          filter_country_id?: string
+          filter_difficulty?: string
+          filter_exam_template_id?: string
+          filter_search?: string
+          filter_section_id?: string
+          filter_status?: string
+          new_status: string
+        }
+        Returns: number
+      }
       get_admin_notification_email: { Args: never; Returns: string }
       has_role: {
         Args: {
