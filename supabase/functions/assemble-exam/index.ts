@@ -122,7 +122,7 @@ async function countAvailableQuestions(
     .select("id", { count: "exact", head: true })
     .eq("is_approved", true)
     .eq("country_id", countryId)
-    .eq("exam_template_id", examTemplateId);
+    .eq("exam_template_id", String(examTemplateId));
 
   if ((templateCount ?? 0) > 0) return templateCount ?? 0;
 
@@ -156,9 +156,12 @@ async function fetchSectionQuestions(
 
   const questions: unknown[] = [];
   const usedIds = new Set(excludeIds);
+  const templateIdStr = String(template.id); // ensure string for text column comparison
 
   for (const { level, count } of difficulties) {
     if (count <= 0) continue;
+
+    const excludeFilter = usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)";
 
     // Priority 1: section-specific questions
     let baseQuery = admin
@@ -172,7 +175,7 @@ async function fetchSectionQuestions(
 
     const { data: sectionSpecific } = await baseQuery
       .eq("section_id", section.id)
-      .not("id", "in", usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)")
+      .not("id", "in", excludeFilter)
       .limit(count);
 
     if (sectionSpecific) {
@@ -183,18 +186,20 @@ async function fetchSectionQuestions(
     const remaining = count - (sectionSpecific?.length ?? 0);
     if (remaining <= 0) continue;
 
-    // Priority 2: template-level questions
+    const excludeFilter2 = usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)";
+
+    // Priority 2: template-level questions (section_id is null)
     let fallbackQuery = admin
       .from("questions")
       .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
       .eq("is_approved", true)
       .eq("country_id", template.country_id)
       .eq("difficulty", level)
-      .eq("exam_template_id", template.id)
-      .is("section_id", null);
+      .eq("exam_template_id", templateIdStr)
+      .is("section_id", null)
+      .not("id", "in", excludeFilter2);
 
     if (topicFilters.length > 0) fallbackQuery = fallbackQuery.in("topic", topicFilters);
-    if (usedIds.size > 0) fallbackQuery = fallbackQuery.not("id", "in", `(${[...usedIds].join(",")})`);
 
     const { data: templateQuestions } = await fallbackQuery.limit(remaining);
     if (templateQuestions) {
@@ -202,18 +207,19 @@ async function fetchSectionQuestions(
       questions.push(...templateQuestions);
     }
 
-    // Priority 3: country pool
+    // Priority 3: country pool (any exam_template_id, any section_id)
     const still = remaining - (templateQuestions?.length ?? 0);
     if (still > 0) {
+      const excludeFilter3 = usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)";
       let poolQuery = admin
         .from("questions")
         .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
         .eq("is_approved", true)
         .eq("country_id", template.country_id)
-        .eq("difficulty", level);
+        .eq("difficulty", level)
+        .not("id", "in", excludeFilter3);
 
       if (topicFilters.length > 0) poolQuery = poolQuery.in("topic", topicFilters);
-      if (usedIds.size > 0) poolQuery = poolQuery.not("id", "in", `(${[...usedIds].join(",")})`);
 
       const { data: poolQuestions } = await poolQuery.limit(still);
       if (poolQuestions) {
