@@ -39,74 +39,12 @@ function computeDifficultyCounts(
   return { easy, medium, hard };
 }
 
-function autoWeightSections(sections: Section[], totalQuestions: number): Map<string, number> {
-  const sectionWeights = new Map<string, number>();
-  const declaredTotal = sections.reduce((s, sec) => s + sec.question_count, 0);
-
-  if (declaredTotal <= 0) {
-    const perSection = Math.floor(totalQuestions / sections.length);
-    let remainder = totalQuestions - perSection * sections.length;
-    for (const sec of sections) {
-      sectionWeights.set(sec.id, perSection + (remainder-- > 0 ? 1 : 0));
-    }
-  } else {
-    let assigned = 0;
-    for (let i = 0; i < sections.length; i++) {
-      if (i === sections.length - 1) {
-        sectionWeights.set(sections[i].id, totalQuestions - assigned);
-      } else {
-        const count = Math.round((sections[i].question_count / declaredTotal) * totalQuestions);
-        sectionWeights.set(sections[i].id, count);
-        assigned += count;
-      }
-    }
-  }
-  return sectionWeights;
-}
-
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
-}
-
-/** Count available approved questions that could be fetched for a section (including fallbacks) */
-async function countSectionQuestions(
-  admin: ReturnType<typeof createClient>,
-  sectionId: string,
-  countryId: string,
-  examTemplateId: string
-): Promise<number> {
-  // Count section-specific + template-level + country pool questions
-  const { count: sectionCount } = await admin
-    .from("questions")
-    .select("id", { count: "exact", head: true })
-    .eq("is_approved", true)
-    .eq("country_id", countryId)
-    .eq("section_id", sectionId);
-
-  if ((sectionCount ?? 0) > 0) return sectionCount ?? 0;
-
-  // Fallback: count template-level questions
-  const { count: templateCount } = await admin
-    .from("questions")
-    .select("id", { count: "exact", head: true })
-    .eq("is_approved", true)
-    .eq("country_id", countryId)
-    .eq("exam_template_id", examTemplateId);
-
-  if ((templateCount ?? 0) > 0) return templateCount ?? 0;
-
-  // Fallback: count all country questions
-  const { count: countryCount } = await admin
-    .from("questions")
-    .select("id", { count: "exact", head: true })
-    .eq("is_approved", true)
-    .eq("country_id", countryId);
-
-  return countryCount ?? 0;
 }
 
 /** Find the weakest section from past session scores */
@@ -126,6 +64,43 @@ function findWeakestSectionId(
     }
   }
   return weakestId;
+}
+
+/** Count available approved questions for a section (with fallback pools) */
+async function countAvailableQuestions(
+  admin: ReturnType<typeof createClient>,
+  sectionId: string,
+  countryId: string,
+  examTemplateId: string
+): Promise<number> {
+  // Count section-specific questions
+  const { count: sectionCount } = await admin
+    .from("questions")
+    .select("id", { count: "exact", head: true })
+    .eq("is_approved", true)
+    .eq("country_id", countryId)
+    .eq("section_id", sectionId);
+
+  if ((sectionCount ?? 0) > 0) return sectionCount ?? 0;
+
+  // Fallback: template-level questions
+  const { count: templateCount } = await admin
+    .from("questions")
+    .select("id", { count: "exact", head: true })
+    .eq("is_approved", true)
+    .eq("country_id", countryId)
+    .eq("exam_template_id", examTemplateId);
+
+  if ((templateCount ?? 0) > 0) return templateCount ?? 0;
+
+  // Fallback: all country questions
+  const { count: countryCount } = await admin
+    .from("questions")
+    .select("id", { count: "exact", head: true })
+    .eq("is_approved", true)
+    .eq("country_id", countryId);
+
+  return countryCount ?? 0;
 }
 
 /** Fetch questions for a single section with difficulty mix and fallback */
@@ -358,7 +333,6 @@ Deno.serve(async (req) => {
     let practiceMode: "diagnostic" | "weakest" | "mixed" = "diagnostic";
 
     if (session_type === "practice") {
-      // Check for previous completed sessions with scores
       const { data: pastSessions } = await admin
         .from("exam_sessions")
         .select("score_json")
@@ -370,12 +344,9 @@ Deno.serve(async (req) => {
         .limit(1);
 
       if (!pastSessions || pastSessions.length === 0) {
-        // First time → Diagnostic session
         isDiagnostic = true;
         practiceMode = "diagnostic";
-        console.log(`[assemble-exam] Diagnostic mode for user ${user.id}`);
       } else {
-        // Returning user → find weakest section
         const lastScore = pastSessions[0].score_json as {
           section_scores?: Record<string, SectionScore>;
         };
@@ -385,42 +356,113 @@ Deno.serve(async (req) => {
           const weakestId = findWeakestSectionId(lastScore.section_scores, validSectionIds);
 
           if (weakestId) {
-            // Verify the section has available questions
-            const qCount = await countSectionQuestions(admin, weakestId, template.country_id, template.id);
+            const qCount = await countAvailableQuestions(admin, weakestId, template.country_id, template.id);
             if (qCount > 0) {
               targetSectionId = weakestId;
               practiceMode = "weakest";
-              console.log(`[assemble-exam] Weakest section: ${weakestId} (${qCount} questions available)`);
             } else {
-              console.log(`[assemble-exam] Weakest section ${weakestId} is empty, falling back to mixed`);
               practiceMode = "mixed";
             }
           } else {
             practiceMode = "mixed";
           }
         } else {
-          // Score exists but no section breakdown → diagnostic
           isDiagnostic = true;
           practiceMode = "diagnostic";
         }
       }
     }
 
-    // ── 5. Structure-driven question assembly ──
-    const totalQuestions = template.default_question_count;
+    // ── 5. Determine which sections to use and their exact question counts ──
+    const typedSections = sections as Section[];
+    let activeSections: Section[];
+    let sectionQuestionCounts: Map<string, number>;
+
+    if (session_type === "practice" && practiceMode === "weakest" && targetSectionId) {
+      // Weakest section mode: use only that section with template's total question count
+      const targetSection = typedSections.find((s) => s.id === targetSectionId)!;
+      activeSections = [targetSection];
+      sectionQuestionCounts = new Map([[targetSectionId, template.default_question_count]]);
+    } else {
+      // All other modes: use ALL sections with their exact blueprint question_count
+      activeSections = typedSections;
+      sectionQuestionCounts = new Map(typedSections.map((s) => [s.id, s.question_count]));
+    }
+
+    // ── 6. VALIDATE: check each section has enough questions before proceeding ──
+    const insufficientSections: { name: string; required: number; available: number }[] = [];
+
+    for (const section of activeSections) {
+      const required = sectionQuestionCounts.get(section.id) ?? section.question_count;
+      const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id);
+
+      if (available < required) {
+        insufficientSections.push({
+          name: section.name_ar,
+          required,
+          available,
+        });
+      }
+    }
+
+    if (insufficientSections.length > 0) {
+      const details = insufficientSections
+        .map((s) => `${s.name}: مطلوب ${s.required}، متوفر ${s.available}`)
+        .join(" | ");
+
+      console.error(`[assemble-exam] Insufficient questions: ${details}`);
+
+      // Refund points if already deducted
+      if (!isDiamond && pointsCost > 0) {
+        const { data: wallet } = await admin
+          .from("wallets")
+          .select("balance")
+          .eq("user_id", user.id)
+          .single();
+
+        if (wallet) {
+          await admin
+            .from("wallets")
+            .update({ balance: wallet.balance + pointsCost })
+            .eq("user_id", user.id);
+
+          await admin.from("transactions").insert({
+            user_id: user.id,
+            type: "credit",
+            amount: pointsCost,
+            reason: "refund_insufficient_questions",
+            meta_json: { exam_template_id, session_type, insufficient_sections: insufficientSections },
+          });
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          error: "عدد الأسئلة المتوفرة غير كافٍ لبعض الأقسام",
+          details: insufficientSections,
+          message: details,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ── 7. Fetch questions for ALL sections using exact blueprint counts ──
     const assembledQuestions: Record<string, unknown[]> = {};
     const answersKey: Record<string, Record<string, { correct_option_id: string; explanation?: string }>> = {};
     let totalQuestionCount = 0;
+    const allUsedIds: string[] = [];
 
-    if (session_type === "practice" && practiceMode === "weakest" && targetSectionId) {
-      // ── WEAKEST SECTION MODE: generate all questions from the weakest section ──
-      const targetSection = (sections as Section[]).find((s) => s.id === targetSectionId)!;
-      const { questions } = await fetchSectionQuestions(
+    for (const section of activeSections) {
+      const requiredCount = sectionQuestionCounts.get(section.id) ?? section.question_count;
+
+      const { questions, usedIds } = await fetchSectionQuestions(
         admin,
-        targetSection,
-        totalQuestions,
-        { country_id: template.country_id, id: template.id }
+        section,
+        requiredCount,
+        { country_id: template.country_id, id: template.id },
+        allUsedIds
       );
+      allUsedIds.push(...usedIds);
 
       const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
       const strippedQuestions = questions.map((q: any) => {
@@ -435,60 +477,23 @@ Deno.serve(async (req) => {
         return { id: q.id, text_ar: q.text_ar, options: parsedOptions, difficulty: q.difficulty, topic: q.topic };
       });
 
-      assembledQuestions[targetSection.id] = shuffle(strippedQuestions);
-      answersKey[targetSection.id] = sectionAnswerKeys;
-      totalQuestionCount = strippedQuestions.length;
+      assembledQuestions[section.id] = shuffle(strippedQuestions);
+      answersKey[section.id] = sectionAnswerKeys;
+      totalQuestionCount += strippedQuestions.length;
 
-    } else {
-      // ── DIAGNOSTIC / MIXED / SIMULATION MODE: distribute across all sections ──
-      const weightedCounts = autoWeightSections(sections as Section[], totalQuestions);
-      const allUsedIds: string[] = [];
-
-      for (const section of sections as Section[]) {
-        const sectionTargetCount = weightedCounts.get(section.id) ?? section.question_count;
-        const { questions, usedIds } = await fetchSectionQuestions(
-          admin,
-          section,
-          sectionTargetCount,
-          { country_id: template.country_id, id: template.id },
-          allUsedIds
-        );
-        allUsedIds.push(...usedIds);
-
-        const sectionAnswerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
-        const strippedQuestions = questions.map((q: any) => {
-          sectionAnswerKeys[q.id] = {
-            correct_option_id: q.correct_option_id,
-            explanation: q.explanation || undefined,
-          };
-          let parsedOptions = q.options;
-          if (typeof parsedOptions === "string") {
-            try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = []; }
-          }
-          return { id: q.id, text_ar: q.text_ar, options: parsedOptions, difficulty: q.difficulty, topic: q.topic };
-        });
-
-        assembledQuestions[section.id] = shuffle(strippedQuestions);
-        answersKey[section.id] = sectionAnswerKeys;
-        totalQuestionCount += strippedQuestions.length;
-      }
+      console.log(`[assemble-exam] Section "${section.name_ar}": required=${requiredCount}, fetched=${strippedQuestions.length}`);
     }
 
-    // ── 6. Build question_order ──
+    // ── 8. Build question_order ──
     const questionOrder: string[] = [];
-    for (const section of sections as Section[]) {
+    for (const section of activeSections) {
       const sqs = assembledQuestions[section.id] || [];
       for (const q of sqs as any[]) {
         questionOrder.push(q.id);
       }
     }
 
-    // ── 7. Build frozen snapshot ──
-    const weightedCounts = autoWeightSections(sections as Section[], totalQuestions);
-    const activeSections = (session_type === "practice" && practiceMode === "weakest" && targetSectionId)
-      ? (sections as Section[]).filter((s) => s.id === targetSectionId)
-      : (sections as Section[]);
-
+    // ── 9. Build frozen snapshot ──
     const examSnapshot = {
       template: {
         id: template.id,
@@ -507,16 +512,15 @@ Deno.serve(async (req) => {
         difficulty_mix_json: s.difficulty_mix_json,
         topic_filter_json: s.topic_filter_json,
       })),
-      // Practice metadata
       practice_mode: session_type === "practice" ? practiceMode : undefined,
       is_diagnostic: session_type === "practice" ? isDiagnostic : undefined,
       target_section_id: targetSectionId || undefined,
       target_section_name: targetSectionId
-        ? (sections as Section[]).find((s) => s.id === targetSectionId)?.name_ar
+        ? typedSections.find((s) => s.id === targetSectionId)?.name_ar
         : undefined,
     };
 
-    // ── 8. Create session ──
+    // ── 10. Create session ──
     const { data: session, error: sessionErr } = await admin
       .from("exam_sessions")
       .insert({
@@ -554,6 +558,8 @@ Deno.serve(async (req) => {
     if (keyErr) {
       console.error("Answer keys storage error:", keyErr);
     }
+
+    console.log(`[assemble-exam] Session ${session.id} created: ${totalQuestionCount} questions across ${activeSections.length} sections`);
 
     return new Response(
       JSON.stringify({
