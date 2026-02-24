@@ -78,17 +78,20 @@ serve(async (req) => {
       topic: q.topic,
     }));
 
-    const systemPrompt = `You are a Senior Exam Quality Reviewer for SARIS Exams. Your job is to review AI-generated exam questions and validate each one.
+    const systemPrompt = `You are a Senior Exam Quality Reviewer AND Auto-Corrector for SARIS Exams. Your job is to review AND fix AI-generated exam questions.
 
-For EACH question, check:
-1. Exactly one correct answer among options
-2. No ambiguity in the question or options
-3. Difficulty matches the labeled difficulty level
-4. Explanation matches and supports the correct answer
-5. Language quality (formal Arabic, no grammar errors, no slang)
-6. No answer hinted in the stem
-7. Smart distractors (plausible, not obviously wrong)
-8. Check for near-duplicates against existing approved questions provided
+For EACH question, you must:
+1. REVIEW: Check for issues (ambiguity, wrong answer, grammar, difficulty mismatch, hint in stem, weak distractors, duplicates)
+2. AUTO-FIX: Return a CORRECTED version of the question with ALL issues resolved
+
+Corrections include:
+- Fix Arabic grammar and formal language
+- Fix incorrect correct_option_id if the marked answer is wrong
+- Improve weak distractors to be more plausible
+- Rewrite ambiguous stems for clarity
+- Adjust difficulty if mismatched
+- Fix explanation to match the correct answer
+- Remove any hints to the answer from the stem
 
 Return a JSON object with:
 {
@@ -100,16 +103,25 @@ Return a JSON object with:
       "index": number,
       "ok": boolean,
       "score": number (0-10),
-      "issues": string[] (list of specific issues, empty if ok),
-      "suggestions": string[] (improvement suggestions),
-      "duplicate_risk": boolean
+      "issues": string[] (list of specific issues found, empty if ok),
+      "suggestions": string[] (what was changed/improved),
+      "duplicate_risk": boolean,
+      "corrected": {
+        "text_ar": string (corrected question text),
+        "options": [{"id": "a", "textAr": string}, {"id": "b", "textAr": string}, {"id": "c", "textAr": string}, {"id": "d", "textAr": string}],
+        "correct_option_id": string (a/b/c/d),
+        "explanation": string (corrected explanation),
+        "difficulty": string (easy/medium/hard),
+        "topic": string
+      }
     }
   ]
 }
 
-Be strict but fair. Flag real issues, not style preferences.`;
+IMPORTANT: The "corrected" field must ALWAYS be present for every question, even if ok=true (return improved/polished version).
+Be strict but fair. Fix real issues. Polish language even for "ok" questions.`;
 
-    const userPrompt = `Review these ${questionsForReview.length} questions (requested difficulty: ${draft.difficulty}):
+    const userPrompt = `Review and auto-correct these ${questionsForReview.length} questions (requested difficulty: ${draft.difficulty}):
 
 ${JSON.stringify(questionsForReview, null, 2)}
 
@@ -117,7 +129,7 @@ ${existingTexts ? `\n\nExisting approved questions for duplicate check:\n${exist
 
 Return JSON ONLY.`;
 
-    console.log("[review-questions-draft] Reviewing draft:", draft_id, "with", reviewerModel);
+    console.log("[review-questions-draft] Reviewing+correcting draft:", draft_id, "with", reviewerModel);
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -155,16 +167,34 @@ Return JSON ONLY.`;
       report = { overall_ok: false, summary: "Failed to parse reviewer output", issues_count: -1, reviews: [], raw_excerpt: cleaned.substring(0, 1000) };
     }
 
+    // Extract corrected questions from the review report
+    const correctedQuestions = questions.map((originalQ: any, i: number) => {
+      const review = report.reviews?.find((r: any) => r.index === i);
+      if (review?.corrected) {
+        return {
+          ...originalQ,
+          text_ar: review.corrected.text_ar || originalQ.text_ar,
+          options: review.corrected.options || originalQ.options,
+          correct_option_id: review.corrected.correct_option_id || originalQ.correct_option_id,
+          explanation: review.corrected.explanation || originalQ.explanation,
+          difficulty: review.corrected.difficulty || originalQ.difficulty,
+          topic: review.corrected.topic || originalQ.topic,
+        };
+      }
+      return originalQ;
+    });
+
     // Determine new status
     const hasIssues = report.issues_count > 0 || report.overall_ok === false;
     const newStatus = hasIssues ? "needs_fix" : "pending_review";
 
-    // Update draft with review results
+    // Update draft with review results AND corrected version
     const { error: updateError } = await adminSupabase
       .from("question_drafts")
       .update({
         reviewer_report_json: report,
         reviewer_model: reviewerModel,
+        corrected_questions_json: correctedQuestions,
         status: newStatus,
       })
       .eq("id", draft_id);
@@ -174,13 +204,14 @@ Return JSON ONLY.`;
       return jsonResponse({ error: "Failed to save review", details: updateError.message }, 500);
     }
 
-    console.log("[review-questions-draft] ✅ Review complete. Status:", newStatus, "Issues:", report.issues_count);
+    console.log("[review-questions-draft] ✅ Review+correction complete. Status:", newStatus, "Issues:", report.issues_count);
 
     return jsonResponse({
       ok: true,
       draft_id,
       status: newStatus,
       report,
+      corrected_count: correctedQuestions.length,
     });
   } catch (e) {
     console.error("[review-questions-draft] Error:", e);

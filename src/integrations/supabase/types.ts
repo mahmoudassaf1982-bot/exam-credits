@@ -484,6 +484,7 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
+          corrected_questions_json: Json | null
           count: number
           country_id: string
           created_at: string
@@ -502,6 +503,7 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
+          corrected_questions_json?: Json | null
           count?: number
           country_id: string
           created_at?: string
@@ -520,6 +522,7 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by?: string | null
+          corrected_questions_json?: Json | null
           count?: number
           country_id?: string
           created_at?: string

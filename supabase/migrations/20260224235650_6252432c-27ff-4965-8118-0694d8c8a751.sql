@@ -1,0 +1,1 @@
+ALTER TABLE public.question_drafts ADD COLUMN IF NOT EXISTS corrected_questions_json jsonb NULL;

@@ -48,7 +48,8 @@ serve(async (req) => {
     if (draftError || !draft) return jsonResponse({ error: "Draft not found" }, 404);
     if (draft.status === "approved") return jsonResponse({ error: "Draft already published" }, 400);
 
-    const questions = draft.draft_questions_json as any[];
+    // Use corrected version if available, otherwise fall back to original draft
+    const questions = (draft.corrected_questions_json || draft.draft_questions_json) as any[];
     if (!Array.isArray(questions) || questions.length === 0) {
       return jsonResponse({ error: "Draft has no questions" }, 400);
     }
