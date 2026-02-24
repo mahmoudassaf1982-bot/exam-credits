@@ -391,23 +391,19 @@ Deno.serve(async (req) => {
       // ─── SMART TRAINING: 10 questions, weakness-based distribution ───
       const totalPracticeQuestions = PRACTICE_QUESTION_COUNT;
 
-      // Check for past performance data
-      const { data: pastSessions } = await admin
-        .from("exam_sessions")
-        .select("score_json")
+      // ── Read Skill Memory for intelligent section prioritization ──
+      const { data: skillMemory } = await admin
+        .from("skill_memory")
+        .select("*")
         .eq("user_id", user.id)
-        .eq("exam_template_id", exam_template_id)
-        .in("status", ["completed", "submitted"])
-        .not("score_json", "is", null)
-        .order("completed_at", { ascending: false })
-        .limit(5); // Use last 5 sessions for better accuracy
+        .eq("exam_template_id", exam_template_id);
 
       let sectionDistribution: Map<string, number>;
       let sectionDifficultyMap: Map<string, { easy: number; medium: number; hard: number }>;
       let activeSections: Section[];
 
-      if (!pastSessions || pastSessions.length === 0) {
-        // ── NO HISTORY: Diagnostic mode — equal distribution, default difficulty ──
+      if (!skillMemory || skillMemory.length === 0) {
+        // ── NO SKILL MEMORY: Diagnostic mode — equal distribution ──
         isDiagnostic = true;
         practiceMode = "diagnostic";
         activeSections = typedSections;
@@ -420,27 +416,42 @@ Deno.serve(async (req) => {
           typedSections.map((s) => [s.id, { easy: 30, medium: 50, hard: 20 }])
         );
 
-        console.log(`[assemble-exam] Practice DIAGNOSTIC: ${totalPracticeQuestions} questions, equal across ${typedSections.length} sections`);
+        console.log(`[assemble-exam] Practice DIAGNOSTIC (no skill memory): ${totalPracticeQuestions} questions, equal across ${typedSections.length} sections`);
       } else {
-        // ── HAS HISTORY: Adaptive mode — weighted by weakness ──
+        // ── HAS SKILL MEMORY: Adaptive mode — weighted by skill scores ──
         practiceMode = "adaptive";
 
-        // Aggregate scores across last N sessions
-        const aggregatedScores: Record<string, { correct: number; total: number; name: string }> = {};
-        for (const ps of pastSessions) {
-          const scoreJson = ps.score_json as { section_scores?: Record<string, SectionScore> };
-          if (!scoreJson?.section_scores) continue;
-          for (const [sId, sc] of Object.entries(scoreJson.section_scores)) {
-            if (!aggregatedScores[sId]) {
-              aggregatedScores[sId] = { correct: 0, total: 0, name: sc.name };
-            }
-            aggregatedScores[sId].correct += sc.correct;
-            aggregatedScores[sId].total += sc.total;
+        // Build performance map from skill_memory
+        const performances: SectionPerformance[] = [];
+        const skillMap = new Map(skillMemory.map((sm: any) => [sm.section_id, sm]));
+
+        for (const section of typedSections) {
+          const sm = skillMap.get(section.id) as any;
+          let accuracy = 50; // default for sections without skill data
+          if (sm) {
+            accuracy = Number(sm.skill_score) || 50;
           }
+
+          let tier: "weak" | "medium" | "strong";
+          if (accuracy < 50) tier = "weak";
+          else if (accuracy < 75) tier = "medium";
+          else tier = "strong";
+
+          performances.push({ sectionId: section.id, accuracy, tier });
         }
 
-        // Categorize sections
-        const performances = categorizeSections(aggregatedScores, typedSections);
+        // Prioritize sections where last exam showed weakness
+        const recentExamWeakSections = skillMemory
+          .filter((sm: any) => sm.last_exam_score !== null && Number(sm.last_exam_score) < 50)
+          .map((sm: any) => sm.section_id);
+
+        // Boost weak sections from recent exams
+        for (const perf of performances) {
+          if (recentExamWeakSections.includes(perf.sectionId) && perf.tier !== "weak") {
+            perf.tier = "weak";
+            console.log(`[assemble-exam] Boosted section ${perf.sectionId} to weak (last exam score < 50)`);
+          }
+        }
 
         const weakSections = performances.filter((p) => p.tier === "weak");
         const mediumSections = performances.filter((p) => p.tier === "medium");
@@ -451,12 +462,10 @@ Deno.serve(async (req) => {
         let mediumCount = Math.round(totalPracticeQuestions * PRACTICE_MEDIUM_RATIO);
         let randomCount = totalPracticeQuestions - weakCount - mediumCount;
 
-        // If no weak sections, redistribute to medium/random
         if (weakSections.length === 0) {
           mediumCount += weakCount;
           weakCount = 0;
         }
-        // If no medium sections, redistribute to weak/random
         if (mediumSections.length === 0) {
           if (weakSections.length > 0) {
             weakCount += mediumCount;
@@ -469,7 +478,6 @@ Deno.serve(async (req) => {
         // Distribute within tiers
         const weakDist = distributeAcrossSections(weakSections.map((s) => s.sectionId), weakCount);
         const medDist = distributeAcrossSections(mediumSections.map((s) => s.sectionId), mediumCount);
-        // Random comes from all sections (including strong)
         const allSectionIds = typedSections.map((s) => s.id);
         const randomDist = distributeAcrossSections(allSectionIds, randomCount);
 
@@ -480,7 +488,7 @@ Deno.serve(async (req) => {
           if (total > 0) sectionDistribution.set(s.id, total);
         }
 
-        // Build adaptive difficulty per section
+        // Build adaptive difficulty per section using skill_score
         sectionDifficultyMap = new Map();
         for (const perf of performances) {
           sectionDifficultyMap.set(perf.sectionId, adaptiveDifficultyMix(perf.accuracy));
@@ -489,17 +497,24 @@ Deno.serve(async (req) => {
         activeSections = typedSections.filter((s) => (sectionDistribution.get(s.id) ?? 0) > 0);
 
         practiceMetadata = {
-          section_performances: performances.map((p) => ({
-            section_id: p.sectionId,
-            section_name: typedSections.find((s) => s.id === p.sectionId)?.name_ar,
-            accuracy: p.accuracy,
-            tier: p.tier,
-            questions_assigned: sectionDistribution.get(p.sectionId) ?? 0,
-          })),
+          skill_memory_used: true,
+          section_performances: performances.map((p) => {
+            const sm = skillMap.get(p.sectionId) as any;
+            return {
+              section_id: p.sectionId,
+              section_name: typedSections.find((s) => s.id === p.sectionId)?.name_ar,
+              skill_score: p.accuracy,
+              tier: p.tier,
+              questions_assigned: sectionDistribution.get(p.sectionId) ?? 0,
+              last_exam_score: sm?.last_exam_score ?? null,
+              last_exam_date: sm?.last_exam_date ?? null,
+              total_answered: sm?.total_answered ?? 0,
+            };
+          }),
           distribution: { weak: weakCount, medium: mediumCount, random: randomCount },
         };
 
-        console.log(`[assemble-exam] Practice ADAPTIVE: weak=${weakCount} (${weakSections.length} sections), medium=${mediumCount} (${mediumSections.length} sections), random=${randomCount}`);
+        console.log(`[assemble-exam] Practice ADAPTIVE (skill memory): weak=${weakCount} (${weakSections.length}), medium=${mediumCount} (${mediumSections.length}), random=${randomCount}, recent_exam_weak=${recentExamWeakSections.length}`);
       }
 
       // Fetch questions per section with adaptive difficulty

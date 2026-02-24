@@ -528,6 +528,63 @@ export type Database = {
         }
         Relationships: []
       }
+      skill_memory: {
+        Row: {
+          created_at: string
+          exam_template_id: string
+          id: string
+          last_exam_date: string | null
+          last_exam_score: number | null
+          last_training_date: string | null
+          last_training_score: number | null
+          section_id: string
+          section_name: string
+          skill_score: number
+          total_answered: number
+          total_correct: number
+          updated_at: string
+          user_id: string
+          weighted_correct: number
+          weighted_total: number
+        }
+        Insert: {
+          created_at?: string
+          exam_template_id: string
+          id?: string
+          last_exam_date?: string | null
+          last_exam_score?: number | null
+          last_training_date?: string | null
+          last_training_score?: number | null
+          section_id: string
+          section_name?: string
+          skill_score?: number
+          total_answered?: number
+          total_correct?: number
+          updated_at?: string
+          user_id: string
+          weighted_correct?: number
+          weighted_total?: number
+        }
+        Update: {
+          created_at?: string
+          exam_template_id?: string
+          id?: string
+          last_exam_date?: string | null
+          last_exam_score?: number | null
+          last_training_date?: string | null
+          last_training_score?: number | null
+          section_id?: string
+          section_name?: string
+          skill_score?: number
+          total_answered?: number
+          total_correct?: number
+          updated_at?: string
+          user_id?: string
+          weighted_correct?: number
+          weighted_total?: number
+        }
+        Relationships: []
+      }
       sync_audit_log: {
         Row: {
           action: string

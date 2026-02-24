@@ -13,6 +13,144 @@ async function sha256Hex(input: string): Promise<string> {
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// ── Difficulty weight multiplier ──
+function difficultyWeight(difficulty: string): number {
+  switch (difficulty) {
+    case "hard": return 1.5;
+    case "medium": return 1.0;
+    case "easy": return 0.7;
+    default: return 1.0;
+  }
+}
+
+/** Update skill_memory for a user after exam/training submission */
+async function updateSkillMemory(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  examTemplateId: string,
+  sessionType: string,
+  sectionScores: Record<string, { correct: number; total: number; name: string }>,
+  questionsJson: Record<string, any[]>,
+  answersKeyJson: Record<string, Record<string, { correct_option_id: string }>>,
+  finalAnswers: Record<string, string>
+) {
+  // Weight: performance_exam = 3x, training = 1x
+  const isExam = sessionType === "simulation";
+  const sessionWeight = isExam ? 3 : 1;
+  const now = new Date().toISOString();
+
+  for (const [sectionId, score] of Object.entries(sectionScores)) {
+    const sectionQuestions = questionsJson[sectionId] || [];
+    const sectionKeys = answersKeyJson[sectionId] || {};
+
+    // Calculate weighted impact per question based on difficulty
+    let weightedCorrect = 0;
+    let weightedTotal = 0;
+
+    for (const q of sectionQuestions) {
+      const dw = difficultyWeight(q.difficulty || "medium") * sessionWeight;
+      weightedTotal += dw;
+      const userAnswer = finalAnswers[q.id];
+      const key = sectionKeys[q.id];
+      if (userAnswer && key && userAnswer === key.correct_option_id) {
+        weightedCorrect += dw;
+      }
+    }
+
+    const sectionAccuracy = score.total > 0 ? Math.round((score.correct / score.total) * 100) : 0;
+
+    // Fetch existing skill memory
+    const { data: existing } = await admin
+      .from("skill_memory")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("exam_template_id", examTemplateId)
+      .eq("section_id", sectionId)
+      .single();
+
+    if (existing) {
+      // Merge: accumulate weighted scores, recalculate skill_score
+      const newWeightedCorrect = (Number(existing.weighted_correct) || 0) + weightedCorrect;
+      const newWeightedTotal = (Number(existing.weighted_total) || 0) + weightedTotal;
+      const newTotalCorrect = existing.total_correct + score.correct;
+      const newTotalAnswered = existing.total_answered + score.total;
+
+      // Skill score = weighted accuracy (0-100)
+      const newSkillScore = newWeightedTotal > 0
+        ? Math.round((newWeightedCorrect / newWeightedTotal) * 100)
+        : Number(existing.skill_score);
+
+      const oldSkillScore = Number(existing.skill_score);
+
+      const updatePayload: Record<string, unknown> = {
+        skill_score: newSkillScore,
+        total_correct: newTotalCorrect,
+        total_answered: newTotalAnswered,
+        weighted_correct: newWeightedCorrect,
+        weighted_total: newWeightedTotal,
+        section_name: score.name,
+      };
+
+      if (isExam) {
+        updatePayload.last_exam_score = sectionAccuracy;
+        updatePayload.last_exam_date = now;
+      } else {
+        updatePayload.last_training_score = sectionAccuracy;
+        updatePayload.last_training_date = now;
+      }
+
+      await admin
+        .from("skill_memory")
+        .update(updatePayload)
+        .eq("id", existing.id);
+
+      console.log(
+        `[skill-memory] Section "${score.name}" (${sectionId}): ` +
+        `score ${oldSkillScore} → ${newSkillScore} | ` +
+        `type=${isExam ? "exam(3x)" : "training(1x)"} | ` +
+        `session: ${score.correct}/${score.total} | ` +
+        `cumulative: ${newTotalCorrect}/${newTotalAnswered}`
+      );
+    } else {
+      // New record
+      const skillScore = weightedTotal > 0
+        ? Math.round((weightedCorrect / weightedTotal) * 100)
+        : 50;
+
+      const insertPayload: Record<string, unknown> = {
+        user_id: userId,
+        exam_template_id: examTemplateId,
+        section_id: sectionId,
+        section_name: score.name,
+        skill_score: skillScore,
+        total_correct: score.correct,
+        total_answered: score.total,
+        weighted_correct: weightedCorrect,
+        weighted_total: weightedTotal,
+      };
+
+      if (isExam) {
+        insertPayload.last_exam_score = sectionAccuracy;
+        insertPayload.last_exam_date = now;
+      } else {
+        insertPayload.last_training_score = sectionAccuracy;
+        insertPayload.last_training_date = now;
+      }
+
+      await admin
+        .from("skill_memory")
+        .insert(insertPayload);
+
+      console.log(
+        `[skill-memory] NEW Section "${score.name}" (${sectionId}): ` +
+        `score=0 → ${skillScore} | ` +
+        `type=${isExam ? "exam(3x)" : "training(1x)"} | ` +
+        `${score.correct}/${score.total}`
+      );
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -53,10 +191,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch session (include attempt_token_hash for verification)
+    // Fetch session
     const { data: session, error: sErr } = await admin
       .from("exam_sessions")
-      .select("id, user_id, status, exam_snapshot, questions_json, last_submit_id, expires_at, answers_json, attempt_token_hash")
+      .select("id, user_id, status, exam_snapshot, questions_json, last_submit_id, expires_at, answers_json, attempt_token_hash, session_type, exam_template_id")
       .eq("id", session_id)
       .single();
 
@@ -267,7 +405,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Update session — INVALIDATE token by setting hash to NULL (one-time use)
+    // Update session — INVALIDATE token
     await admin
       .from("exam_sessions")
       .update({
@@ -281,6 +419,24 @@ Deno.serve(async (req) => {
         attempt_token_hash: null,
       })
       .eq("id", session_id);
+
+    // ── UPDATE SKILL MEMORY ──
+    try {
+      await updateSkillMemory(
+        admin,
+        user.id,
+        session.exam_template_id,
+        session.session_type,
+        sectionScores,
+        questionsJson,
+        answersKeyJson,
+        finalAnswers
+      );
+      console.log(`[submit-exam] Skill memory updated for session ${session_id}, type=${session.session_type}`);
+    } catch (smErr) {
+      // Non-blocking: don't fail the submission if skill memory update fails
+      console.error("[submit-exam] Skill memory update failed:", smErr);
+    }
 
     return new Response(
       JSON.stringify(resultPayload),
