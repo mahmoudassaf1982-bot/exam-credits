@@ -78,7 +78,9 @@ export default function AdminAIGenerator() {
   }, [country, filteredExams]);
 
   const callGenerate = async (count: number): Promise<any[]> => {
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generateQuestionsWithResearch`;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://pypkjchxhgjbzgkyskhj.supabase.co";
+    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5cGtqY2h4aGdqYnpna3lza2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MzEwMzgsImV4cCI6MjA4NjIwNzAzOH0.h-_HqgM39WlvTC9t2IsvCdIRWKaCSQPCfUdBzYJxSWo";
+    const url = `${supabaseUrl}/functions/v1/generateQuestionsWithResearch`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 300000);
 
@@ -86,8 +88,8 @@ export default function AdminAIGenerator() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'apikey': supabaseKey,
       },
       body: JSON.stringify({ country, examTemplateId: examTemplateId || null, numberOfQuestions: count, difficulty, debug: true }),
       signal: controller.signal,
