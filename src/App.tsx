@@ -33,6 +33,7 @@ import AdminAIGenerator from "./pages/admin/AdminAIGenerator";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminStats from "./pages/admin/AdminStats";
 import AdminContentManager from "./pages/admin/AdminContentManager";
+import AdminAIReviewQueue from "./pages/admin/AdminAIReviewQueue";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -87,6 +88,7 @@ const App = () => (
             <Route path="/app/admin/users" element={<ProtectedRoute><AdminAppLayout><AdminUsers /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/stats" element={<ProtectedRoute><AdminAppLayout><AdminStats /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/content" element={<ProtectedRoute><AdminAppLayout><AdminContentManager /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/review-queue" element={<ProtectedRoute><AdminAppLayout><AdminAIReviewQueue /></AdminAppLayout></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

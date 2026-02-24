@@ -32,3 +32,12 @@ verify_jwt = false
 
 [functions.start-exam]
 verify_jwt = false
+
+[functions.generate-questions-draft]
+verify_jwt = false
+
+[functions.review-questions-draft]
+verify_jwt = false
+
+[functions.publish-draft]
+verify_jwt = false
