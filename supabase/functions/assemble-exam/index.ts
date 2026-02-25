@@ -142,9 +142,11 @@ async function countAvailableQuestions(
 }
 
 /** Fetch questions for a single section with difficulty mix and 3-tier fallback.
- *  Uses a fresh Supabase client to avoid query builder state corruption. */
+ *  Strategy: fetch IDs first (lightweight), pick by difficulty, then hydrate full data.
+ *  Note: topic_filter_json is intentionally skipped because questions are already
+ *  assigned to sections via section_id and topic names may not exactly match filters. */
 async function fetchSectionQuestions(
-  _admin: ReturnType<typeof createClient>,
+  admin: ReturnType<typeof createClient>,
   section: Section,
   targetCount: number,
   template: { country_id: string; id: string },
@@ -152,71 +154,31 @@ async function fetchSectionQuestions(
   excludeIds: string[] = [],
   language: string = "ar"
 ) {
-  // Create a FRESH client to avoid query builder state corruption from prior queries
-  const freshAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-
   const mix = difficultyMixOverride ?? section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
   const { easy: wantEasy, medium: wantMedium, hard: wantHard } = computeDifficultyCounts(targetCount, mix);
-  const topicFilters = section.topic_filter_json ?? [];
   const templateIdStr = String(template.id);
 
   const usedIds = new Set(excludeIds);
 
   // Fetch lightweight ID+difficulty list from a pool tier
   async function fetchIdPool(opts: { sectionId?: string; examTemplateId?: string; nullSection?: boolean }): Promise<{ id: string; difficulty: string }[]> {
+    let q = admin
+      .from("questions")
+      .select("id, difficulty")
+      .eq("is_approved", true)
+      .eq("country_id", template.country_id)
+      .eq("language", language);
+
+    if (opts.sectionId) q = q.eq("section_id", opts.sectionId);
+    if (opts.examTemplateId) q = q.eq("exam_template_id", opts.examTemplateId);
+    if (opts.nullSection) q = q.is("section_id", null);
+
     const excludeArr = [...usedIds];
+    if (excludeArr.length > 0) q = q.not("id", "in", `(${excludeArr.join(",")})`);
 
-    // Build RPC-style filter object to avoid query builder mutation issues
-    const filters: [string, string, unknown][] = [
-      ["is_approved", "eq", true],
-      ["country_id", "eq", template.country_id],
-      ["language", "eq", language],
-    ];
-    if (opts.sectionId) filters.push(["section_id", "eq", opts.sectionId]);
-    if (opts.examTemplateId) filters.push(["exam_template_id", "eq", opts.examTemplateId]);
-
-    // Use PostgREST REST API directly to avoid query builder issues
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    const params = new URLSearchParams();
-    params.set("select", "id,difficulty");
-    params.set("is_approved", "eq.true");
-    params.set("country_id", `eq.${template.country_id}`);
-    params.set("language", `eq.${language}`);
-    params.set("limit", "200");
-
-    if (opts.sectionId) params.set("section_id", `eq.${opts.sectionId}`);
-    if (opts.examTemplateId) params.set("exam_template_id", `eq.${opts.examTemplateId}`);
-    if (opts.nullSection) params.set("section_id", "is.null");
-    if (topicFilters.length > 0) params.set("topic", `in.(${topicFilters.join(",")})`);
-    if (excludeArr.length > 0) params.set("id", `not.in.(${excludeArr.join(",")})`);
-
-    try {
-      const url = `${supabaseUrl}/rest/v1/questions?${params.toString()}`;
-      console.log(`[fetchQ] URL: ${url.substring(0, 200)}`);
-      const resp = await fetch(url, {
-        headers: {
-          "apikey": serviceKey,
-          "Authorization": `Bearer ${serviceKey}`,
-          "Accept": "application/json",
-          "Prefer": "count=exact",
-        },
-      });
-      const contentRange = resp.headers.get("content-range");
-      console.log(`[fetchQ] Status: ${resp.status}, Content-Range: ${contentRange}`);
-      if (!resp.ok) {
-        const errText = await resp.text();
-        console.error(`[fetchQ] REST error ${resp.status}:`, errText);
-        return [];
-      }
-      const result = await resp.json();
-      console.log(`[fetchQ] Returned ${result.length} rows`);
-      return result;
-    } catch (e) {
-      console.error(`[fetchQ] fetch error:`, e);
-      return [];
-    }
+    const { data, error } = await q.limit(200);
+    if (error) console.error(`[fetchQ] pool error:`, error.message);
+    return (data as { id: string; difficulty: string }[]) ?? [];
   }
 
   // Pick IDs from pool respecting difficulty targets
@@ -285,7 +247,7 @@ async function fetchSectionQuestions(
   const BATCH_SIZE = 5;
   for (let i = 0; i < selectedIds.length; i += BATCH_SIZE) {
     const batch = selectedIds.slice(i, i + BATCH_SIZE);
-    const { data, error } = await freshAdmin
+    const { data, error } = await admin
       .from("questions")
       .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
       .in("id", batch);
