@@ -120,6 +120,7 @@ export interface ExamTemplate {
   practiceSessionCostPoints: number;
   analysisCostPoints: number;
   sections: ExamSection[];
+  availableLanguages?: string[];
   createdAt: string;
 }
 

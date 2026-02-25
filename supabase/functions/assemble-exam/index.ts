@@ -108,13 +108,15 @@ async function countAvailableQuestions(
   admin: ReturnType<typeof createClient>,
   sectionId: string,
   countryId: string,
-  examTemplateId: string
+  examTemplateId: string,
+  language: string = "ar"
 ): Promise<number> {
   const { count: sectionCount } = await admin
     .from("questions")
     .select("id", { count: "exact", head: true })
     .eq("is_approved", true)
     .eq("country_id", countryId)
+    .eq("language", language)
     .eq("section_id", sectionId);
 
   if ((sectionCount ?? 0) > 0) return sectionCount ?? 0;
@@ -124,6 +126,7 @@ async function countAvailableQuestions(
     .select("id", { count: "exact", head: true })
     .eq("is_approved", true)
     .eq("country_id", countryId)
+    .eq("language", language)
     .eq("exam_template_id", String(examTemplateId));
 
   if ((templateCount ?? 0) > 0) return templateCount ?? 0;
@@ -132,7 +135,8 @@ async function countAvailableQuestions(
     .from("questions")
     .select("id", { count: "exact", head: true })
     .eq("is_approved", true)
-    .eq("country_id", countryId);
+    .eq("country_id", countryId)
+    .eq("language", language);
 
   return countryCount ?? 0;
 }
@@ -144,7 +148,8 @@ async function fetchSectionQuestions(
   targetCount: number,
   template: { country_id: string; id: string },
   difficultyMixOverride: { easy: number; medium: number; hard: number } | null,
-  excludeIds: string[] = []
+  excludeIds: string[] = [],
+  language: string = "ar"
 ) {
   const mix = difficultyMixOverride ?? section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
   const { easy, medium, hard } = computeDifficultyCounts(targetCount, mix);
@@ -171,7 +176,8 @@ async function fetchSectionQuestions(
       .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
       .eq("is_approved", true)
       .eq("country_id", template.country_id)
-      .eq("difficulty", level);
+      .eq("difficulty", level)
+      .eq("language", language);
 
     if (topicFilters.length > 0) baseQuery = baseQuery.in("topic", topicFilters);
 
@@ -197,6 +203,7 @@ async function fetchSectionQuestions(
       .eq("is_approved", true)
       .eq("country_id", template.country_id)
       .eq("difficulty", level)
+      .eq("language", language)
       .eq("exam_template_id", templateIdStr)
       .is("section_id", null)
       .not("id", "in", excludeFilter2);
@@ -219,6 +226,7 @@ async function fetchSectionQuestions(
         .eq("is_approved", true)
         .eq("country_id", template.country_id)
         .eq("difficulty", level)
+        .eq("language", language)
         .not("id", "in", excludeFilter3);
 
       if (topicFilters.length > 0) poolQuery = poolQuery.in("topic", topicFilters);
@@ -281,7 +289,7 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supabaseUrl, serviceKey);
     const body = await req.json();
-    const { exam_template_id, session_type } = body;
+    const { exam_template_id, session_type, exam_language } = body;
 
     // ── Tamper detection ──
     const tamperKeys = ["seed", "shuffle", "order", "question_order", "sort"];
@@ -317,6 +325,19 @@ Deno.serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // ── Resolve exam language ──
+    const availableLangs: string[] = Array.isArray(template.available_languages) ? template.available_languages : ["ar"];
+    let selectedLanguage: string;
+    if (availableLangs.length === 1) {
+      selectedLanguage = availableLangs[0];
+    } else if (exam_language && availableLangs.includes(exam_language)) {
+      selectedLanguage = exam_language;
+    } else {
+      selectedLanguage = availableLangs[0]; // fallback
+    }
+    console.log(`[assemble-exam] Language: ${selectedLanguage} (available: ${availableLangs.join(",")})`);
+
 
     // ── 2. Fetch sections ──
     const { data: sections } = await admin
@@ -543,7 +564,8 @@ Deno.serve(async (req) => {
           count,
           { country_id: template.country_id, id: template.id },
           diffMix,
-          allUsedIds
+          allUsedIds,
+          selectedLanguage
         );
         allUsedIds.push(...usedIds);
 
@@ -593,7 +615,7 @@ Deno.serve(async (req) => {
 
       for (const section of typedSections) {
         const required = section.question_count;
-        const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id);
+        const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id, selectedLanguage);
         if (available < required) {
           insufficientSections.push({ name: section.name_ar, required, available });
         }
@@ -639,7 +661,7 @@ Deno.serve(async (req) => {
       // Fetch blueprint counts per section (use available if short, within flex)
       const allUsedIds: string[] = [];
       for (const section of typedSections) {
-        const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id);
+        const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id, selectedLanguage);
         const targetCount = Math.min(section.question_count, available);
 
         const { questions, usedIds } = await fetchSectionQuestions(
@@ -647,8 +669,9 @@ Deno.serve(async (req) => {
           section,
           targetCount,
           { country_id: template.country_id, id: template.id },
-          null, // use section's own difficulty mix (calibrated difficulties used automatically)
-          allUsedIds
+          null,
+          allUsedIds,
+          selectedLanguage
         );
         allUsedIds.push(...usedIds);
 
@@ -709,6 +732,7 @@ Deno.serve(async (req) => {
         difficulty_mix_json: s.difficulty_mix_json,
         topic_filter_json: s.topic_filter_json,
       })),
+      exam_language: selectedLanguage,
     };
 
     if (session_type === "practice") {
@@ -756,7 +780,7 @@ Deno.serve(async (req) => {
 
     if (keyErr) console.error("Answer keys storage error:", keyErr);
 
-    console.log(`[assemble-exam] Session ${session.id} created: ${totalQuestionCount} questions, type=${session_type}, mode=${session_type === "practice" ? practiceMode : "blueprint"}`);
+    console.log(`[assemble-exam] Session ${session.id} created: ${totalQuestionCount} questions, type=${session_type}, lang=${selectedLanguage}, mode=${session_type === "practice" ? practiceMode : "blueprint"}`);
 
     return new Response(
       JSON.stringify({
@@ -766,6 +790,7 @@ Deno.serve(async (req) => {
         points_deducted: isDiamond ? 0 : pointsCost,
         practice_mode: session_type === "practice" ? practiceMode : undefined,
         is_diagnostic: session_type === "practice" ? isDiagnostic : undefined,
+        exam_language: selectedLanguage,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

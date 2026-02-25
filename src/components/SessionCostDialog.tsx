@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Coins, Loader2 } from 'lucide-react';
+import { AlertTriangle, Coins, Loader2, Globe } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import type { ExamTemplate, SessionType } from '@/types';
@@ -50,6 +50,7 @@ export function SessionCostDialog({
   const { wallet, user, refreshWallet } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
 
   if (!exam) return null;
 
@@ -58,15 +59,25 @@ export function SessionCostDialog({
   const isDiamond = user?.isDiamond ?? false;
   const canAfford = isDiamond || balance >= cost;
 
+  const availableLanguages: string[] = exam.availableLanguages || ['ar'];
+  const isBilingual = availableLanguages.length > 1;
+  const needsLanguageSelection = isBilingual && !selectedLanguage;
+
   const handleConfirm = async () => {
+    if (needsLanguageSelection) return;
+
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('assemble-exam', {
-        body: {
-          exam_template_id: exam.id,
-          session_type: sessionType,
-        },
-      });
+      const body: Record<string, unknown> = {
+        exam_template_id: exam.id,
+        session_type: sessionType,
+      };
+      // Only send language if bilingual (single-language exams auto-resolve on server)
+      if (isBilingual && selectedLanguage) {
+        body.exam_language = selectedLanguage;
+      }
+
+      const { data, error } = await supabase.functions.invoke('assemble-exam', { body });
 
       if (error || data?.error) {
         toast.error(data?.error || 'فشل في بدء الجلسة');
@@ -85,8 +96,13 @@ export function SessionCostDialog({
     }
   };
 
+  const langLabels: Record<string, { label: string; flag: string }> = {
+    ar: { label: 'العربية', flag: '🇸🇦' },
+    en: { label: 'English', flag: '🇬🇧' },
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedLanguage(null); }}>
       <DialogContent className="sm:max-w-md" dir="rtl">
         <DialogHeader>
           <DialogTitle className="text-right">
@@ -98,6 +114,41 @@ export function SessionCostDialog({
         </DialogHeader>
 
         <div className="py-4 space-y-4">
+          {/* Language Selection for bilingual exams */}
+          {isBilingual && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Globe className="h-4 w-4 text-primary" />
+                <span>اختر لغة الاختبار</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {availableLanguages.map((lang) => {
+                  const info = langLabels[lang] || { label: lang, flag: '🌐' };
+                  const isSelected = selectedLanguage === lang;
+                  return (
+                    <button
+                      key={lang}
+                      onClick={() => setSelectedLanguage(lang)}
+                      className={`rounded-xl border-2 p-4 text-center transition-all ${
+                        isSelected
+                          ? 'border-primary bg-primary/10 shadow-md'
+                          : 'border-border bg-card hover:border-primary/50 hover:bg-muted/50'
+                      }`}
+                    >
+                      <span className="text-3xl block mb-2">{info.flag}</span>
+                      <span className={`text-sm font-bold ${isSelected ? 'text-primary' : 'text-foreground'}`}>
+                        {info.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {!selectedLanguage && (
+                <p className="text-xs text-muted-foreground text-center">يرجى اختيار لغة الاختبار للمتابعة</p>
+              )}
+            </div>
+          )}
+
           {isDiamond ? (
             <div className="flex items-center gap-3 rounded-xl gradient-diamond p-4 text-diamond-foreground">
               <span className="text-2xl">💎</span>
@@ -150,7 +201,7 @@ export function SessionCostDialog({
               </Button>
               <Button
                 onClick={handleConfirm}
-                disabled={loading}
+                disabled={loading || needsLanguageSelection}
                 className="flex-1 gradient-gold text-gold-foreground font-bold hover:opacity-90"
               >
                 {loading ? (

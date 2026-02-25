@@ -67,6 +67,7 @@ export function useExamTemplates(countryId?: string) {
         practiceSessionCostPoints: t.practice_cost_points,
         analysisCostPoints: t.analysis_cost_points,
         sections: sectionsByTemplate.get(t.id) ?? [],
+        availableLanguages: Array.isArray((t as any).available_languages) ? (t as any).available_languages : ['ar'],
         createdAt: t.created_at,
       }));
 

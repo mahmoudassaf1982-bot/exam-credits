@@ -78,6 +78,7 @@ serve(async (req) => {
       status: "approved",
       source: "ai",
       draft_id: draft.id,
+      language: q.content_language || "ar",
     }));
 
     const { data: inserted, error: insertError } = await adminSupabase
