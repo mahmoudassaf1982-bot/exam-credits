@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   Sparkles, Loader2, CheckCircle, AlertTriangle, XCircle,
   ChevronDown, ChevronUp, Eye, Send, RotateCcw, Trash2, Edit3,
-  FileCheck, Clock, ArrowLeftRight, Wand2
+  FileCheck, Clock, ArrowLeftRight, Wand2, ShieldCheck, ShieldAlert, ShieldX
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -28,6 +29,14 @@ interface DraftQuestion {
   section_id?: string | null;
 }
 
+interface QualityScores {
+  confidence_score: number;
+  clarity_score: number;
+  difficulty_match: number;
+  single_answer_confidence: number;
+  language_quality: number;
+}
+
 interface ReviewItem {
   index: number;
   ok: boolean;
@@ -35,7 +44,17 @@ interface ReviewItem {
   issues: string[];
   suggestions: string[];
   duplicate_risk: boolean;
+  quality_scores?: QualityScores;
   corrected?: DraftQuestion;
+}
+
+interface QualityGate {
+  decision: string;
+  avg_confidence: number;
+  auto_publishable: number;
+  needs_review_count: number;
+  needs_fix_count: number;
+  thresholds: { auto_publish: number; needs_review: number };
 }
 
 interface BatchStats {
@@ -51,6 +70,7 @@ interface ReviewReport {
   issues_count: number;
   reviews: ReviewItem[];
   batch_stats?: BatchStats;
+  quality_gate?: QualityGate;
 }
 
 interface Draft {
@@ -82,6 +102,92 @@ const STATUS_MAP: Record<string, { label: string; color: string; icon: React.Ele
 
 const optionLabels = ['أ', 'ب', 'ج', 'د'];
 
+// ─── Quality Helpers ─────────────────────────────────────────────────
+function getConfidenceColor(score: number): string {
+  if (score >= 0.85) return 'text-emerald-600';
+  if (score >= 0.70) return 'text-amber-600';
+  return 'text-destructive';
+}
+
+function getConfidenceBg(score: number): string {
+  if (score >= 0.85) return 'bg-emerald-500/10 border-emerald-500/20';
+  if (score >= 0.70) return 'bg-amber-500/10 border-amber-500/20';
+  return 'bg-destructive/10 border-destructive/20';
+}
+
+function getConfidenceIcon(score: number) {
+  if (score >= 0.85) return ShieldCheck;
+  if (score >= 0.70) return ShieldAlert;
+  return ShieldX;
+}
+
+function ConfidenceBadge({ score, size = 'sm' }: { score: number; size?: 'sm' | 'lg' }) {
+  const Icon = getConfidenceIcon(score);
+  const pct = Math.round(score * 100);
+  return (
+    <Badge variant="outline" className={`${getConfidenceBg(score)} ${getConfidenceColor(score)} ${size === 'lg' ? 'text-sm px-3 py-1' : 'text-[10px]'}`}>
+      <Icon className={`${size === 'lg' ? 'h-4 w-4' : 'h-3 w-3'} ml-1`} />
+      {pct}%
+    </Badge>
+  );
+}
+
+function QualityScoresPanel({ scores }: { scores: QualityScores }) {
+  const items = [
+    { label: 'الثقة العامة', value: scores.confidence_score },
+    { label: 'الوضوح', value: scores.clarity_score },
+    { label: 'تطابق الصعوبة', value: scores.difficulty_match },
+    { label: 'إجابة واحدة', value: scores.single_answer_confidence },
+    { label: 'جودة اللغة', value: scores.language_quality },
+  ];
+  return (
+    <div className="grid grid-cols-5 gap-2 p-2 rounded-lg bg-muted/30 border border-border/50">
+      {items.map(item => (
+        <div key={item.label} className="text-center">
+          <p className="text-[9px] text-muted-foreground mb-1">{item.label}</p>
+          <div className={`text-xs font-bold ${getConfidenceColor(item.value)}`}>
+            {Math.round(item.value * 100)}%
+          </div>
+          <Progress value={item.value * 100} className="h-1 mt-1" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function QualityGateCard({ gate }: { gate: QualityGate }) {
+  const Icon = getConfidenceIcon(gate.avg_confidence);
+  const decisionLabels: Record<string, string> = {
+    approved: '✅ اجتاز البوابة — جاهز للنشر التلقائي',
+    pending_review: '⚠️ يحتاج مراجعة بشرية',
+    needs_fix: '❌ لم يجتاز — يحتاج إصلاح',
+  };
+
+  return (
+    <Card className={`border-2 ${getConfidenceBg(gate.avg_confidence)}`}>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon className={`h-5 w-5 ${getConfidenceColor(gate.avg_confidence)}`} />
+            <span className="font-bold text-sm">بوابة الجودة</span>
+          </div>
+          <ConfidenceBadge score={gate.avg_confidence} size="lg" />
+        </div>
+        <p className={`text-sm font-semibold ${getConfidenceColor(gate.avg_confidence)}`}>
+          {decisionLabels[gate.decision] || gate.decision}
+        </p>
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="text-emerald-600">✅ {gate.auto_publishable} جاهز</span>
+          <span className="text-amber-600">⚠️ {gate.needs_review_count} مراجعة</span>
+          <span className="text-destructive">❌ {gate.needs_fix_count} إصلاح</span>
+          <span>الحد: {gate.thresholds.auto_publish * 100}%</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────────
 export default function AdminAIReviewQueue() {
   const { toast } = useToast();
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -159,8 +265,6 @@ export default function AdminAIReviewQueue() {
 
   const handleReview = async (draftId: string) => {
     setActionLoading(`review-${draftId}`);
-    
-    // Start polling for progress updates
     const pollInterval = setInterval(async () => {
       const { data: progressDraft } = await supabase
         .from('question_drafts')
@@ -179,10 +283,11 @@ export default function AdminAIReviewQueue() {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       
-      const batchInfo = data.report?.batch_stats
-        ? ` (${data.report.batch_stats.completed_batches}/${data.report.batch_stats.total_batches} دفعات)`
+      const qg = data.quality_gate;
+      const gateMsg = qg
+        ? ` | بوابة الجودة: ${Math.round(qg.avg_confidence * 100)}% — ${qg.decision === 'approved' ? 'جاهز ✅' : qg.decision === 'pending_review' ? 'مراجعة ⚠️' : 'إصلاح ❌'}`
         : '';
-      toast({ title: `تمت المراجعة والتصحيح التلقائي ✅${batchInfo}`, description: data.report?.summary || '' });
+      toast({ title: `تمت المراجعة والتصحيح${gateMsg}`, description: data.report?.summary || '' });
       fetchDrafts();
       if (selectedDraft?.id === draftId) {
         const { data: refreshed } = await supabase.from('question_drafts').select('*').eq('id', draftId).single();
@@ -237,7 +342,6 @@ export default function AdminAIReviewQueue() {
     const draft = drafts.find(d => d.id === editingQuestion.draftId);
     if (!draft) return;
 
-    // Save edits to corrected_questions_json
     const corrected = draft.corrected_questions_json ? [...draft.corrected_questions_json] : [...draft.draft_questions_json];
     corrected[editingQuestion.index] = editForm;
 
@@ -274,7 +378,7 @@ export default function AdminAIReviewQueue() {
             <FileCheck className="h-7 w-7 text-primary" />
             مراجعة الأسئلة المولّدة
           </h1>
-          <p className="mt-1 text-muted-foreground">مسار: توليد ← مراجعة وتصحيح تلقائي ← موافقة ← نشر</p>
+          <p className="mt-1 text-muted-foreground">مسار: توليد ← مراجعة وتصحيح ← بوابة الجودة ← نشر</p>
         </div>
         <Button onClick={() => setShowGenerate(!showGenerate)} className="gradient-primary text-primary-foreground">
           <Sparkles className="h-4 w-4 ml-2" />
@@ -452,6 +556,7 @@ export default function AdminAIReviewQueue() {
   );
 }
 
+// ─── Draft Card ──────────────────────────────────────────────────────
 function DraftCard({
   draft, countryName, examName, onView, onReview, onPublish, onReject, actionLoading,
 }: {
@@ -463,6 +568,7 @@ function DraftCard({
   const StatusIcon = status.icon;
   const report = draft.reviewer_report_json;
   const hasCorrected = !!draft.corrected_questions_json;
+  const qualityGate = report?.quality_gate;
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -479,21 +585,18 @@ function DraftCard({
               <Badge variant="outline">{draft.difficulty === 'easy' ? 'سهل' : draft.difficulty === 'hard' ? 'صعب' : 'متوسط'}</Badge>
               {hasCorrected && (
                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
-                  <Wand2 className="h-3 w-3 ml-1" />تم التصحيح التلقائي
+                  <Wand2 className="h-3 w-3 ml-1" />مصحح
                 </Badge>
+              )}
+              {qualityGate && (
+                <ConfidenceBadge score={qualityGate.avg_confidence} />
               )}
             </div>
             <p className="text-xs text-muted-foreground">
               {new Date(draft.created_at).toLocaleString('ar')} • النموذج: {draft.generator_model}
             </p>
             {report && (
-              <p className="text-xs mt-1">
-                {report.overall_ok ? (
-                  <span className="text-emerald-600">✅ {report.summary}</span>
-                ) : (
-                  <span className="text-destructive">⚠️ {report.issues_count} مشكلة — {report.summary}</span>
-                )}
-              </p>
+              <p className="text-xs mt-1 text-muted-foreground">{report.summary}</p>
             )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -502,12 +605,12 @@ function DraftCard({
               <>
                 <Button variant="outline" size="sm" onClick={onReview} disabled={actionLoading === `review-${draft.id}`}>
                   {actionLoading === `review-${draft.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 ml-1" />}
-                  مراجعة وتصحيح
+                  مراجعة
                 </Button>
                 <Button size="sm" onClick={onPublish} disabled={actionLoading === `publish-${draft.id}`}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white">
                   {actionLoading === `publish-${draft.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5 ml-1" />}
-                  نشر {hasCorrected ? 'المصحح' : ''}
+                  نشر
                 </Button>
                 <Button variant="destructive" size="sm" onClick={onReject} disabled={actionLoading === `reject-${draft.id}`}>
                   <XCircle className="h-3.5 w-3.5 ml-1" />رفض
@@ -521,6 +624,7 @@ function DraftCard({
   );
 }
 
+// ─── Draft Detail Dialog ─────────────────────────────────────────────
 function DraftDetailDialog({
   draft, countryName, examName, onClose, onReview, onPublish, onReject, onEdit, actionLoading,
 }: {
@@ -533,9 +637,9 @@ function DraftDetailDialog({
   const correctedQuestions = draft.corrected_questions_json || null;
   const report = draft.reviewer_report_json;
   const reviews = report?.reviews || [];
+  const qualityGate = report?.quality_gate;
   const [showComparison, setShowComparison] = useState(!!correctedQuestions);
 
-  // The questions to display (corrected if available, else original)
   const displayQuestions = correctedQuestions || originalQuestions;
 
   return (
@@ -547,42 +651,44 @@ function DraftDetailDialog({
             <Badge variant="outline">{draft.count} سؤال</Badge>
             {correctedQuestions && (
               <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
-                <Wand2 className="h-3 w-3 ml-1" />تم التصحيح التلقائي
+                <Wand2 className="h-3 w-3 ml-1" />مصحح
               </Badge>
             )}
+            {qualityGate && <ConfidenceBadge score={qualityGate.avg_confidence} size="lg" />}
           </DialogTitle>
         </DialogHeader>
 
-        {report && (
+        {/* Quality Gate Card */}
+        {qualityGate && <QualityGateCard gate={qualityGate} />}
+
+        {report && !qualityGate && (
           <Card className={report.overall_ok ? 'border-emerald-500/30' : 'border-destructive/30'}>
             <CardContent className="p-3 space-y-2">
               <p className="text-sm font-semibold">
                 {report.overall_ok ? '✅ المراجعة ناجحة' : `⚠️ ${report.issues_count} مشكلة`}
               </p>
               <p className="text-xs text-muted-foreground">{report.summary}</p>
-              {report.batch_stats && (
-                <div className="flex items-center gap-3 text-[11px] text-muted-foreground pt-1 border-t border-border/50">
-                  <span>📦 {report.batch_stats.completed_batches}/{report.batch_stats.total_batches} دفعات</span>
-                  <span>📏 {report.batch_stats.batch_size} سؤال/دفعة</span>
-                  {report.batch_stats.failed_batches.length > 0 && (
-                    <span className="text-destructive">❌ {report.batch_stats.failed_batches.length} دفعات فاشلة</span>
-                  )}
-                </div>
-              )}
             </CardContent>
           </Card>
+        )}
+
+        {report?.batch_stats && (
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground px-1">
+            <span>📦 {report.batch_stats.completed_batches}/{report.batch_stats.total_batches} دفعات</span>
+            <span>📏 {report.batch_stats.batch_size} سؤال/دفعة</span>
+            {report.batch_stats.failed_batches.length > 0 && (
+              <span className="text-destructive">❌ {report.batch_stats.failed_batches.length} فاشلة</span>
+            )}
+          </div>
         )}
 
         {/* Comparison toggle */}
         {correctedQuestions && (
           <div className="flex items-center gap-2">
-            <Button
-              variant={showComparison ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowComparison(!showComparison)}
-            >
+            <Button variant={showComparison ? 'default' : 'outline'} size="sm"
+              onClick={() => setShowComparison(!showComparison)}>
               <ArrowLeftRight className="h-3.5 w-3.5 ml-1" />
-              {showComparison ? 'إخفاء المقارنة' : 'عرض المقارنة (الأصل ↔ المصحح)'}
+              {showComparison ? 'إخفاء المقارنة' : 'عرض المقارنة'}
             </Button>
           </div>
         )}
@@ -593,9 +699,12 @@ function DraftDetailDialog({
             const original = originalQuestions[i];
             const corrected = correctedQuestions?.[i];
             const hasChanges = corrected && JSON.stringify(original) !== JSON.stringify(corrected);
+            const qs = review?.quality_scores;
+            const conf = qs?.confidence_score ?? null;
+            const isLowScore = conf !== null && conf < 0.70;
 
             return (
-              <Card key={i} className={review && !review.ok ? 'border-destructive/30' : hasChanges ? 'border-primary/30' : ''}>
+              <Card key={i} className={isLowScore ? 'border-destructive/50 bg-destructive/5' : review && !review.ok ? 'border-destructive/30' : hasChanges ? 'border-primary/30' : ''}>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -605,8 +714,9 @@ function DraftDetailDialog({
                           {review.ok ? `✓ ${review.score}/10` : `✗ ${review.score}/10`}
                         </Badge>
                       )}
-                      {review?.duplicate_risk && <Badge variant="destructive" className="text-[10px]">تكرار محتمل</Badge>}
-                      {hasChanges && <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary">تم التعديل</Badge>}
+                      {conf !== null && <ConfidenceBadge score={conf} />}
+                      {review?.duplicate_risk && <Badge variant="destructive" className="text-[10px]">تكرار</Badge>}
+                      {hasChanges && <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary">معدّل</Badge>}
                     </div>
                     {draft.status !== 'approved' && (
                       <Button variant="ghost" size="sm" onClick={() => onEdit(i, corrected || q)}>
@@ -615,10 +725,12 @@ function DraftDetailDialog({
                     )}
                   </div>
 
+                  {/* Quality scores panel */}
+                  {qs && <QualityScoresPanel scores={qs} />}
+
                   {/* Comparison view */}
                   {showComparison && hasChanges ? (
                     <div className="grid grid-cols-2 gap-3">
-                      {/* Original */}
                       <div className="space-y-2 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
                         <p className="text-[10px] font-bold text-destructive">الأصل (Flash)</p>
                         <p className="text-sm">{original.text_ar}</p>
@@ -629,11 +741,8 @@ function DraftDetailDialog({
                             </div>
                           ))}
                         </div>
-                        {original.explanation && (
-                          <p className="text-[11px] text-muted-foreground">💡 {original.explanation}</p>
-                        )}
+                        {original.explanation && <p className="text-[11px] text-muted-foreground">💡 {original.explanation}</p>}
                       </div>
-                      {/* Corrected */}
                       <div className="space-y-2 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
                         <p className="text-[10px] font-bold text-emerald-600">المصحح (Pro)</p>
                         <p className="text-sm">{corrected!.text_ar}</p>
@@ -644,9 +753,7 @@ function DraftDetailDialog({
                             </div>
                           ))}
                         </div>
-                        {corrected!.explanation && (
-                          <p className="text-[11px] text-muted-foreground">💡 {corrected!.explanation}</p>
-                        )}
+                        {corrected!.explanation && <p className="text-[11px] text-muted-foreground">💡 {corrected!.explanation}</p>}
                       </div>
                     </div>
                   ) : (
@@ -659,9 +766,7 @@ function DraftDetailDialog({
                           </div>
                         ))}
                       </div>
-                      {q.explanation && (
-                        <p className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">💡 {q.explanation}</p>
-                      )}
+                      {q.explanation && <p className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">💡 {q.explanation}</p>}
                     </>
                   )}
 
@@ -685,7 +790,7 @@ function DraftDetailDialog({
           <DialogFooter className="gap-2 flex-wrap">
             <Button variant="outline" onClick={onReview} disabled={actionLoading === `review-${draft.id}`}>
               {actionLoading === `review-${draft.id}` ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <RotateCcw className="h-4 w-4 ml-2" />}
-              مراجعة وتصحيح بـ Gemini Pro
+              إعادة المراجعة
             </Button>
             <Button variant="destructive" onClick={onReject} disabled={actionLoading === `reject-${draft.id}`}>
               <XCircle className="h-4 w-4 ml-2" />رفض
@@ -693,7 +798,7 @@ function DraftDetailDialog({
             <Button onClick={onPublish} disabled={actionLoading === `publish-${draft.id}`}
               className="bg-emerald-600 hover:bg-emerald-700 text-white">
               {actionLoading === `publish-${draft.id}` ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <Send className="h-4 w-4 ml-2" />}
-              {correctedQuestions ? 'موافقة ونشر النسخة المصححة' : 'موافقة ونشر'}
+              {correctedQuestions ? 'موافقة ونشر المصحح' : 'موافقة ونشر'}
             </Button>
           </DialogFooter>
         )}
