@@ -142,10 +142,9 @@ async function countAvailableQuestions(
 }
 
 /** Fetch questions for a single section with difficulty mix and 3-tier fallback.
- *  Strategy: fetch a large pool WITHOUT difficulty filter, then pick by difficulty in JS
- *  to avoid Supabase query-builder issues with chained .eq() calls. */
+ *  Uses a fresh Supabase client to avoid query builder state corruption. */
 async function fetchSectionQuestions(
-  admin: ReturnType<typeof createClient>,
+  _admin: ReturnType<typeof createClient>,
   section: Section,
   targetCount: number,
   template: { country_id: string; id: string },
@@ -153,100 +152,148 @@ async function fetchSectionQuestions(
   excludeIds: string[] = [],
   language: string = "ar"
 ) {
+  // Create a FRESH client to avoid query builder state corruption from prior queries
+  const freshAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
   const mix = difficultyMixOverride ?? section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
   const { easy: wantEasy, medium: wantMedium, hard: wantHard } = computeDifficultyCounts(targetCount, mix);
   const topicFilters = section.topic_filter_json ?? [];
   const templateIdStr = String(template.id);
-  const poolSize = Math.max(targetCount * 5, 50); // fetch a generous pool
 
   const usedIds = new Set(excludeIds);
 
-  // Helper: fetch pool from a single priority tier (no difficulty filter)
-  async function fetchPool(opts: { sectionId?: string; examTemplateId?: string; nullSection?: boolean }) {
-    let q = admin
-      .from("questions")
-      .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
-      .eq("is_approved", true)
-      .eq("country_id", template.country_id)
-      .eq("language", language);
-
-    if (opts.sectionId) q = q.eq("section_id", opts.sectionId);
-    if (opts.examTemplateId) q = q.eq("exam_template_id", opts.examTemplateId);
-    if (opts.nullSection) q = q.is("section_id", null);
-    if (topicFilters.length > 0) q = q.in("topic", topicFilters);
-
+  // Fetch lightweight ID+difficulty list from a pool tier
+  async function fetchIdPool(opts: { sectionId?: string; examTemplateId?: string; nullSection?: boolean }): Promise<{ id: string; difficulty: string }[]> {
     const excludeArr = [...usedIds];
-    if (excludeArr.length > 0) q = q.not("id", "in", `(${excludeArr.join(",")})`);
 
-    const { data, error } = await q.limit(poolSize);
-    if (error) console.error(`[fetchQ] pool error:`, error.message);
-    return data ?? [];
+    // Build RPC-style filter object to avoid query builder mutation issues
+    const filters: [string, string, unknown][] = [
+      ["is_approved", "eq", true],
+      ["country_id", "eq", template.country_id],
+      ["language", "eq", language],
+    ];
+    if (opts.sectionId) filters.push(["section_id", "eq", opts.sectionId]);
+    if (opts.examTemplateId) filters.push(["exam_template_id", "eq", opts.examTemplateId]);
+
+    // Use PostgREST REST API directly to avoid query builder issues
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const params = new URLSearchParams();
+    params.set("select", "id,difficulty");
+    params.set("is_approved", "eq.true");
+    params.set("country_id", `eq.${template.country_id}`);
+    params.set("language", `eq.${language}`);
+    params.set("limit", "200");
+
+    if (opts.sectionId) params.set("section_id", `eq.${opts.sectionId}`);
+    if (opts.examTemplateId) params.set("exam_template_id", `eq.${opts.examTemplateId}`);
+    if (opts.nullSection) params.set("section_id", "is.null");
+    if (topicFilters.length > 0) params.set("topic", `in.(${topicFilters.join(",")})`);
+    if (excludeArr.length > 0) params.set("id", `not.in.(${excludeArr.join(",")})`);
+
+    try {
+      const url = `${supabaseUrl}/rest/v1/questions?${params.toString()}`;
+      console.log(`[fetchQ] URL: ${url.substring(0, 200)}`);
+      const resp = await fetch(url, {
+        headers: {
+          "apikey": serviceKey,
+          "Authorization": `Bearer ${serviceKey}`,
+          "Accept": "application/json",
+          "Prefer": "count=exact",
+        },
+      });
+      const contentRange = resp.headers.get("content-range");
+      console.log(`[fetchQ] Status: ${resp.status}, Content-Range: ${contentRange}`);
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.error(`[fetchQ] REST error ${resp.status}:`, errText);
+        return [];
+      }
+      const result = await resp.json();
+      console.log(`[fetchQ] Returned ${result.length} rows`);
+      return result;
+    } catch (e) {
+      console.error(`[fetchQ] fetch error:`, e);
+      return [];
+    }
   }
 
-  // Pick from pool respecting difficulty targets
-  function pickByDifficulty(pool: any[], targets: { easy: number; medium: number; hard: number }) {
-    const picked: any[] = [];
-    const byDiff: Record<string, any[]> = { easy: [], medium: [], hard: [] };
+  // Pick IDs from pool respecting difficulty targets
+  function pickByDifficulty(pool: { id: string; difficulty: string }[], targets: { easy: number; medium: number; hard: number }): string[] {
+    const picked: string[] = [];
+    const byDiff: Record<string, string[]> = { easy: [], medium: [], hard: [] };
     for (const q of pool) {
-      if (byDiff[q.difficulty]) byDiff[q.difficulty].push(q);
+      if (byDiff[q.difficulty]) byDiff[q.difficulty].push(q.id);
     }
 
-    // Pick target count per difficulty
     for (const [diff, want] of Object.entries(targets) as [string, number][]) {
       const available = byDiff[diff] || [];
+      // Shuffle for randomness
+      for (let i = available.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [available[i], available[j]] = [available[j], available[i]];
+      }
       for (let i = 0; i < Math.min(want, available.length); i++) {
         picked.push(available[i]);
-        usedIds.add(available[i].id);
+        usedIds.add(available[i]);
       }
     }
-
     return picked;
   }
 
-  // Remaining targets tracker
   let rEasy = wantEasy, rMedium = wantMedium, rHard = wantHard;
-  const questions: any[] = [];
+  const selectedIds: string[] = [];
 
   // Priority 1: section-specific
-  const p1Pool = await fetchPool({ sectionId: section.id });
-  const p1 = pickByDifficulty(p1Pool, { easy: rEasy, medium: rMedium, hard: rHard });
-  questions.push(...p1);
-  rEasy -= p1.filter(q => q.difficulty === "easy").length;
-  rMedium -= p1.filter(q => q.difficulty === "medium").length;
-  rHard -= p1.filter(q => q.difficulty === "hard").length;
+  const p1Pool = await fetchIdPool({ sectionId: section.id });
+  const p1Ids = pickByDifficulty(p1Pool, { easy: rEasy, medium: rMedium, hard: rHard });
+  selectedIds.push(...p1Ids);
+  rEasy -= p1Ids.filter(id => p1Pool.find(q => q.id === id)?.difficulty === "easy").length;
+  rMedium -= p1Ids.filter(id => p1Pool.find(q => q.id === id)?.difficulty === "medium").length;
+  rHard -= p1Ids.filter(id => p1Pool.find(q => q.id === id)?.difficulty === "hard").length;
 
   // Priority 2: template-level (null section)
   if (rEasy + rMedium + rHard > 0) {
-    const p2Pool = await fetchPool({ examTemplateId: templateIdStr, nullSection: true });
-    const p2 = pickByDifficulty(p2Pool, { easy: rEasy, medium: rMedium, hard: rHard });
-    questions.push(...p2);
-    rEasy -= p2.filter(q => q.difficulty === "easy").length;
-    rMedium -= p2.filter(q => q.difficulty === "medium").length;
-    rHard -= p2.filter(q => q.difficulty === "hard").length;
+    const p2Pool = await fetchIdPool({ examTemplateId: templateIdStr, nullSection: true });
+    const p2Ids = pickByDifficulty(p2Pool, { easy: rEasy, medium: rMedium, hard: rHard });
+    selectedIds.push(...p2Ids);
+    rEasy -= p2Ids.filter(id => p2Pool.find(q => q.id === id)?.difficulty === "easy").length;
+    rMedium -= p2Ids.filter(id => p2Pool.find(q => q.id === id)?.difficulty === "medium").length;
+    rHard -= p2Ids.filter(id => p2Pool.find(q => q.id === id)?.difficulty === "hard").length;
   }
 
-  // Priority 3: country pool (any section/template)
+  // Priority 3: country pool
   if (rEasy + rMedium + rHard > 0) {
-    const p3Pool = await fetchPool({});
-    const p3 = pickByDifficulty(p3Pool, { easy: rEasy, medium: rMedium, hard: rHard });
-    questions.push(...p3);
-    rEasy -= p3.filter(q => q.difficulty === "easy").length;
-    rMedium -= p3.filter(q => q.difficulty === "medium").length;
-    rHard -= p3.filter(q => q.difficulty === "hard").length;
+    const p3Pool = await fetchIdPool({});
+    const p3Ids = pickByDifficulty(p3Pool, { easy: rEasy, medium: rMedium, hard: rHard });
+    selectedIds.push(...p3Ids);
   }
 
-  // If still short, fill with ANY difficulty from any pool
-  const totalStillNeeded = targetCount - questions.length;
-  if (totalStillNeeded > 0) {
-    const fillPool = await fetchPool({});
-    const unused = fillPool.filter((q: any) => !usedIds.has(q.id));
-    for (let i = 0; i < Math.min(totalStillNeeded, unused.length); i++) {
-      questions.push(unused[i]);
+  // Fill remaining with any difficulty if still short
+  if (selectedIds.length < targetCount) {
+    const fillPool = await fetchIdPool({});
+    const unused = fillPool.filter(q => !usedIds.has(q.id));
+    for (let i = 0; i < Math.min(targetCount - selectedIds.length, unused.length); i++) {
+      selectedIds.push(unused[i].id);
       usedIds.add(unused[i].id);
     }
   }
 
-  console.log(`[fetchQ] section=${section.name_ar}: target=${targetCount}, fetched=${questions.length} (pool1=${p1Pool.length})`);
+  // Hydrate: fetch full question data for selected IDs (in small batches)
+  const questions: unknown[] = [];
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < selectedIds.length; i += BATCH_SIZE) {
+    const batch = selectedIds.slice(i, i + BATCH_SIZE);
+    const { data, error } = await freshAdmin
+      .from("questions")
+      .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
+      .in("id", batch);
+    if (error) console.error(`[fetchQ] hydrate error:`, error.message);
+    if (data) questions.push(...data);
+  }
+
+  console.log(`[fetchQ] section=${section.name_ar}: target=${targetCount}, pool1=${p1Pool.length}, selected=${selectedIds.length}, hydrated=${questions.length}`);
 
   return { questions, usedIds: [...usedIds] };
 }
