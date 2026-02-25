@@ -1,49 +1,23 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, CheckCircle, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-
-interface GeneratedQuestion {
-  id: string;
-  text_ar: string;
-  options: { id: string; textAr: string }[];
-  correct_option_id: string;
-  explanation: string | null;
-}
+import { useNavigate } from 'react-router-dom';
 
 interface Country { id: string; name_ar: string; flag: string; }
 interface ExamTemplate { id: string; country_id: string; name_ar: string; }
 
-const optionLabels = ['أ', 'ب', 'ج', 'د'];
-
-function DebugDetails({ rawExcerpt }: { rawExcerpt: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div>
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-        تفاصيل الاستجابة
-      </button>
-      {open && (
-        <pre dir="ltr" className="mt-2 p-3 bg-muted rounded text-xs overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
-          {rawExcerpt}
-        </pre>
-      )}
-    </div>
-  );
-}
-
 export default function AdminAIGenerator() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<GeneratedQuestion[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
   const [exams, setExams] = useState<ExamTemplate[]>([]);
 
@@ -51,8 +25,8 @@ export default function AdminAIGenerator() {
   const [examTemplateId, setExamTemplateId] = useState('');
   const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
-  const [progress, setProgress] = useState('');
-  const [debugInfo, setDebugInfo] = useState<{ stage: string; error: string; rawExcerpt: string } | null>(null);
+  const [contentLang, setContentLang] = useState<'auto' | 'en' | 'ar'>('auto');
+  const [lastResult, setLastResult] = useState<{ draft_id: string; question_count: number; content_language: string } | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -71,100 +45,39 @@ export default function AdminAIGenerator() {
   const filteredExams = exams.filter(e => e.country_id === country);
 
   useEffect(() => {
-    // Reset exam when country changes
     if (!filteredExams.find(e => e.id === examTemplateId)) {
-      setExamTemplateId(filteredExams[0]?.id || '');
+      setExamTemplateId('');
     }
-  }, [country, filteredExams]);
-
-  const callGenerate = async (count: number): Promise<any[]> => {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://pypkjchxhgjbzgkyskhj.supabase.co";
-    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5cGtqY2h4aGdqYnpna3lza2hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MzEwMzgsImV4cCI6MjA4NjIwNzAzOH0.h-_HqgM39WlvTC9t2IsvCdIRWKaCSQPCfUdBzYJxSWo";
-    const url = `${supabaseUrl}/functions/v1/generateQuestionsWithResearch`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300000);
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${supabaseKey}`,
-        'apikey': supabaseKey,
-      },
-      body: JSON.stringify({ country, examTemplateId: examTemplateId || null, numberOfQuestions: count, difficulty, debug: true }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    const responseText = await response.text();
-    let data: any;
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      console.error('Non-JSON response:', responseText.substring(0, 300));
-      setDebugInfo({ stage: 'json_parse', error: 'NON_JSON_RESPONSE', rawExcerpt: responseText.substring(0, 500) });
-      throw new Error('[json_parse] - الخادم أرجع استجابة غير صالحة');
-    }
-
-    console.log('AI_GENERATOR_RESPONSE', data);
-
-    // SUCCESS: data.ok is true AND we have questions
-    if (data?.ok === true && (data?.questions?.length > 0 || data?.count > 0)) {
-      return (data.questions || []).map((q: any) => ({
-        ...q,
-        options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-      }));
-    }
-
-    // FAILURE: explicit ok:false OR no questions returned
-    const stage = data?.stage || 'unknown';
-    const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
-    const details = data?.details || {};
-    console.log('AI_DEBUG_RESPONSE', { status: response.status, data });
-    console.error('[AI-Gen DEBUG]', { stage, error: errMsg, details });
-    setDebugInfo({ stage, error: errMsg, rawExcerpt: details.raw_excerpt || details.raw_output_excerpt || details.raw_preview || JSON.stringify(details).substring(0, 500) });
-    throw new Error(`[${stage}] - ${errMsg}`);
-  };
+  }, [country]);
 
   const handleGenerate = async () => {
     if (!country) { toast({ title: 'يرجى اختيار الدولة', variant: 'destructive' }); return; }
     setLoading(true);
-    setResults([]);
-    setProgress('');
-    setDebugInfo(null);
+    setLastResult(null);
 
     try {
-      const BATCH_SIZE = 15;
-      const allQuestions: any[] = [];
+      const body: any = {
+        country_id: country,
+        exam_template_id: examTemplateId || null,
+        difficulty,
+        count: numberOfQuestions,
+      };
+      if (contentLang !== 'auto') body.content_language = contentLang;
 
-      if (numberOfQuestions <= BATCH_SIZE) {
-        setProgress(`جارٍ توليد ${numberOfQuestions} سؤال...`);
-        const questions = await callGenerate(numberOfQuestions);
-        allQuestions.push(...questions);
-      } else {
-        // Split into batches to avoid gateway timeout
-        const batches: number[] = [];
-        let remaining = numberOfQuestions;
-        while (remaining > 0) {
-          const batch = Math.min(remaining, BATCH_SIZE);
-          batches.push(batch);
-          remaining -= batch;
-        }
+      const { data, error } = await supabase.functions.invoke('generate-questions-draft', { body });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
-        for (let i = 0; i < batches.length; i++) {
-          setProgress(`جارٍ توليد الدفعة ${i + 1} من ${batches.length} (${allQuestions.length}/${numberOfQuestions} سؤال)...`);
-          const questions = await callGenerate(batches[i]);
-          allQuestions.push(...questions);
-        }
-      }
+      setLastResult({
+        draft_id: data.draft_id,
+        question_count: data.question_count,
+        content_language: data.content_language,
+      });
 
-      setResults(allQuestions);
-      setProgress('');
-      toast({ title: 'تم توليد الأسئلة بنجاح! ✨', description: `تم توليد ${allQuestions.length} سؤال وحفظها في بنك الأسئلة` });
+      const langLabel = data.content_language === 'en' ? '(English)' : '(عربي)';
+      toast({ title: `تم إنشاء مسودة بـ ${data.question_count} سؤال ${langLabel} ✨` });
     } catch (e: any) {
-      setProgress('');
-      toast({ title: 'خطأ', description: e?.message ?? 'UNKNOWN_DEBUG_ERROR', variant: 'destructive' });
+      toast({ title: 'خطأ في التوليد', description: e?.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -174,9 +87,15 @@ export default function AdminAIGenerator() {
     <div className="space-y-8" dir="rtl">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl sm:text-3xl font-black text-foreground flex items-center gap-3">
-          <Sparkles className="h-7 w-7 text-primary" />لوحة توليد الأسئلة الذكية
+          <Sparkles className="h-7 w-7 text-primary" />
+          لوحة توليد الأسئلة الذكية
         </h1>
-        <p className="mt-1 text-muted-foreground">استخدم الذكاء الاصطناعي لتوليد أسئلة امتحانات احترافية</p>
+        <p className="mt-1 text-muted-foreground">
+          توليد مسودات أسئلة بالذكاء الاصطناعي ← ثم مراجعتها واعتمادها من{' '}
+          <button onClick={() => navigate('/app/admin/review-queue')} className="text-primary underline hover:no-underline">
+            طابور المراجعة
+          </button>
+        </p>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
@@ -198,9 +117,8 @@ export default function AdminAIGenerator() {
                 <Select value={examTemplateId} onValueChange={setExamTemplateId}>
                   <SelectTrigger><SelectValue placeholder="اختر الاختبار" /></SelectTrigger>
                   <SelectContent>
-                    {filteredExams.length === 0 ? (
-                      <SelectItem value="none" disabled>لا توجد اختبارات لهذه الدولة</SelectItem>
-                    ) : filteredExams.map(e => <SelectItem key={e.id} value={e.id}>{e.name_ar}</SelectItem>)}
+                    <SelectItem value="none">عام</SelectItem>
+                    {filteredExams.map(e => <SelectItem key={e.id} value={e.id}>{e.name_ar}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -220,72 +138,47 @@ export default function AdminAIGenerator() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>لغة المحتوى</Label>
+                <Select value={contentLang} onValueChange={(v) => setContentLang(v as 'auto' | 'en' | 'ar')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">🔄 تلقائي (حسب المادة)</SelectItem>
+                    <SelectItem value="en">🇬🇧 English</SelectItem>
+                    <SelectItem value="ar">🇸🇦 عربي</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <Button onClick={handleGenerate} disabled={loading || !country} className="w-full gradient-primary text-primary-foreground" size="lg">
-              {loading ? <><Loader2 className="h-4 w-4 animate-spin ml-2" />{progress || 'جارٍ التوليد...'}</> : <><Sparkles className="h-4 w-4 ml-2" />توليد الأسئلة</>}
+              {loading ? <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</> : <><Sparkles className="h-4 w-4 ml-2" />توليد المسودة</>}
             </Button>
-            {numberOfQuestions > 15 && !loading && (
-              <p className="text-xs text-muted-foreground text-center">سيتم تقسيم التوليد إلى دفعات لضمان الاستقرار</p>
-            )}
           </CardContent>
         </Card>
       </motion.div>
 
-      {debugInfo && (
+      {/* Success Result */}
+      {lastResult && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="border-destructive">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2 text-destructive">
-                <AlertTriangle className="h-5 w-5" />
-                فشل التوليد — المرحلة: <code className="bg-muted px-2 py-0.5 rounded text-sm">{debugInfo.stage}</code>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm font-medium">{debugInfo.error}</p>
-              {debugInfo.rawExcerpt && <DebugDetails rawExcerpt={debugInfo.rawExcerpt} />}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {results.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="flex items-center gap-2 mb-4">
-            <CheckCircle className="h-5 w-5 text-success" />
-            <h2 className="text-lg font-bold">تم توليد {results.length} سؤال</h2>
-          </div>
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-right w-12">#</TableHead>
-                      <TableHead className="text-right">السؤال</TableHead>
-                      <TableHead className="text-right">أ</TableHead>
-                      <TableHead className="text-right">ب</TableHead>
-                      <TableHead className="text-right">ج</TableHead>
-                      <TableHead className="text-right">د</TableHead>
-                      <TableHead className="text-right">الإجابة</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {results.map((q, i) => {
-                      const correctIdx = q.options.findIndex(o => o.id === q.correct_option_id);
-                      return (
-                        <TableRow key={q.id}>
-                          <TableCell className="font-bold text-primary">{i + 1}</TableCell>
-                          <TableCell className="font-medium min-w-[200px]">{q.text_ar}</TableCell>
-                          {q.options.map(opt => (
-                            <TableCell key={opt.id} className={opt.id === q.correct_option_id ? 'text-success font-semibold' : ''}>{opt.textAr}</TableCell>
-                          ))}
-                          {Array.from({ length: Math.max(0, 4 - q.options.length) }).map((_, fi) => <TableCell key={`e-${fi}`}>-</TableCell>)}
-                          <TableCell className="font-bold text-success">{correctIdx >= 0 ? optionLabels[correctIdx] : '-'}</TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+          <Card className="border-emerald-500/30 bg-emerald-500/5">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-6 w-6 text-emerald-600" />
+                <div>
+                  <h3 className="font-bold text-lg">تم إنشاء المسودة بنجاح!</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {lastResult.question_count} سؤال — اللغة: {lastResult.content_language === 'en' ? 'English' : 'عربي'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button onClick={() => navigate('/app/admin/review-queue')} className="gradient-primary text-primary-foreground">
+                  <ArrowLeft className="h-4 w-4 ml-2" />
+                  الذهاب لطابور المراجعة
+                </Button>
+                <Button variant="outline" onClick={() => setLastResult(null)}>
+                  توليد مسودة أخرى
+                </Button>
               </div>
             </CardContent>
           </Card>

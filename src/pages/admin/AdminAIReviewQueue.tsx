@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import {
   Sparkles, Loader2, CheckCircle, AlertTriangle, XCircle,
   ChevronDown, ChevronUp, Eye, Send, RotateCcw, Trash2, Edit3,
@@ -195,6 +196,7 @@ function QualityGateCard({ gate }: { gate: QualityGate }) {
 
 // ─── Main Component ──────────────────────────────────────────────────
 export default function AdminAIReviewQueue() {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,16 +204,8 @@ export default function AdminAIReviewQueue() {
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Generate form state
-  const [showGenerate, setShowGenerate] = useState(false);
   const [countries, setCountries] = useState<Country[]>([]);
   const [exams, setExams] = useState<ExamTemplate[]>([]);
-  const [genCountry, setGenCountry] = useState('');
-  const [genExam, setGenExam] = useState('');
-  const [genDifficulty, setGenDifficulty] = useState('medium');
-  const [genCount, setGenCount] = useState(10);
-  const [genContentLang, setGenContentLang] = useState<'auto' | 'en' | 'ar'>('auto');
-  const [generating, setGenerating] = useState(false);
 
   // Edit dialog
   const [editingQuestion, setEditingQuestion] = useState<{ draftId: string; index: number; question: DraftQuestion } | null>(null);
@@ -243,33 +237,11 @@ export default function AdminAIReviewQueue() {
       const c = cRes.data || [];
       setCountries(c);
       setExams(eRes.data || []);
-      if (c.length > 0 && !genCountry) setGenCountry(c[0].id);
     };
     fetchMeta();
   }, []);
 
   const filteredDrafts = drafts.filter(d => d.status === activeTab);
-  const filteredExams = exams.filter(e => e.country_id === genCountry);
-
-  const handleGenerate = async () => {
-    if (!genCountry) return;
-    setGenerating(true);
-    try {
-      const body: any = { country_id: genCountry, exam_template_id: genExam || null, difficulty: genDifficulty, count: genCount };
-      if (genContentLang !== 'auto') body.content_language = genContentLang;
-      const { data, error } = await supabase.functions.invoke('generate-questions-draft', { body });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const langLabel = data.content_language === 'en' ? ' (English)' : ' (عربي)';
-      toast({ title: `تم إنشاء مسودة بـ ${data.question_count} سؤال${langLabel} ✨` });
-      setShowGenerate(false);
-      fetchDrafts();
-    } catch (e: any) {
-      toast({ title: 'خطأ في التوليد', description: e?.message, variant: 'destructive' });
-    } finally {
-      setGenerating(false);
-    }
-  };
 
   const handleReview = async (draftId: string) => {
     setActionLoading(`review-${draftId}`);
@@ -378,6 +350,7 @@ export default function AdminAIReviewQueue() {
     return exams.find(e => e.id === id)?.name_ar || id;
   };
 
+
   return (
     <div className="space-y-6" dir="rtl">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between flex-wrap gap-3">
@@ -386,75 +359,13 @@ export default function AdminAIReviewQueue() {
             <FileCheck className="h-7 w-7 text-primary" />
             مراجعة الأسئلة المولّدة
           </h1>
-          <p className="mt-1 text-muted-foreground">مسار: توليد ← مراجعة وتصحيح ← بوابة الجودة ← نشر</p>
+          <p className="mt-1 text-muted-foreground">راجع المسودات واعتمدها أو ارفضها — التوليد يتم من بوابة التوليد</p>
         </div>
-        <Button onClick={() => setShowGenerate(!showGenerate)} className="gradient-primary text-primary-foreground">
+        <Button onClick={() => navigate('/app/admin/ai-generator')} className="gradient-primary text-primary-foreground">
           <Sparkles className="h-4 w-4 ml-2" />
-          توليد مسودة جديدة
+          الذهاب لبوابة التوليد
         </Button>
       </motion.div>
-
-      {/* Generate Form */}
-      {showGenerate && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
-          <Card>
-            <CardHeader><CardTitle className="text-lg">توليد مسودة أسئلة</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>الدولة</Label>
-                  <Select value={genCountry} onValueChange={setGenCountry}>
-                    <SelectTrigger><SelectValue placeholder="اختر" /></SelectTrigger>
-                    <SelectContent>
-                      {countries.map(c => <SelectItem key={c.id} value={c.id}>{c.flag} {c.name_ar}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>الاختبار</Label>
-                  <Select value={genExam} onValueChange={setGenExam}>
-                    <SelectTrigger><SelectValue placeholder="اختر" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">عام</SelectItem>
-                      {filteredExams.map(e => <SelectItem key={e.id} value={e.id}>{e.name_ar}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>عدد الأسئلة</Label>
-                  <Input type="number" min={1} max={50} value={genCount}
-                    onChange={e => setGenCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} />
-                </div>
-                <div className="space-y-2">
-                  <Label>الصعوبة</Label>
-                  <Select value={genDifficulty} onValueChange={setGenDifficulty}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="easy">سهل</SelectItem>
-                      <SelectItem value="medium">متوسط</SelectItem>
-                      <SelectItem value="hard">صعب</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>لغة المحتوى</Label>
-                  <Select value={genContentLang} onValueChange={(v) => setGenContentLang(v as 'auto' | 'en' | 'ar')}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">🔄 تلقائي (حسب المادة)</SelectItem>
-                      <SelectItem value="en">🇬🇧 English</SelectItem>
-                      <SelectItem value="ar">🇸🇦 عربي</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <Button onClick={handleGenerate} disabled={generating || !genCountry} className="w-full" size="lg">
-                {generating ? <><Loader2 className="h-4 w-4 animate-spin ml-2" />جارٍ التوليد...</> : <><Sparkles className="h-4 w-4 ml-2" />توليد المسودة</>}
-              </Button>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
