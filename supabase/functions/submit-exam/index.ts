@@ -247,6 +247,109 @@ async function updatePredictiveScore(
   );
 }
 
+/** Calibrate question difficulty based on accumulated accuracy */
+async function calibrateQuestionDifficulty(
+  admin: ReturnType<typeof createClient>,
+  questionsJson: Record<string, any[]>,
+  answersKeyJson: Record<string, Record<string, { correct_option_id: string }>>,
+  finalAnswers: Record<string, string>
+) {
+  const FIRST_CALIBRATION_THRESHOLD = 30;
+  const RECALIBRATION_DELTA = 50;
+
+  // Collect per-question correctness
+  const questionResults: { id: string; correct: boolean }[] = [];
+  for (const [sectionId, sectionQs] of Object.entries(questionsJson)) {
+    const sectionKeys = answersKeyJson[sectionId] || {};
+    for (const q of sectionQs) {
+      const userAnswer = finalAnswers[q.id];
+      const key = sectionKeys[q.id];
+      if (userAnswer && key) {
+        questionResults.push({ id: q.id, correct: userAnswer === key.correct_option_id });
+      }
+    }
+  }
+
+  if (questionResults.length === 0) return;
+
+  // Batch update attempts_count, correct_count, accuracy
+  for (const qr of questionResults) {
+    // Increment counts
+    const { data: updated, error: updErr } = await admin.rpc("increment_question_stats" as any, {
+      qid: qr.id,
+      is_correct: qr.correct,
+    }).single();
+
+    // If RPC doesn't exist yet, do manual update
+    if (updErr) {
+      const { data: q } = await admin
+        .from("questions")
+        .select("attempts_count, correct_count, difficulty, difficulty_source, last_calibrated_attempts")
+        .eq("id", qr.id)
+        .single();
+      
+      if (!q) continue;
+
+      const newAttempts = (q.attempts_count || 0) + 1;
+      const newCorrect = (q.correct_count || 0) + (qr.correct ? 1 : 0);
+      const newAccuracy = newAttempts > 0 ? newCorrect / newAttempts : 0;
+
+      const updatePayload: Record<string, unknown> = {
+        attempts_count: newAttempts,
+        correct_count: newCorrect,
+        accuracy: Math.round(newAccuracy * 10000) / 10000,
+      };
+
+      // Check calibration eligibility
+      const diffSource = q.difficulty_source || "manual";
+      const lastCalAttempts = q.last_calibrated_attempts || 0;
+      let shouldCalibrate = false;
+
+      if (diffSource !== "calibrated" && newAttempts >= FIRST_CALIBRATION_THRESHOLD) {
+        shouldCalibrate = true;
+      } else if (diffSource === "calibrated" && (newAttempts - lastCalAttempts) >= RECALIBRATION_DELTA) {
+        shouldCalibrate = true;
+      }
+
+      if (shouldCalibrate) {
+        let newDiff: string;
+        if (newAccuracy >= 0.75) newDiff = "easy";
+        else if (newAccuracy >= 0.45) newDiff = "medium";
+        else newDiff = "hard";
+
+        const oldDiff = q.difficulty || "medium";
+        if (newDiff !== oldDiff) {
+          updatePayload.difficulty = newDiff;
+          updatePayload.difficulty_source = "calibrated";
+          updatePayload.last_calibrated_at = new Date().toISOString();
+          updatePayload.last_calibrated_attempts = newAttempts;
+
+          // Log calibration event
+          await admin.from("calibration_log").insert({
+            question_id: qr.id,
+            old_difficulty: oldDiff,
+            new_difficulty: newDiff,
+            accuracy: newAccuracy,
+            attempts_count: newAttempts,
+          });
+
+          console.log(`[calibration] Question ${qr.id}: ${oldDiff} → ${newDiff} (accuracy=${(newAccuracy * 100).toFixed(1)}%, attempts=${newAttempts})`);
+        } else {
+          // Same difficulty, just update tracking
+          updatePayload.difficulty_source = "calibrated";
+          updatePayload.last_calibrated_at = new Date().toISOString();
+          updatePayload.last_calibrated_attempts = newAttempts;
+        }
+      }
+
+      await admin
+        .from("questions")
+        .update(updatePayload)
+        .eq("id", qr.id);
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -538,6 +641,13 @@ Deno.serve(async (req) => {
       await updatePredictiveScore(admin, user.id, session.exam_template_id);
     } catch (predErr) {
       console.error("[submit-exam] Predictive score update failed:", predErr);
+    }
+
+    // ── DIFFICULTY CALIBRATION: update attempts/accuracy per question ──
+    try {
+      await calibrateQuestionDifficulty(admin, questionsJson, answersKeyJson, finalAnswers);
+    } catch (calErr) {
+      console.error("[submit-exam] Calibration update failed:", calErr);
     }
 
     return new Response(

@@ -17,6 +17,7 @@ import {
   X,
   LogOut,
   FileCheck,
+  Activity,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,7 @@ const adminNavItems = [
   { path: '/app/admin/settings', label: 'الإعدادات', icon: Settings },
   { path: '/app/admin/ai-generator', label: 'توليد بالذكاء', icon: Sparkles },
   { path: '/app/admin/review-queue', label: 'مراجعة الأسئلة', icon: FileCheck },
+  { path: '/app/admin/bank-health', label: 'صحة البنك', icon: Activity },
   { path: '/app/admin/users', label: 'إدارة المستخدمين', icon: Users },
 ];
 

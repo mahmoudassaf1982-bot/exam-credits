@@ -8,9 +8,11 @@ const corsHeaders = {
 
 // ── Constants ──
 const PRACTICE_QUESTION_COUNT = 10;
-const PRACTICE_WEAK_RATIO = 0.6;   // 60% from weak sections
-const PRACTICE_MEDIUM_RATIO = 0.3; // 30% from medium sections
-const PRACTICE_RANDOM_RATIO = 0.1; // 10% random review
+const PRACTICE_WEAK_RATIO = 0.70;   // 70% from weak sections (was 60%)
+const PRACTICE_MEDIUM_RATIO = 0.0;  // absorbed into blueprint coverage
+const PRACTICE_RANDOM_RATIO = 0.0;  // absorbed into blueprint coverage
+const PRACTICE_BLUEPRINT_RATIO = 0.30; // 30% blueprint coverage for exam balance
+const SIMULATION_FLEX_RATIO = 0.10; // 10% flexibility if shortage exists
 
 // ── Types ──
 
@@ -463,34 +465,37 @@ Deno.serve(async (req) => {
         const mediumSections = performances.filter((p) => p.tier === "medium");
         const strongSections = performances.filter((p) => p.tier === "strong");
 
-        // Calculate question counts per tier
+        // C) BLEND POLICY: 70% weakness-based + 30% blueprint coverage
         let weakCount = Math.round(totalPracticeQuestions * PRACTICE_WEAK_RATIO);
-        let mediumCount = Math.round(totalPracticeQuestions * PRACTICE_MEDIUM_RATIO);
-        let randomCount = totalPracticeQuestions - weakCount - mediumCount;
+        const blueprintCount = totalPracticeQuestions - weakCount;
 
+        // If no weak sections, shift to medium or blueprint
         if (weakSections.length === 0) {
-          mediumCount += weakCount;
           weakCount = 0;
         }
-        if (mediumSections.length === 0) {
-          if (weakSections.length > 0) {
-            weakCount += mediumCount;
-          } else {
-            randomCount += mediumCount;
-          }
-          mediumCount = 0;
-        }
 
-        // Distribute within tiers
-        const weakDist = distributeAcrossSections(weakSections.map((s) => s.sectionId), weakCount);
-        const medDist = distributeAcrossSections(mediumSections.map((s) => s.sectionId), mediumCount);
-        const allSectionIds = typedSections.map((s) => s.id);
-        const randomDist = distributeAcrossSections(allSectionIds, randomCount);
+        // Distribute weakness-based questions
+        const weakTargetSections = weakSections.length > 0 ? weakSections : mediumSections;
+        const weakDist = distributeAcrossSections(weakTargetSections.map((s) => s.sectionId), weakCount);
+
+        // Blueprint coverage: proportional to section blueprint weights
+        const blueprintDist = new Map<string, number>();
+        const totalBlueprintQuestions = typedSections.reduce((s, sec) => s + sec.question_count, 0);
+        let assignedBlueprint = 0;
+        for (let i = 0; i < typedSections.length; i++) {
+          const sec = typedSections[i];
+          const weight = totalBlueprintQuestions > 0 ? sec.question_count / totalBlueprintQuestions : 1 / typedSections.length;
+          const count = i === typedSections.length - 1
+            ? blueprintCount - assignedBlueprint
+            : Math.round(blueprintCount * weight);
+          blueprintDist.set(sec.id, Math.max(count, 0));
+          assignedBlueprint += count;
+        }
 
         // Merge distributions
         sectionDistribution = new Map<string, number>();
         for (const s of typedSections) {
-          const total = (weakDist.get(s.id) ?? 0) + (medDist.get(s.id) ?? 0) + (randomDist.get(s.id) ?? 0);
+          const total = (weakDist.get(s.id) ?? 0) + (blueprintDist.get(s.id) ?? 0);
           if (total > 0) sectionDistribution.set(s.id, total);
         }
 
@@ -504,6 +509,7 @@ Deno.serve(async (req) => {
 
         practiceMetadata = {
           skill_memory_used: true,
+          blend_policy: "70% weakness + 30% blueprint",
           section_performances: performances.map((p) => {
             const sm = skillMap.get(p.sectionId) as any;
             return {
@@ -517,10 +523,10 @@ Deno.serve(async (req) => {
               total_answered: sm?.total_answered ?? 0,
             };
           }),
-          distribution: { weak: weakCount, medium: mediumCount, random: randomCount },
+          distribution: { weakness: weakCount, blueprint: blueprintCount },
         };
 
-        console.log(`[assemble-exam] Practice ADAPTIVE (skill memory): weak=${weakCount} (${weakSections.length}), medium=${mediumCount} (${mediumSections.length}), random=${randomCount}, recent_exam_weak=${recentExamWeakSections.length}`);
+        console.log(`[assemble-exam] Practice ADAPTIVE (70/30 blend): weakness=${weakCount} (${weakTargetSections.length} sections), blueprint=${blueprintCount}, recent_exam_weak=${recentExamWeakSections.length}`);
       }
 
       // Fetch questions per section with adaptive difficulty
@@ -582,8 +588,7 @@ Deno.serve(async (req) => {
       }
 
     } else {
-      // ─── SIMULATION MODE: strict blueprint ───
-      // Validate each section has enough questions
+      // ─── SIMULATION MODE: 90% strict blueprint + 10% flex if shortage ───
       const insufficientSections: { name: string; required: number; available: number }[] = [];
 
       for (const section of typedSections) {
@@ -594,40 +599,55 @@ Deno.serve(async (req) => {
         }
       }
 
+      // C) BLEND POLICY: Allow 10% flexibility if shortage exists
+      const totalRequired = typedSections.reduce((s, sec) => s + sec.question_count, 0);
+      const flexAllowance = Math.ceil(totalRequired * SIMULATION_FLEX_RATIO);
+
       if (insufficientSections.length > 0) {
-        const details = insufficientSections
-          .map((s) => `${s.name}: مطلوب ${s.required}، متوفر ${s.available}`)
-          .join(" | ");
+        const totalDeficit = insufficientSections.reduce((s, sec) => s + (sec.required - sec.available), 0);
 
-        console.error(`[assemble-exam] Insufficient questions: ${details}`);
+        if (totalDeficit > flexAllowance) {
+          // Deficit exceeds 10% flex — reject
+          const details = insufficientSections
+            .map((s) => `${s.name}: مطلوب ${s.required}، متوفر ${s.available}`)
+            .join(" | ");
 
-        if (!isDiamond && pointsCost > 0) {
-          const { data: wallet } = await admin.from("wallets").select("balance").eq("user_id", user.id).single();
-          if (wallet) {
-            await admin.from("wallets").update({ balance: wallet.balance + pointsCost }).eq("user_id", user.id);
-            await admin.from("transactions").insert({
-              user_id: user.id, type: "credit", amount: pointsCost,
-              reason: "refund_insufficient_questions",
-              meta_json: { exam_template_id, session_type, insufficient_sections: insufficientSections },
-            });
+          console.error(`[assemble-exam] Insufficient questions (beyond 10% flex): ${details}`);
+
+          if (!isDiamond && pointsCost > 0) {
+            const { data: wallet } = await admin.from("wallets").select("balance").eq("user_id", user.id).single();
+            if (wallet) {
+              await admin.from("wallets").update({ balance: wallet.balance + pointsCost }).eq("user_id", user.id);
+              await admin.from("transactions").insert({
+                user_id: user.id, type: "credit", amount: pointsCost,
+                reason: "refund_insufficient_questions",
+                meta_json: { exam_template_id, session_type, insufficient_sections: insufficientSections },
+              });
+            }
           }
-        }
 
-        return new Response(
-          JSON.stringify({ error: "عدد الأسئلة المتوفرة غير كافٍ لبعض الأقسام", details: insufficientSections, message: details }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+          return new Response(
+            JSON.stringify({ error: "عدد الأسئلة المتوفرة غير كافٍ لبعض الأقسام", details: insufficientSections, message: details }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        } else {
+          // Within 10% flex — proceed with warning
+          console.warn(`[assemble-exam] Simulation flex mode: ${totalDeficit} questions short (within ${flexAllowance} flex allowance)`);
+        }
       }
 
-      // Fetch exact blueprint counts per section
+      // Fetch blueprint counts per section (use available if short, within flex)
       const allUsedIds: string[] = [];
       for (const section of typedSections) {
+        const available = await countAvailableQuestions(admin, section.id, template.country_id, template.id);
+        const targetCount = Math.min(section.question_count, available);
+
         const { questions, usedIds } = await fetchSectionQuestions(
           admin,
           section,
-          section.question_count,
+          targetCount,
           { country_id: template.country_id, id: template.id },
-          null, // use section's own difficulty mix
+          null, // use section's own difficulty mix (calibrated difficulties used automatically)
           allUsedIds
         );
         allUsedIds.push(...usedIds);
@@ -649,7 +669,12 @@ Deno.serve(async (req) => {
         answersKey[section.id] = sectionAnswerKeys;
         totalQuestionCount += strippedQuestions.length;
 
-        console.log(`[assemble-exam] Simulation section "${section.name_ar}": required=${section.question_count}, fetched=${strippedQuestions.length}`);
+        const shortfall = section.question_count - strippedQuestions.length;
+        if (shortfall > 0) {
+          console.warn(`[assemble-exam] Simulation section "${section.name_ar}": required=${section.question_count}, fetched=${strippedQuestions.length} (flex: -${shortfall})`);
+        } else {
+          console.log(`[assemble-exam] Simulation section "${section.name_ar}": required=${section.question_count}, fetched=${strippedQuestions.length}`);
+        }
       }
     }
 
