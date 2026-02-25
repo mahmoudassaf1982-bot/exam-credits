@@ -374,6 +374,22 @@ export default function ExamSession() {
 
   if (!session) return null;
 
+  // ── Review View (must be checked before Results) ──
+  if (showReview && session) {
+    return (
+      <div className="min-h-screen bg-background p-4 sm:p-6" dir="rtl">
+        <div className="mx-auto max-w-2xl">
+          <ExamReview
+            sections={sections}
+            questionsJson={reviewQuestions || {}}
+            answers={answers}
+            onBack={() => setShowReview(false)}
+          />
+        </div>
+      </div>
+    );
+  }
+
   // ── Results View ──
   if (showResults && scoreData) {
     const score = scoreData as {
@@ -469,21 +485,7 @@ export default function ExamSession() {
     );
   }
 
-  // ── Review View ──
-  if (showReview && session) {
-    return (
-      <div className="min-h-screen bg-background p-4 sm:p-6" dir="rtl">
-        <div className="mx-auto max-w-2xl">
-          <ExamReview
-            sections={sections}
-            questionsJson={reviewQuestions || {}}
-            answers={answers}
-            onBack={() => setShowReview(false)}
-          />
-        </div>
-      </div>
-    );
-  }
+  // (Review view moved above results view)
 
   // ── Exam View ──
   return (
