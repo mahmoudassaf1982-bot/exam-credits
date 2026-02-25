@@ -141,7 +141,9 @@ async function countAvailableQuestions(
   return countryCount ?? 0;
 }
 
-/** Fetch questions for a single section with a specific difficulty mix and fallback */
+/** Fetch questions for a single section with difficulty mix and 3-tier fallback.
+ *  Strategy: fetch a large pool WITHOUT difficulty filter, then pick by difficulty in JS
+ *  to avoid Supabase query-builder issues with chained .eq() calls. */
 async function fetchSectionQuestions(
   admin: ReturnType<typeof createClient>,
   section: Section,
@@ -152,92 +154,99 @@ async function fetchSectionQuestions(
   language: string = "ar"
 ) {
   const mix = difficultyMixOverride ?? section.difficulty_mix_json ?? { easy: 30, medium: 50, hard: 20 };
-  const { easy, medium, hard } = computeDifficultyCounts(targetCount, mix);
+  const { easy: wantEasy, medium: wantMedium, hard: wantHard } = computeDifficultyCounts(targetCount, mix);
   const topicFilters = section.topic_filter_json ?? [];
+  const templateIdStr = String(template.id);
+  const poolSize = Math.max(targetCount * 5, 50); // fetch a generous pool
 
-  const difficulties = [
-    { level: "easy", count: easy },
-    { level: "medium", count: medium },
-    { level: "hard", count: hard },
-  ];
-
-  const questions: unknown[] = [];
   const usedIds = new Set(excludeIds);
-  const templateIdStr = String(template.id); // ensure string for text column comparison
 
-  for (const { level, count } of difficulties) {
-    if (count <= 0) continue;
-
-    const excludeFilter = usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)";
-
-    // Priority 1: section-specific questions
-    let baseQuery = admin
+  // Helper: fetch pool from a single priority tier (no difficulty filter)
+  async function fetchPool(opts: { sectionId?: string; examTemplateId?: string; nullSection?: boolean }) {
+    let q = admin
       .from("questions")
       .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
       .eq("is_approved", true)
       .eq("country_id", template.country_id)
-      .eq("difficulty", level)
       .eq("language", language);
 
-    if (topicFilters.length > 0) baseQuery = baseQuery.in("topic", topicFilters);
+    if (opts.sectionId) q = q.eq("section_id", opts.sectionId);
+    if (opts.examTemplateId) q = q.eq("exam_template_id", opts.examTemplateId);
+    if (opts.nullSection) q = q.is("section_id", null);
+    if (topicFilters.length > 0) q = q.in("topic", topicFilters);
 
-    const { data: sectionSpecific } = await baseQuery
-      .eq("section_id", section.id)
-      .not("id", "in", excludeFilter)
-      .limit(count);
+    const excludeArr = [...usedIds];
+    if (excludeArr.length > 0) q = q.not("id", "in", `(${excludeArr.join(",")})`);
 
-    if (sectionSpecific) {
-      sectionSpecific.forEach((q: any) => usedIds.add(q.id));
-      questions.push(...sectionSpecific);
+    const { data, error } = await q.limit(poolSize);
+    if (error) console.error(`[fetchQ] pool error:`, error.message);
+    return data ?? [];
+  }
+
+  // Pick from pool respecting difficulty targets
+  function pickByDifficulty(pool: any[], targets: { easy: number; medium: number; hard: number }) {
+    const picked: any[] = [];
+    const byDiff: Record<string, any[]> = { easy: [], medium: [], hard: [] };
+    for (const q of pool) {
+      if (byDiff[q.difficulty]) byDiff[q.difficulty].push(q);
     }
 
-    const remaining = count - (sectionSpecific?.length ?? 0);
-    if (remaining <= 0) continue;
-
-    const excludeFilter2 = usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)";
-
-    // Priority 2: template-level questions (section_id is null)
-    let fallbackQuery = admin
-      .from("questions")
-      .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
-      .eq("is_approved", true)
-      .eq("country_id", template.country_id)
-      .eq("difficulty", level)
-      .eq("language", language)
-      .eq("exam_template_id", templateIdStr)
-      .is("section_id", null)
-      .not("id", "in", excludeFilter2);
-
-    if (topicFilters.length > 0) fallbackQuery = fallbackQuery.in("topic", topicFilters);
-
-    const { data: templateQuestions } = await fallbackQuery.limit(remaining);
-    if (templateQuestions) {
-      templateQuestions.forEach((q: any) => usedIds.add(q.id));
-      questions.push(...templateQuestions);
-    }
-
-    // Priority 3: country pool (any exam_template_id, any section_id)
-    const still = remaining - (templateQuestions?.length ?? 0);
-    if (still > 0) {
-      const excludeFilter3 = usedIds.size > 0 ? `(${[...usedIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)";
-      let poolQuery = admin
-        .from("questions")
-        .select("id, text_ar, options, correct_option_id, explanation, difficulty, topic")
-        .eq("is_approved", true)
-        .eq("country_id", template.country_id)
-        .eq("difficulty", level)
-        .eq("language", language)
-        .not("id", "in", excludeFilter3);
-
-      if (topicFilters.length > 0) poolQuery = poolQuery.in("topic", topicFilters);
-
-      const { data: poolQuestions } = await poolQuery.limit(still);
-      if (poolQuestions) {
-        poolQuestions.forEach((q: any) => usedIds.add(q.id));
-        questions.push(...poolQuestions);
+    // Pick target count per difficulty
+    for (const [diff, want] of Object.entries(targets) as [string, number][]) {
+      const available = byDiff[diff] || [];
+      for (let i = 0; i < Math.min(want, available.length); i++) {
+        picked.push(available[i]);
+        usedIds.add(available[i].id);
       }
     }
+
+    return picked;
   }
+
+  // Remaining targets tracker
+  let rEasy = wantEasy, rMedium = wantMedium, rHard = wantHard;
+  const questions: any[] = [];
+
+  // Priority 1: section-specific
+  const p1Pool = await fetchPool({ sectionId: section.id });
+  const p1 = pickByDifficulty(p1Pool, { easy: rEasy, medium: rMedium, hard: rHard });
+  questions.push(...p1);
+  rEasy -= p1.filter(q => q.difficulty === "easy").length;
+  rMedium -= p1.filter(q => q.difficulty === "medium").length;
+  rHard -= p1.filter(q => q.difficulty === "hard").length;
+
+  // Priority 2: template-level (null section)
+  if (rEasy + rMedium + rHard > 0) {
+    const p2Pool = await fetchPool({ examTemplateId: templateIdStr, nullSection: true });
+    const p2 = pickByDifficulty(p2Pool, { easy: rEasy, medium: rMedium, hard: rHard });
+    questions.push(...p2);
+    rEasy -= p2.filter(q => q.difficulty === "easy").length;
+    rMedium -= p2.filter(q => q.difficulty === "medium").length;
+    rHard -= p2.filter(q => q.difficulty === "hard").length;
+  }
+
+  // Priority 3: country pool (any section/template)
+  if (rEasy + rMedium + rHard > 0) {
+    const p3Pool = await fetchPool({});
+    const p3 = pickByDifficulty(p3Pool, { easy: rEasy, medium: rMedium, hard: rHard });
+    questions.push(...p3);
+    rEasy -= p3.filter(q => q.difficulty === "easy").length;
+    rMedium -= p3.filter(q => q.difficulty === "medium").length;
+    rHard -= p3.filter(q => q.difficulty === "hard").length;
+  }
+
+  // If still short, fill with ANY difficulty from any pool
+  const totalStillNeeded = targetCount - questions.length;
+  if (totalStillNeeded > 0) {
+    const fillPool = await fetchPool({});
+    const unused = fillPool.filter((q: any) => !usedIds.has(q.id));
+    for (let i = 0; i < Math.min(totalStillNeeded, unused.length); i++) {
+      questions.push(unused[i]);
+      usedIds.add(unused[i].id);
+    }
+  }
+
+  console.log(`[fetchQ] section=${section.name_ar}: target=${targetCount}, fetched=${questions.length} (pool1=${p1Pool.length})`);
 
   return { questions, usedIds: [...usedIds] };
 }
