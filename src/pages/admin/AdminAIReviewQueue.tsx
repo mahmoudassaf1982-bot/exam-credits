@@ -38,11 +38,19 @@ interface ReviewItem {
   corrected?: DraftQuestion;
 }
 
+interface BatchStats {
+  total_batches: number;
+  completed_batches: number;
+  failed_batches: number[];
+  batch_size: number;
+}
+
 interface ReviewReport {
   overall_ok: boolean;
   summary: string;
   issues_count: number;
   reviews: ReviewItem[];
+  batch_stats?: BatchStats;
 }
 
 interface Draft {
@@ -151,22 +159,39 @@ export default function AdminAIReviewQueue() {
 
   const handleReview = async (draftId: string) => {
     setActionLoading(`review-${draftId}`);
+    
+    // Start polling for progress updates
+    const pollInterval = setInterval(async () => {
+      const { data: progressDraft } = await supabase
+        .from('question_drafts')
+        .select('notes')
+        .eq('id', draftId)
+        .single();
+      if (progressDraft?.notes?.includes('مراجعة جارية')) {
+        toast({ title: '⏳ ' + progressDraft.notes, duration: 2000 });
+      }
+    }, 8000);
+
     try {
       const { data, error } = await supabase.functions.invoke('review-questions-draft', {
         body: { draft_id: draftId },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast({ title: 'تمت المراجعة والتصحيح التلقائي ✅', description: data.report?.summary || '' });
+      
+      const batchInfo = data.report?.batch_stats
+        ? ` (${data.report.batch_stats.completed_batches}/${data.report.batch_stats.total_batches} دفعات)`
+        : '';
+      toast({ title: `تمت المراجعة والتصحيح التلقائي ✅${batchInfo}`, description: data.report?.summary || '' });
       fetchDrafts();
       if (selectedDraft?.id === draftId) {
-        // Refresh selected draft
         const { data: refreshed } = await supabase.from('question_drafts').select('*').eq('id', draftId).single();
         if (refreshed) setSelectedDraft(refreshed as unknown as Draft);
       }
     } catch (e: any) {
       toast({ title: 'خطأ في المراجعة', description: e?.message, variant: 'destructive' });
     } finally {
+      clearInterval(pollInterval);
       setActionLoading(null);
     }
   };
@@ -530,11 +555,20 @@ function DraftDetailDialog({
 
         {report && (
           <Card className={report.overall_ok ? 'border-emerald-500/30' : 'border-destructive/30'}>
-            <CardContent className="p-3">
-              <p className="text-sm font-semibold mb-1">
+            <CardContent className="p-3 space-y-2">
+              <p className="text-sm font-semibold">
                 {report.overall_ok ? '✅ المراجعة ناجحة' : `⚠️ ${report.issues_count} مشكلة`}
               </p>
               <p className="text-xs text-muted-foreground">{report.summary}</p>
+              {report.batch_stats && (
+                <div className="flex items-center gap-3 text-[11px] text-muted-foreground pt-1 border-t border-border/50">
+                  <span>📦 {report.batch_stats.completed_batches}/{report.batch_stats.total_batches} دفعات</span>
+                  <span>📏 {report.batch_stats.batch_size} سؤال/دفعة</span>
+                  {report.batch_stats.failed_batches.length > 0 && (
+                    <span className="text-destructive">❌ {report.batch_stats.failed_batches.length} دفعات فاشلة</span>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
