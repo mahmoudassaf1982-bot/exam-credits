@@ -20,7 +20,19 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 3000;
 const REVIEWER_MODEL = "google/gemini-2.5-pro";
 
+// Quality Gate thresholds
+const AUTO_PUBLISH_THRESHOLD = 0.85;
+const NEEDS_REVIEW_THRESHOLD = 0.70;
+
 // ─── Types ───────────────────────────────────────────────────────────
+interface QualityScores {
+  confidence_score: number;
+  clarity_score: number;
+  difficulty_match: number;
+  single_answer_confidence: number;
+  language_quality: number;
+}
+
 interface ReviewItem {
   index: number;
   ok: boolean;
@@ -28,6 +40,7 @@ interface ReviewItem {
   issues: string[];
   suggestions: string[];
   duplicate_risk: boolean;
+  quality_scores: QualityScores;
   corrected: {
     text_ar: string;
     options: { id: string; textAr: string }[];
@@ -60,20 +73,19 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 function buildSystemPrompt(): string {
-  return `You are a Senior Exam Quality Reviewer AND Auto-Corrector for SARIS Exams. Your job is to review AND fix AI-generated exam questions.
+  return `You are a Senior Exam Quality Reviewer, Auto-Corrector, AND Quality Gate Evaluator for SARIS Exams.
 
 For EACH question, you must:
 1. REVIEW: Check for issues (ambiguity, wrong answer, grammar, difficulty mismatch, hint in stem, weak distractors, duplicates)
-2. AUTO-FIX: Return a CORRECTED version of the question with ALL issues resolved
+2. AUTO-FIX: Return a CORRECTED version with ALL issues resolved
+3. QUALITY GATE: Return structured quality scores (0.0 to 1.0 each)
 
-Corrections include:
-- Fix Arabic grammar and formal language
-- Fix incorrect correct_option_id if the marked answer is wrong
-- Improve weak distractors to be more plausible
-- Rewrite ambiguous stems for clarity
-- Adjust difficulty if mismatched
-- Fix explanation to match the correct answer
-- Remove any hints to the answer from the stem
+Quality Scores to evaluate:
+- confidence_score: Overall confidence that the question is correct, well-formed, and exam-ready (0.0-1.0)
+- clarity_score: How clear and unambiguous the question stem and options are (0.0-1.0)
+- difficulty_match: How well the actual difficulty matches the requested difficulty level (0.0-1.0)
+- single_answer_confidence: How confident that exactly ONE option is definitively correct (0.0-1.0)
+- language_quality: Arabic grammar, formal academic tone, spelling correctness (0.0-1.0)
 
 Return a JSON object with:
 {
@@ -82,14 +94,21 @@ Return a JSON object with:
       "index": number,
       "ok": boolean,
       "score": number (0-10),
-      "issues": string[] (list of specific issues found, empty if ok),
-      "suggestions": string[] (what was changed/improved),
+      "issues": string[],
+      "suggestions": string[],
       "duplicate_risk": boolean,
+      "quality_scores": {
+        "confidence_score": number (0.0-1.0),
+        "clarity_score": number (0.0-1.0),
+        "difficulty_match": number (0.0-1.0),
+        "single_answer_confidence": number (0.0-1.0),
+        "language_quality": number (0.0-1.0)
+      },
       "corrected": {
-        "text_ar": string (corrected question text),
+        "text_ar": string,
         "options": [{"id": "a", "textAr": string}, {"id": "b", "textAr": string}, {"id": "c", "textAr": string}, {"id": "d", "textAr": string}],
         "correct_option_id": string (a/b/c/d),
-        "explanation": string (corrected explanation),
+        "explanation": string,
         "difficulty": string (easy/medium/hard),
         "topic": string
       }
@@ -97,8 +116,10 @@ Return a JSON object with:
   ]
 }
 
-IMPORTANT: The "corrected" field must ALWAYS be present for every question, even if ok=true (return improved/polished version).
-Be strict but fair. Fix real issues. Polish language even for "ok" questions.
+IMPORTANT:
+- "corrected" and "quality_scores" must ALWAYS be present for every question.
+- Be strict but fair. Score honestly. A perfect question should get 0.95+, not 1.0.
+- confidence_score is the MOST important metric — it gates auto-publishing.
 Return JSON ONLY.`;
 }
 
@@ -107,13 +128,24 @@ function buildBatchUserPrompt(
   difficulty: string,
   existingTexts: string
 ): string {
-  return `Review and auto-correct these ${batch.length} questions (requested difficulty: ${difficulty}):
+  return `Review, auto-correct, and score these ${batch.length} questions (requested difficulty: ${difficulty}):
 
 ${JSON.stringify(batch, null, 2)}
 
 ${existingTexts ? `\nExisting approved questions for duplicate check:\n${existingTexts.substring(0, 4000)}` : ""}
 
-Return JSON ONLY with the "reviews" array.`;
+Return JSON ONLY with the "reviews" array including quality_scores for each.`;
+}
+
+function ensureQualityScores(review: any): QualityScores {
+  const qs = review.quality_scores || {};
+  return {
+    confidence_score: typeof qs.confidence_score === 'number' ? qs.confidence_score : (review.score || 5) / 10,
+    clarity_score: typeof qs.clarity_score === 'number' ? qs.clarity_score : (review.score || 5) / 10,
+    difficulty_match: typeof qs.difficulty_match === 'number' ? qs.difficulty_match : 0.7,
+    single_answer_confidence: typeof qs.single_answer_confidence === 'number' ? qs.single_answer_confidence : (review.ok ? 0.9 : 0.5),
+    language_quality: typeof qs.language_quality === 'number' ? qs.language_quality : 0.7,
+  };
 }
 
 async function reviewBatch(
@@ -145,7 +177,7 @@ async function reviewBatch(
       }
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min timeout per batch
+      const timeout = setTimeout(() => controller.abort(), 120_000);
 
       const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
@@ -166,30 +198,17 @@ async function reviewBatch(
       clearTimeout(timeout);
 
       if (aiResponse.status === 429) {
-        const errText = await aiResponse.text();
         if (attempt < MAX_RETRIES) {
           console.warn(`[review-batch] Rate limited on batch ${batchIndex + 1}, retrying...`);
           continue;
         }
-        return {
-          batch_index: batchIndex,
-          total_batches: totalBatches,
-          reviews: [],
-          ok: false,
-          error: `Rate limited after ${MAX_RETRIES} retries`,
-        };
+        return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: `Rate limited after ${MAX_RETRIES} retries` };
       }
 
       if (!aiResponse.ok) {
         const errText = await aiResponse.text();
         if (attempt < MAX_RETRIES) continue;
-        return {
-          batch_index: batchIndex,
-          total_batches: totalBatches,
-          reviews: [],
-          ok: false,
-          error: `AI error ${aiResponse.status}: ${errText.substring(0, 300)}`,
-        };
+        return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: `AI error ${aiResponse.status}: ${errText.substring(0, 300)}` };
       }
 
       const aiData = await aiResponse.json();
@@ -202,46 +221,63 @@ async function reviewBatch(
         parsed = JSON.parse(objMatch?.[0] || cleaned);
       } catch {
         if (attempt < MAX_RETRIES) continue;
-        return {
-          batch_index: batchIndex,
-          total_batches: totalBatches,
-          reviews: [],
-          ok: false,
-          error: "Failed to parse AI output: " + cleaned.substring(0, 200),
-        };
+        return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: "Failed to parse AI output: " + cleaned.substring(0, 200) };
       }
 
-      const reviews: ReviewItem[] = parsed.reviews || [];
-      return {
-        batch_index: batchIndex,
-        total_batches: totalBatches,
-        reviews,
-        ok: true,
-      };
+      // Ensure quality_scores exist on every review
+      const reviews: ReviewItem[] = (parsed.reviews || []).map((r: any) => ({
+        ...r,
+        quality_scores: ensureQualityScores(r),
+      }));
+
+      return { batch_index: batchIndex, total_batches: totalBatches, reviews, ok: true };
     } catch (e: any) {
       if (e.name === "AbortError") {
         console.warn(`[review-batch] Timeout on batch ${batchIndex + 1}`);
         if (attempt < MAX_RETRIES) continue;
-        return {
-          batch_index: batchIndex,
-          total_batches: totalBatches,
-          reviews: [],
-          ok: false,
-          error: "Timeout after retries",
-        };
+        return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: "Timeout after retries" };
       }
       if (attempt < MAX_RETRIES) continue;
-      return {
-        batch_index: batchIndex,
-        total_batches: totalBatches,
-        reviews: [],
-        ok: false,
-        error: e.message || "Unknown error",
-      };
+      return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: e.message || "Unknown error" };
     }
   }
 
   return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: "Exhausted retries" };
+}
+
+// ─── Quality Gate Decision ───────────────────────────────────────────
+function computeQualityGateDecision(allReviews: ReviewItem[], failedBatches: number[]) {
+  if (allReviews.length === 0 || failedBatches.length > 0) {
+    return { decision: "needs_fix" as const, avg_confidence: 0, auto_publishable: 0, needs_review_count: 0, needs_fix_count: allReviews.length };
+  }
+
+  let autoPublishable = 0;
+  let needsReviewCount = 0;
+  let needsFixCount = 0;
+  let totalConfidence = 0;
+
+  for (const r of allReviews) {
+    const conf = r.quality_scores?.confidence_score ?? 0;
+    totalConfidence += conf;
+    if (conf >= AUTO_PUBLISH_THRESHOLD) autoPublishable++;
+    else if (conf >= NEEDS_REVIEW_THRESHOLD) needsReviewCount++;
+    else needsFixCount++;
+  }
+
+  const avgConfidence = Math.round((totalConfidence / allReviews.length) * 100) / 100;
+
+  // Decision rules
+  let decision: "approved" | "pending_review" | "needs_fix";
+  if (needsFixCount > 0) {
+    decision = "needs_fix";
+  } else if (needsReviewCount > 0) {
+    decision = "pending_review";
+  } else {
+    // All questions >= 0.85
+    decision = avgConfidence >= AUTO_PUBLISH_THRESHOLD ? "approved" : "pending_review";
+  }
+
+  return { decision, avg_confidence: avgConfidence, auto_publishable: autoPublishable, needs_review_count: needsReviewCount, needs_fix_count: needsFixCount };
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────
@@ -269,7 +305,6 @@ serve(async (req) => {
     const { draft_id } = await req.json();
     if (!draft_id) return jsonResponse({ error: "draft_id required" }, 400);
 
-    // Fetch draft
     const { data: draft, error: draftError } = await adminSupabase
       .from("question_drafts")
       .select("*")
@@ -286,7 +321,6 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return jsonResponse({ error: "LOVABLE_API_KEY not configured" }, 500);
 
-    // Fetch existing approved questions for duplicate check
     const { data: existingQuestions } = await adminSupabase
       .from("questions")
       .select("text_ar")
@@ -297,22 +331,16 @@ serve(async (req) => {
 
     const existingTexts = (existingQuestions || []).map((q: any) => q.text_ar).join("\n---\n");
 
-    // ─── Split into batches ──────────────────────────────────────────
     const batches = chunkArray(questions, BATCH_SIZE);
     const totalBatches = batches.length;
 
     console.log(`[review-questions-draft] Starting batched review: ${questions.length} questions → ${totalBatches} batches of ≤${BATCH_SIZE}`);
 
-    // Update draft status to show review in progress
     await adminSupabase
       .from("question_drafts")
-      .update({
-        status: "pending_review",
-        notes: `مراجعة جارية: 0/${totalBatches} دفعات`,
-      })
+      .update({ status: "pending_review", notes: `مراجعة جارية: 0/${totalBatches} دفعات` })
       .eq("id", draft_id);
 
-    // ─── Process batches sequentially ────────────────────────────────
     const allReviews: ReviewItem[] = [];
     const batchResults: BatchResult[] = [];
     const failedBatches: number[] = [];
@@ -320,15 +348,7 @@ serve(async (req) => {
     for (let bi = 0; bi < totalBatches; bi++) {
       console.log(`[review-questions-draft] Processing batch ${bi + 1}/${totalBatches} (${batches[bi].length} questions)`);
 
-      const result = await reviewBatch(
-        batches[bi],
-        bi,
-        totalBatches,
-        draft.difficulty,
-        existingTexts,
-        LOVABLE_API_KEY
-      );
-
+      const result = await reviewBatch(batches[bi], bi, totalBatches, draft.difficulty, existingTexts, LOVABLE_API_KEY);
       batchResults.push(result);
 
       if (result.ok) {
@@ -338,22 +358,15 @@ serve(async (req) => {
         console.error(`[review-questions-draft] Batch ${bi + 1} failed: ${result.error}`);
       }
 
-      // ─── Partial save: update progress after each batch ──────────
       const progressNote = `مراجعة جارية: ${bi + 1}/${totalBatches} دفعات${failedBatches.length > 0 ? ` (${failedBatches.length} فشلت)` : ''}`;
-      await adminSupabase
-        .from("question_drafts")
-        .update({ notes: progressNote })
-        .eq("id", draft_id);
+      await adminSupabase.from("question_drafts").update({ notes: progressNote }).eq("id", draft_id);
 
-      // Rate limit guard: small delay between batches
-      if (bi < totalBatches - 1) {
-        await sleep(1500);
-      }
+      if (bi < totalBatches - 1) await sleep(1500);
     }
 
-    // ─── Merge results ───────────────────────────────────────────────
+    // ─── Quality Gate ────────────────────────────────────────────────
+    const qualityGate = computeQualityGateDecision(allReviews, failedBatches);
 
-    // Build merged report
     const totalIssues = allReviews.filter(r => !r.ok).length;
     const avgScore = allReviews.length > 0
       ? Math.round((allReviews.reduce((sum, r) => sum + (r.score || 0), 0) / allReviews.length) * 10) / 10
@@ -361,11 +374,7 @@ serve(async (req) => {
 
     const mergedReport = {
       overall_ok: totalIssues === 0 && failedBatches.length === 0,
-      summary: failedBatches.length > 0
-        ? `تمت مراجعة ${allReviews.length}/${questions.length} سؤال. فشلت ${failedBatches.length} دفعات. متوسط التقييم: ${avgScore}/10`
-        : totalIssues > 0
-          ? `${totalIssues} مشكلة في ${allReviews.length} سؤال. متوسط التقييم: ${avgScore}/10`
-          : `جميع الأسئلة سليمة (${allReviews.length} سؤال). متوسط التقييم: ${avgScore}/10`,
+      summary: `${allReviews.length} سؤال | الثقة: ${qualityGate.avg_confidence} | التقييم: ${avgScore}/10 | ✅${qualityGate.auto_publishable} ⚠️${qualityGate.needs_review_count} ❌${qualityGate.needs_fix_count}`,
       issues_count: totalIssues,
       reviews: allReviews,
       batch_stats: {
@@ -373,6 +382,14 @@ serve(async (req) => {
         completed_batches: totalBatches - failedBatches.length,
         failed_batches: failedBatches,
         batch_size: BATCH_SIZE,
+      },
+      quality_gate: {
+        decision: qualityGate.decision,
+        avg_confidence: qualityGate.avg_confidence,
+        auto_publishable: qualityGate.auto_publishable,
+        needs_review_count: qualityGate.needs_review_count,
+        needs_fix_count: qualityGate.needs_fix_count,
+        thresholds: { auto_publish: AUTO_PUBLISH_THRESHOLD, needs_review: NEEDS_REVIEW_THRESHOLD },
       },
     };
 
@@ -393,11 +410,8 @@ serve(async (req) => {
       return originalQ;
     });
 
-    // Determine final status
-    const hasIssues = totalIssues > 0 || failedBatches.length > 0;
-    const newStatus = hasIssues ? "needs_fix" : "pending_review";
+    const newStatus = qualityGate.decision;
 
-    // Final save
     const { error: updateError } = await adminSupabase
       .from("question_drafts")
       .update({
@@ -405,9 +419,11 @@ serve(async (req) => {
         reviewer_model: REVIEWER_MODEL,
         corrected_questions_json: correctedQuestions,
         status: newStatus,
-        notes: failedBatches.length > 0
-          ? `اكتملت المراجعة مع ${failedBatches.length} دفعات فاشلة`
-          : `اكتملت المراجعة بنجاح — ${totalBatches} دفعات`,
+        notes: newStatus === "approved"
+          ? `✅ اجتاز بوابة الجودة تلقائياً — الثقة: ${qualityGate.avg_confidence}`
+          : newStatus === "pending_review"
+            ? `⚠️ يحتاج مراجعة بشرية — الثقة: ${qualityGate.avg_confidence}`
+            : `❌ يحتاج إصلاح — ${qualityGate.needs_fix_count} أسئلة تحت الحد`,
       })
       .eq("id", draft_id);
 
@@ -416,13 +432,14 @@ serve(async (req) => {
       return jsonResponse({ error: "Failed to save review", details: updateError.message }, 500);
     }
 
-    console.log(`[review-questions-draft] ✅ Review complete. ${allReviews.length}/${questions.length} reviewed. Status: ${newStatus}. Failed batches: ${failedBatches.length}`);
+    console.log(`[review-questions-draft] ✅ Review + Quality Gate complete. Decision: ${newStatus}. Confidence: ${qualityGate.avg_confidence}`);
 
     return jsonResponse({
       ok: true,
       draft_id,
       status: newStatus,
       report: mergedReport,
+      quality_gate: mergedReport.quality_gate,
       corrected_count: correctedQuestions.length,
     });
   } catch (e) {
