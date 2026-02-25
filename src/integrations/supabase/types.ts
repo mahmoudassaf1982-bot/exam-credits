@@ -328,6 +328,7 @@ export type Database = {
       exam_templates: {
         Row: {
           analysis_cost_points: number
+          available_languages: Json
           country_id: string
           created_at: string
           default_question_count: number
@@ -346,6 +347,7 @@ export type Database = {
         }
         Insert: {
           analysis_cost_points?: number
+          available_languages?: Json
           country_id: string
           created_at?: string
           default_question_count?: number
@@ -364,6 +366,7 @@ export type Database = {
         }
         Update: {
           analysis_cost_points?: number
+          available_languages?: Json
           country_id?: string
           created_at?: string
           default_question_count?: number
@@ -598,6 +601,7 @@ export type Database = {
           explanation: string | null
           id: string
           is_approved: boolean
+          language: string
           last_calibrated_at: string | null
           last_calibrated_attempts: number
           options: Json
@@ -622,6 +626,7 @@ export type Database = {
           explanation?: string | null
           id?: string
           is_approved?: boolean
+          language?: string
           last_calibrated_at?: string | null
           last_calibrated_attempts?: number
           options?: Json
@@ -646,6 +651,7 @@ export type Database = {
           explanation?: string | null
           id?: string
           is_approved?: boolean
+          language?: string
           last_calibrated_at?: string | null
           last_calibrated_attempts?: number
           options?: Json

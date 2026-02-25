@@ -17,6 +17,7 @@ interface ExamTemplate {
   id: string; country_id: string; slug: string; name_ar: string; description_ar: string;
   is_active: boolean; default_time_limit_sec: number; default_question_count: number;
   simulation_cost_points: number; practice_cost_points: number; analysis_cost_points: number;
+  available_languages: string[];
 }
 
 interface ExamSection {
@@ -128,7 +129,8 @@ export default function AdminExamDetail() {
       simulation_cost_points: template.simulation_cost_points,
       practice_cost_points: template.practice_cost_points,
       analysis_cost_points: template.analysis_cost_points,
-    }).eq('id', template.id);
+      available_languages: template.available_languages,
+    } as any).eq('id', template.id);
     if (error) toast.error('خطأ في الحفظ');
     else toast.success('تم حفظ التغييرات');
     setSaving(false);
@@ -223,6 +225,30 @@ export default function AdminExamDetail() {
             <div className="flex items-center justify-between rounded-xl bg-muted/50 p-4">
               <Label className="cursor-pointer">الاختبار مفعّل</Label>
               <Switch checked={template.is_active} onCheckedChange={(v) => updateField('is_active', v)} />
+            </div>
+            <div className="space-y-2">
+              <Label>اللغات المتاحة</Label>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={template.available_languages?.includes('ar')} onChange={(e) => {
+                    const langs = new Set(template.available_languages || []);
+                    if (e.target.checked) langs.add('ar'); else langs.delete('ar');
+                    if (langs.size === 0) langs.add('ar');
+                    updateField('available_languages', [...langs]);
+                  }} className="rounded" />
+                  <span className="text-sm">🇸🇦 العربية</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={template.available_languages?.includes('en')} onChange={(e) => {
+                    const langs = new Set(template.available_languages || []);
+                    if (e.target.checked) langs.add('en'); else langs.delete('en');
+                    if (langs.size === 0) langs.add('ar');
+                    updateField('available_languages', [...langs]);
+                  }} className="rounded" />
+                  <span className="text-sm">🇬🇧 English</span>
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">إذا تم تفعيل لغتين، سيُطلب من الطالب اختيار اللغة قبل بدء الاختبار</p>
             </div>
           </motion.div>
 

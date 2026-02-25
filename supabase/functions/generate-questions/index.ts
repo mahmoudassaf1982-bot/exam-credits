@@ -265,6 +265,7 @@ serve(async (req) => {
         explanation: q.explanation || null,
         is_approved: false,
         source: "ai",
+        language: "ar",
       };
     });
 
