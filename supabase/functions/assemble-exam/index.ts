@@ -433,8 +433,9 @@ Deno.serve(async (req) => {
     let practiceMode: "diagnostic" | "adaptive" = "diagnostic";
     let isDiagnostic = false;
     let practiceMetadata: Record<string, unknown> = {};
+    let focusedSection: Section | null = null;
 
-    if (session_type === "practice") {
+    if (session_type === "practice" || session_type === "analysis") {
       // ─── SMART TRAINING: 10 questions, weakness-based distribution ───
       const totalPracticeQuestions = PRACTICE_QUESTION_COUNT;
 
@@ -466,9 +467,16 @@ Deno.serve(async (req) => {
       console.log(`[assemble-exam] Excluding ${recentQuestionIds.length} recently used question IDs from last ${recentSessions?.length ?? 0} sessions`);
 
       // ── Handle target_section_id (focused practice) ──
-      const focusedSection = target_section_id
-        ? typedSections.find((s) => s.id === target_section_id)
+      focusedSection = target_section_id
+        ? typedSections.find((s) => s.id === target_section_id) ?? null
         : null;
+
+      if (target_section_id && !focusedSection) {
+        return new Response(
+          JSON.stringify({ error: "القسم المحدد غير موجود في هذا الاختبار" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       // ── Read Skill Memory for intelligent section prioritization ──
       const { data: skillMemory } = await admin
