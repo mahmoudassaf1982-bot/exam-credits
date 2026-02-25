@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Coins, Loader2, Globe } from 'lucide-react';
+import { AlertTriangle, Coins, Loader2, Globe, Layers } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import type { ExamTemplate, SessionType } from '@/types';
@@ -51,6 +51,7 @@ export function SessionCostDialog({
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
 
   if (!exam) return null;
 
@@ -75,6 +76,10 @@ export function SessionCostDialog({
       // Only send language if bilingual (single-language exams auto-resolve on server)
       if (isBilingual && selectedLanguage) {
         body.exam_language = selectedLanguage;
+      }
+      // Send target section for focused practice
+      if (sessionType === 'practice' && selectedSectionId) {
+        body.target_section_id = selectedSectionId;
       }
 
       const { data, error } = await supabase.functions.invoke('assemble-exam', { body });
@@ -102,7 +107,7 @@ export function SessionCostDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedLanguage(null); }}>
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setSelectedLanguage(null); setSelectedSectionId(null); } }}>
       <DialogContent className="sm:max-w-md" dir="rtl">
         <DialogHeader>
           <DialogTitle className="text-right">
@@ -114,6 +119,52 @@ export function SessionCostDialog({
         </DialogHeader>
 
         <div className="py-4 space-y-4">
+          {/* Section Selection for practice mode */}
+          {sessionType === 'practice' && exam.sections.length > 1 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Layers className="h-4 w-4 text-info" />
+                <span>اختر قسمًا للتدريب عليه (اختياري)</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
+                <button
+                  onClick={() => setSelectedSectionId(null)}
+                  className={`rounded-xl border-2 p-3 text-right transition-all text-sm ${
+                    selectedSectionId === null
+                      ? 'border-info bg-info/10 shadow-md'
+                      : 'border-border bg-card hover:border-info/50 hover:bg-muted/50'
+                  }`}
+                >
+                  <span className={`font-bold ${selectedSectionId === null ? 'text-info' : 'text-foreground'}`}>
+                    🎯 تدريب ذكي شامل
+                  </span>
+                  <p className="text-xs text-muted-foreground mt-0.5">يركز على نقاط ضعفك تلقائيًا</p>
+                </button>
+                {exam.sections
+                  .sort((a, b) => a.order - b.order)
+                  .map((section) => {
+                    const isSelected = selectedSectionId === section.id;
+                    return (
+                      <button
+                        key={section.id}
+                        onClick={() => setSelectedSectionId(section.id)}
+                        className={`rounded-xl border-2 p-3 text-right transition-all text-sm ${
+                          isSelected
+                            ? 'border-info bg-info/10 shadow-md'
+                            : 'border-border bg-card hover:border-info/50 hover:bg-muted/50'
+                        }`}
+                      >
+                        <span className={`font-bold ${isSelected ? 'text-info' : 'text-foreground'}`}>
+                          {section.nameAr}
+                        </span>
+                        <p className="text-xs text-muted-foreground mt-0.5">{section.questionCount} سؤال</p>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {/* Language Selection for bilingual exams */}
           {isBilingual && (
             <div className="space-y-3">

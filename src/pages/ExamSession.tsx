@@ -504,9 +504,9 @@ export default function ExamSession() {
                 : session.exam_snapshot.template.name_ar}
             </h2>
             {currentSection && (
-              <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-medium text-primary">
                 <Layers className="h-3 w-3" />
-                {currentSection.name_ar}
+                <span className="truncate max-w-[80px] sm:max-w-none">{currentSection.name_ar}</span>
               </span>
             )}
           </div>
