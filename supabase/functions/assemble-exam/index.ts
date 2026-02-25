@@ -488,12 +488,13 @@ Deno.serve(async (req) => {
 
         // C) BLEND POLICY: 70% weakness-based + 30% blueprint coverage
         let weakCount = Math.round(totalPracticeQuestions * PRACTICE_WEAK_RATIO);
-        const blueprintCount = totalPracticeQuestions - weakCount;
 
         // If no weak sections, shift to medium or blueprint
         if (weakSections.length === 0) {
           weakCount = 0;
         }
+
+        const blueprintCount = totalPracticeQuestions - weakCount;
 
         // Distribute weakness-based questions
         const weakTargetSections = weakSections.length > 0 ? weakSections : mediumSections;
