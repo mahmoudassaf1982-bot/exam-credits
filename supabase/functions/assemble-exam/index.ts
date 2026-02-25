@@ -307,7 +307,7 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supabaseUrl, serviceKey);
     const body = await req.json();
-    const { exam_template_id, session_type, exam_language } = body;
+    const { exam_template_id, session_type, exam_language, target_section_id } = body;
 
     // ── Tamper detection ──
     const tamperKeys = ["seed", "shuffle", "order", "question_order", "sort"];
@@ -438,6 +438,38 @@ Deno.serve(async (req) => {
       // ─── SMART TRAINING: 10 questions, weakness-based distribution ───
       const totalPracticeQuestions = PRACTICE_QUESTION_COUNT;
 
+      // ── Fetch recently used question IDs to avoid repetition ──
+      const { data: recentSessions } = await admin
+        .from("exam_sessions")
+        .select("questions_json")
+        .eq("user_id", user.id)
+        .eq("exam_template_id", exam_template_id)
+        .eq("session_type", "practice")
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      const recentQuestionIds: string[] = [];
+      if (recentSessions) {
+        for (const s of recentSessions) {
+          const qJson = s.questions_json as Record<string, { id: string }[]> | null;
+          if (qJson && typeof qJson === "object") {
+            for (const sectionQuestions of Object.values(qJson)) {
+              if (Array.isArray(sectionQuestions)) {
+                for (const q of sectionQuestions) {
+                  if (q?.id) recentQuestionIds.push(q.id);
+                }
+              }
+            }
+          }
+        }
+      }
+      console.log(`[assemble-exam] Excluding ${recentQuestionIds.length} recently used question IDs from last ${recentSessions?.length ?? 0} sessions`);
+
+      // ── Handle target_section_id (focused practice) ──
+      const focusedSection = target_section_id
+        ? typedSections.find((s) => s.id === target_section_id)
+        : null;
+
       // ── Read Skill Memory for intelligent section prioritization ──
       const { data: skillMemory } = await admin
         .from("skill_memory")
@@ -449,7 +481,28 @@ Deno.serve(async (req) => {
       let sectionDifficultyMap: Map<string, { easy: number; medium: number; hard: number }>;
       let activeSections: Section[];
 
-      if (!skillMemory || skillMemory.length === 0) {
+      if (focusedSection) {
+        // ── FOCUSED MODE: All questions from a single section ──
+        practiceMode = "adaptive";
+        isDiagnostic = false;
+        activeSections = [focusedSection];
+        sectionDistribution = new Map([[focusedSection.id, totalPracticeQuestions]]);
+
+        // Use skill memory for adaptive difficulty if available
+        const sm = skillMemory?.find((s: any) => s.section_id === focusedSection.id);
+        const accuracy = sm ? Number((sm as any).skill_score) || 50 : 50;
+        sectionDifficultyMap = new Map([[focusedSection.id, adaptiveDifficultyMix(accuracy)]]);
+
+        practiceMetadata = {
+          focused_section: true,
+          target_section_id: focusedSection.id,
+          target_section_name: focusedSection.name_ar,
+          skill_score: accuracy,
+        };
+
+        console.log(`[assemble-exam] Practice FOCUSED on section "${focusedSection.name_ar}": ${totalPracticeQuestions} questions, skill=${accuracy}`);
+
+      } else if (!skillMemory || skillMemory.length === 0) {
         // ── NO SKILL MEMORY: Diagnostic mode — equal distribution ──
         isDiagnostic = true;
         practiceMode = "diagnostic";
@@ -570,7 +623,7 @@ Deno.serve(async (req) => {
       }
 
       // Fetch questions per section with adaptive difficulty
-      const allUsedIds: string[] = [];
+      const allUsedIds: string[] = [...recentQuestionIds];
       for (const section of activeSections!) {
         const count = sectionDistribution!.get(section.id) ?? 0;
         if (count <= 0) continue;
@@ -758,6 +811,9 @@ Deno.serve(async (req) => {
       examSnapshot.practice_mode = practiceMode;
       examSnapshot.is_diagnostic = isDiagnostic;
       examSnapshot.practice_metadata = practiceMetadata;
+      if (focusedSection) {
+        examSnapshot.target_section_name = focusedSection.name_ar;
+      }
     }
 
     // ── Create session ──
