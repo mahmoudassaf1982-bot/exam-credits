@@ -35,6 +35,7 @@ interface QualityScores {
   difficulty_match: number;
   single_answer_confidence: number;
   language_quality: number;
+  language_consistency_score?: number;
 }
 
 interface ReviewItem {
@@ -54,6 +55,7 @@ interface QualityGate {
   auto_publishable: number;
   needs_review_count: number;
   needs_fix_count: number;
+  language_failures?: number;
   thresholds: { auto_publish: number; needs_review: number };
 }
 
@@ -139,9 +141,10 @@ function QualityScoresPanel({ scores }: { scores: QualityScores }) {
     { label: 'تطابق الصعوبة', value: scores.difficulty_match },
     { label: 'إجابة واحدة', value: scores.single_answer_confidence },
     { label: 'جودة اللغة', value: scores.language_quality },
+    ...(scores.language_consistency_score !== undefined ? [{ label: '🔤 تناسق اللغة', value: scores.language_consistency_score }] : []),
   ];
   return (
-    <div className="grid grid-cols-5 gap-2 p-2 rounded-lg bg-muted/30 border border-border/50">
+    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 p-2 rounded-lg bg-muted/30 border border-border/50">
       {items.map(item => (
         <div key={item.label} className="text-center">
           <p className="text-[9px] text-muted-foreground mb-1">{item.label}</p>
@@ -176,10 +179,13 @@ function QualityGateCard({ gate }: { gate: QualityGate }) {
         <p className={`text-sm font-semibold ${getConfidenceColor(gate.avg_confidence)}`}>
           {decisionLabels[gate.decision] || gate.decision}
         </p>
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
           <span className="text-emerald-600">✅ {gate.auto_publishable} جاهز</span>
           <span className="text-amber-600">⚠️ {gate.needs_review_count} مراجعة</span>
           <span className="text-destructive">❌ {gate.needs_fix_count} إصلاح</span>
+          {(gate.language_failures ?? 0) > 0 && (
+            <span className="text-destructive font-semibold">🔤 {gate.language_failures} فشل لغوي</span>
+          )}
           <span>الحد: {gate.thresholds.auto_publish * 100}%</span>
         </div>
       </CardContent>
@@ -204,6 +210,7 @@ export default function AdminAIReviewQueue() {
   const [genExam, setGenExam] = useState('');
   const [genDifficulty, setGenDifficulty] = useState('medium');
   const [genCount, setGenCount] = useState(10);
+  const [genContentLang, setGenContentLang] = useState<'auto' | 'en' | 'ar'>('auto');
   const [generating, setGenerating] = useState(false);
 
   // Edit dialog
@@ -248,12 +255,13 @@ export default function AdminAIReviewQueue() {
     if (!genCountry) return;
     setGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('generate-questions-draft', {
-        body: { country_id: genCountry, exam_template_id: genExam || null, difficulty: genDifficulty, count: genCount },
-      });
+      const body: any = { country_id: genCountry, exam_template_id: genExam || null, difficulty: genDifficulty, count: genCount };
+      if (genContentLang !== 'auto') body.content_language = genContentLang;
+      const { data, error } = await supabase.functions.invoke('generate-questions-draft', { body });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast({ title: `تم إنشاء مسودة بـ ${data.question_count} سؤال ✨` });
+      const langLabel = data.content_language === 'en' ? ' (English)' : ' (عربي)';
+      toast({ title: `تم إنشاء مسودة بـ ${data.question_count} سؤال${langLabel} ✨` });
       setShowGenerate(false);
       fetchDrafts();
     } catch (e: any) {
@@ -425,6 +433,17 @@ export default function AdminAIReviewQueue() {
                       <SelectItem value="easy">سهل</SelectItem>
                       <SelectItem value="medium">متوسط</SelectItem>
                       <SelectItem value="hard">صعب</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>لغة المحتوى</Label>
+                  <Select value={genContentLang} onValueChange={(v) => setGenContentLang(v as 'auto' | 'en' | 'ar')}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">🔄 تلقائي (حسب المادة)</SelectItem>
+                      <SelectItem value="en">🇬🇧 English</SelectItem>
+                      <SelectItem value="ar">🇸🇦 عربي</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
