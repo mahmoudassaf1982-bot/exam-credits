@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.publish-draft]
 verify_jwt = false
+
+[functions.bank-health-report]
+verify_jwt = false

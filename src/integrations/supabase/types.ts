@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      calibration_log: {
+        Row: {
+          accuracy: number
+          attempts_count: number
+          calibrated_at: string
+          id: string
+          new_difficulty: string
+          old_difficulty: string
+          question_id: string
+        }
+        Insert: {
+          accuracy: number
+          attempts_count: number
+          calibrated_at?: string
+          id?: string
+          new_difficulty: string
+          old_difficulty: string
+          question_id: string
+        }
+        Update: {
+          accuracy?: number
+          attempts_count?: number
+          calibrated_at?: string
+          id?: string
+          new_difficulty?: string
+          old_difficulty?: string
+          question_id?: string
+        }
+        Relationships: []
+      }
       countries: {
         Row: {
           created_at: string
@@ -303,12 +333,16 @@ export type Database = {
           default_question_count: number
           default_time_limit_sec: number
           description_ar: string
+          health_alert_threshold_pct: number
           id: string
           is_active: boolean
           name_ar: string
           practice_cost_points: number
           simulation_cost_points: number
           slug: string
+          target_easy_pct: number
+          target_hard_pct: number
+          target_medium_pct: number
         }
         Insert: {
           analysis_cost_points?: number
@@ -317,12 +351,16 @@ export type Database = {
           default_question_count?: number
           default_time_limit_sec?: number
           description_ar?: string
+          health_alert_threshold_pct?: number
           id?: string
           is_active?: boolean
           name_ar: string
           practice_cost_points?: number
           simulation_cost_points?: number
           slug?: string
+          target_easy_pct?: number
+          target_hard_pct?: number
+          target_medium_pct?: number
         }
         Update: {
           analysis_cost_points?: number
@@ -331,12 +369,16 @@ export type Database = {
           default_question_count?: number
           default_time_limit_sec?: number
           description_ar?: string
+          health_alert_threshold_pct?: number
           id?: string
           is_active?: boolean
           name_ar?: string
           practice_cost_points?: number
           simulation_cost_points?: number
           slug?: string
+          target_easy_pct?: number
+          target_hard_pct?: number
+          target_medium_pct?: number
         }
         Relationships: [
           {
@@ -542,16 +584,22 @@ export type Database = {
       }
       questions: {
         Row: {
+          accuracy: number
+          attempts_count: number
+          correct_count: number
           correct_option_id: string
           country_id: string
           created_at: string
           deleted_at: string | null
           difficulty: string
+          difficulty_source: string
           draft_id: string | null
           exam_template_id: string | null
           explanation: string | null
           id: string
           is_approved: boolean
+          last_calibrated_at: string | null
+          last_calibrated_attempts: number
           options: Json
           section_id: string | null
           source: string
@@ -560,16 +608,22 @@ export type Database = {
           topic: string
         }
         Insert: {
+          accuracy?: number
+          attempts_count?: number
+          correct_count?: number
           correct_option_id: string
           country_id: string
           created_at?: string
           deleted_at?: string | null
           difficulty?: string
+          difficulty_source?: string
           draft_id?: string | null
           exam_template_id?: string | null
           explanation?: string | null
           id?: string
           is_approved?: boolean
+          last_calibrated_at?: string | null
+          last_calibrated_attempts?: number
           options?: Json
           section_id?: string | null
           source?: string
@@ -578,16 +632,22 @@ export type Database = {
           topic: string
         }
         Update: {
+          accuracy?: number
+          attempts_count?: number
+          correct_count?: number
           correct_option_id?: string
           country_id?: string
           created_at?: string
           deleted_at?: string | null
           difficulty?: string
+          difficulty_source?: string
           draft_id?: string | null
           exam_template_id?: string | null
           explanation?: string | null
           id?: string
           is_approved?: boolean
+          last_calibrated_at?: string | null
+          last_calibrated_attempts?: number
           options?: Json
           section_id?: string | null
           source?: string
