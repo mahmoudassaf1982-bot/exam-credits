@@ -20,7 +20,6 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 3000;
 const REVIEWER_MODEL = "google/gemini-2.5-pro";
 
-// Quality Gate thresholds
 const AUTO_PUBLISH_THRESHOLD = 0.85;
 const NEEDS_REVIEW_THRESHOLD = 0.70;
 
@@ -31,6 +30,7 @@ interface QualityScores {
   difficulty_match: number;
   single_answer_confidence: number;
   language_quality: number;
+  language_consistency_score: number;
 }
 
 interface ReviewItem {
@@ -72,12 +72,72 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
   return chunks;
 }
 
-function buildSystemPrompt(): string {
+// ─── Language Detection Helpers ──────────────────────────────────────
+const ARABIC_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+const LATIN_REGEX = /[a-zA-Z]/;
+
+function detectContentLanguage(questions: any[]): "en" | "ar" {
+  // Check first question's content_language field if set
+  if (questions[0]?.content_language) return questions[0].content_language;
+  // Heuristic: sample text from first 3 questions
+  const sampleText = questions.slice(0, 3).map(q => q.text_ar || "").join(" ");
+  const arabicChars = (sampleText.match(new RegExp(ARABIC_REGEX.source, "g")) || []).length;
+  const latinChars = (sampleText.match(new RegExp(LATIN_REGEX.source, "g")) || []).length;
+  return latinChars > arabicChars ? "en" : "ar";
+}
+
+function checkLanguageConsistency(text: string, expectedLang: "en" | "ar"): number {
+  if (!text || text.trim().length === 0) return 1.0;
+  const arabicChars = (text.match(new RegExp(ARABIC_REGEX.source, "g")) || []).length;
+  const latinChars = (text.match(new RegExp(LATIN_REGEX.source, "g")) || []).length;
+  const total = arabicChars + latinChars;
+  if (total === 0) return 1.0;
+
+  if (expectedLang === "en") {
+    // English content: Arabic chars = contamination
+    return Math.max(0, 1 - (arabicChars / total) * 2);
+  } else {
+    // Arabic content: Latin chars are OK for formulas/numbers, but heavy Latin = bad
+    const latinRatio = latinChars / total;
+    return latinRatio > 0.4 ? Math.max(0, 1 - latinRatio) : 1.0;
+  }
+}
+
+function computeQuestionLanguageScore(q: any, expectedLang: "en" | "ar"): number {
+  const texts = [
+    q.text_ar || "",
+    ...(q.options || []).map((o: any) => o.textAr || ""),
+    q.explanation || "",
+  ];
+  const scores = texts.filter(t => t.length > 0).map(t => checkLanguageConsistency(t, expectedLang));
+  if (scores.length === 0) return 1.0;
+  return scores.reduce((a, b) => a + b, 0) / scores.length;
+}
+
+// ─── Prompts ─────────────────────────────────────────────────────────
+function buildSystemPrompt(contentLang: "en" | "ar"): string {
+  const langRule = contentLang === "en"
+    ? `
+🚨 LANGUAGE CONSISTENCY CHECK — ENGLISH ONLY 🚨
+The questions being reviewed are ENGLISH-language questions.
+- ALL question text, options, and explanations MUST be in English
+- If ANY Arabic text is found in an English question → set language_consistency_score to 0.0 and ok=false
+- Corrected versions MUST also be in ENGLISH ONLY
+- Auto-FAIL any question with Arabic content mixed into English questions`
+    : `
+🚨 LANGUAGE CONSISTENCY CHECK — ARABIC ONLY 🚨
+The questions being reviewed are ARABIC-language questions.
+- ALL question text, options, and explanations MUST be in Arabic
+- English is only acceptable for: proper nouns, mathematical formulas, technical terms with no Arabic equivalent
+- If heavy English mixing is detected → lower language_consistency_score significantly
+- Corrected versions MUST also be in ARABIC`;
+
   return `You are a Senior Exam Quality Reviewer, Auto-Corrector, AND Quality Gate Evaluator for SARIS Exams.
+${langRule}
 
 For EACH question, you must:
-1. REVIEW: Check for issues (ambiguity, wrong answer, grammar, difficulty mismatch, hint in stem, weak distractors, duplicates)
-2. AUTO-FIX: Return a CORRECTED version with ALL issues resolved
+1. REVIEW: Check for issues (ambiguity, wrong answer, grammar, difficulty mismatch, hint in stem, weak distractors, duplicates, LANGUAGE CONSISTENCY)
+2. AUTO-FIX: Return a CORRECTED version with ALL issues resolved (in the CORRECT language)
 3. QUALITY GATE: Return structured quality scores (0.0 to 1.0 each)
 
 Quality Scores to evaluate:
@@ -85,7 +145,8 @@ Quality Scores to evaluate:
 - clarity_score: How clear and unambiguous the question stem and options are (0.0-1.0)
 - difficulty_match: How well the actual difficulty matches the requested difficulty level (0.0-1.0)
 - single_answer_confidence: How confident that exactly ONE option is definitively correct (0.0-1.0)
-- language_quality: Arabic grammar, formal academic tone, spelling correctness (0.0-1.0)
+- language_quality: Grammar, formal academic tone, spelling correctness (0.0-1.0)
+- language_consistency_score: Whether the question is entirely in the expected language (0.0-1.0). 0.0 = wrong language or heavy mixing. 1.0 = pure correct language.
 
 Return a JSON object with:
 {
@@ -102,7 +163,8 @@ Return a JSON object with:
         "clarity_score": number (0.0-1.0),
         "difficulty_match": number (0.0-1.0),
         "single_answer_confidence": number (0.0-1.0),
-        "language_quality": number (0.0-1.0)
+        "language_quality": number (0.0-1.0),
+        "language_consistency_score": number (0.0-1.0)
       },
       "corrected": {
         "text_ar": string,
@@ -120,21 +182,26 @@ IMPORTANT:
 - "corrected" and "quality_scores" must ALWAYS be present for every question.
 - Be strict but fair. Score honestly. A perfect question should get 0.95+, not 1.0.
 - confidence_score is the MOST important metric — it gates auto-publishing.
+- language_consistency_score: If a question meant to be English contains Arabic instructions → score = 0.0 and add issue "Language mismatch: Arabic found in English question"
 Return JSON ONLY.`;
 }
 
 function buildBatchUserPrompt(
   batch: any[],
   difficulty: string,
-  existingTexts: string
+  existingTexts: string,
+  contentLang: "en" | "ar"
 ): string {
-  return `Review, auto-correct, and score these ${batch.length} questions (requested difficulty: ${difficulty}):
+  const langLabel = contentLang === "en" ? "ENGLISH" : "ARABIC";
+  return `Review, auto-correct, and score these ${batch.length} questions (requested difficulty: ${difficulty}, expected language: ${langLabel}):
 
 ${JSON.stringify(batch, null, 2)}
 
+CRITICAL: These questions MUST be entirely in ${langLabel}. Any language mixing = language_consistency_score near 0.
+
 ${existingTexts ? `\nExisting approved questions for duplicate check:\n${existingTexts.substring(0, 4000)}` : ""}
 
-Return JSON ONLY with the "reviews" array including quality_scores for each.`;
+Return JSON ONLY with the "reviews" array including quality_scores (with language_consistency_score) for each.`;
 }
 
 function ensureQualityScores(review: any): QualityScores {
@@ -145,6 +212,7 @@ function ensureQualityScores(review: any): QualityScores {
     difficulty_match: typeof qs.difficulty_match === 'number' ? qs.difficulty_match : 0.7,
     single_answer_confidence: typeof qs.single_answer_confidence === 'number' ? qs.single_answer_confidence : (review.ok ? 0.9 : 0.5),
     language_quality: typeof qs.language_quality === 'number' ? qs.language_quality : 0.7,
+    language_consistency_score: typeof qs.language_consistency_score === 'number' ? qs.language_consistency_score : 0.8,
   };
 }
 
@@ -154,7 +222,8 @@ async function reviewBatch(
   totalBatches: number,
   difficulty: string,
   existingTexts: string,
-  apiKey: string
+  apiKey: string,
+  contentLang: "en" | "ar"
 ): Promise<BatchResult> {
   const questionsForReview = batch.map((q: any) => ({
     index: q.index,
@@ -166,8 +235,8 @@ async function reviewBatch(
     topic: q.topic,
   }));
 
-  const systemPrompt = buildSystemPrompt();
-  const userPrompt = buildBatchUserPrompt(questionsForReview, difficulty, existingTexts);
+  const systemPrompt = buildSystemPrompt(contentLang);
+  const userPrompt = buildBatchUserPrompt(questionsForReview, difficulty, existingTexts, contentLang);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -198,10 +267,7 @@ async function reviewBatch(
       clearTimeout(timeout);
 
       if (aiResponse.status === 429) {
-        if (attempt < MAX_RETRIES) {
-          console.warn(`[review-batch] Rate limited on batch ${batchIndex + 1}, retrying...`);
-          continue;
-        }
+        if (attempt < MAX_RETRIES) continue;
         return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: `Rate limited after ${MAX_RETRIES} retries` };
       }
 
@@ -224,7 +290,6 @@ async function reviewBatch(
         return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: "Failed to parse AI output: " + cleaned.substring(0, 200) };
       }
 
-      // Ensure quality_scores exist on every review
       const reviews: ReviewItem[] = (parsed.reviews || []).map((r: any) => ({
         ...r,
         quality_scores: ensureQualityScores(r),
@@ -245,39 +310,91 @@ async function reviewBatch(
   return { batch_index: batchIndex, total_batches: totalBatches, reviews: [], ok: false, error: "Exhausted retries" };
 }
 
+// ─── Post-Review Language Verification ───────────────────────────────
+function applyLanguageVerification(reviews: ReviewItem[], questions: any[], contentLang: "en" | "ar"): ReviewItem[] {
+  return reviews.map(r => {
+    const q = questions.find((q: any) => q.index === r.index);
+    if (!q) return r;
+
+    // Server-side language consistency check (independent of AI scoring)
+    const serverLangScore = computeQuestionLanguageScore(
+      r.corrected || q,
+      contentLang
+    );
+
+    // Take the minimum of AI score and server-computed score
+    const finalLangScore = Math.min(r.quality_scores.language_consistency_score, serverLangScore);
+
+    if (finalLangScore < 0.5) {
+      // Auto-fail questions with severe language mixing
+      const langIssue = contentLang === "en"
+        ? "Language mismatch: Arabic text found in English question"
+        : "Language mismatch: Excessive English text in Arabic question";
+
+      return {
+        ...r,
+        ok: false,
+        quality_scores: {
+          ...r.quality_scores,
+          language_consistency_score: finalLangScore,
+          confidence_score: Math.min(r.quality_scores.confidence_score, 0.3),
+        },
+        issues: r.issues.includes(langIssue) ? r.issues : [...r.issues, langIssue],
+      };
+    }
+
+    return {
+      ...r,
+      quality_scores: {
+        ...r.quality_scores,
+        language_consistency_score: finalLangScore,
+      },
+    };
+  });
+}
+
 // ─── Quality Gate Decision ───────────────────────────────────────────
 function computeQualityGateDecision(allReviews: ReviewItem[], failedBatches: number[]) {
   if (allReviews.length === 0 || failedBatches.length > 0) {
-    return { decision: "needs_fix" as const, avg_confidence: 0, auto_publishable: 0, needs_review_count: 0, needs_fix_count: allReviews.length };
+    return { decision: "needs_fix" as const, avg_confidence: 0, auto_publishable: 0, needs_review_count: 0, needs_fix_count: allReviews.length, language_failures: 0 };
   }
 
   let autoPublishable = 0;
   let needsReviewCount = 0;
   let needsFixCount = 0;
   let totalConfidence = 0;
+  let languageFailures = 0;
 
   for (const r of allReviews) {
     const conf = r.quality_scores?.confidence_score ?? 0;
+    const langScore = r.quality_scores?.language_consistency_score ?? 1;
     totalConfidence += conf;
-    if (conf >= AUTO_PUBLISH_THRESHOLD) autoPublishable++;
-    else if (conf >= NEEDS_REVIEW_THRESHOLD) needsReviewCount++;
-    else needsFixCount++;
+
+    // Language failure overrides confidence
+    if (langScore < 0.5) {
+      needsFixCount++;
+      languageFailures++;
+    } else if (conf >= AUTO_PUBLISH_THRESHOLD) {
+      autoPublishable++;
+    } else if (conf >= NEEDS_REVIEW_THRESHOLD) {
+      needsReviewCount++;
+    } else {
+      needsFixCount++;
+    }
   }
 
   const avgConfidence = Math.round((totalConfidence / allReviews.length) * 100) / 100;
 
-  // Decision rules
   let decision: "approved" | "pending_review" | "needs_fix";
   if (needsFixCount > 0) {
     decision = "needs_fix";
   } else if (needsReviewCount > 0) {
     decision = "pending_review";
   } else {
-    // All questions >= 0.85
     decision = avgConfidence >= AUTO_PUBLISH_THRESHOLD ? "approved" : "pending_review";
   }
 
-  return { decision, avg_confidence: avgConfidence, auto_publishable: autoPublishable, needs_review_count: needsReviewCount, needs_fix_count: needsFixCount };
+  return { decision, avg_confidence: avgConfidence, auto_publishable: autoPublishable, needs_review_count: needsReviewCount, needs_fix_count: needsFixCount, language_failures: languageFailures };
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────
@@ -321,6 +438,10 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return jsonResponse({ error: "LOVABLE_API_KEY not configured" }, 500);
 
+    // Detect content language from draft questions
+    const contentLang = detectContentLanguage(questions);
+    console.log(`[review-questions-draft] Detected content language: ${contentLang}`);
+
     const { data: existingQuestions } = await adminSupabase
       .from("questions")
       .select("text_ar")
@@ -334,7 +455,7 @@ serve(async (req) => {
     const batches = chunkArray(questions, BATCH_SIZE);
     const totalBatches = batches.length;
 
-    console.log(`[review-questions-draft] Starting batched review: ${questions.length} questions → ${totalBatches} batches of ≤${BATCH_SIZE}`);
+    console.log(`[review-questions-draft] Starting batched review: ${questions.length} questions → ${totalBatches} batches, lang=${contentLang}`);
 
     await adminSupabase
       .from("question_drafts")
@@ -348,7 +469,7 @@ serve(async (req) => {
     for (let bi = 0; bi < totalBatches; bi++) {
       console.log(`[review-questions-draft] Processing batch ${bi + 1}/${totalBatches} (${batches[bi].length} questions)`);
 
-      const result = await reviewBatch(batches[bi], bi, totalBatches, draft.difficulty, existingTexts, LOVABLE_API_KEY);
+      const result = await reviewBatch(batches[bi], bi, totalBatches, draft.difficulty, existingTexts, LOVABLE_API_KEY, contentLang);
       batchResults.push(result);
 
       if (result.ok) {
@@ -364,19 +485,23 @@ serve(async (req) => {
       if (bi < totalBatches - 1) await sleep(1500);
     }
 
-    // ─── Quality Gate ────────────────────────────────────────────────
-    const qualityGate = computeQualityGateDecision(allReviews, failedBatches);
+    // ─── Server-side Language Verification ───────────────────────────
+    const verifiedReviews = applyLanguageVerification(allReviews, questions, contentLang);
 
-    const totalIssues = allReviews.filter(r => !r.ok).length;
-    const avgScore = allReviews.length > 0
-      ? Math.round((allReviews.reduce((sum, r) => sum + (r.score || 0), 0) / allReviews.length) * 10) / 10
+    // ─── Quality Gate ────────────────────────────────────────────────
+    const qualityGate = computeQualityGateDecision(verifiedReviews, failedBatches);
+
+    const totalIssues = verifiedReviews.filter(r => !r.ok).length;
+    const avgScore = verifiedReviews.length > 0
+      ? Math.round((verifiedReviews.reduce((sum, r) => sum + (r.score || 0), 0) / verifiedReviews.length) * 10) / 10
       : 0;
 
     const mergedReport = {
       overall_ok: totalIssues === 0 && failedBatches.length === 0,
-      summary: `${allReviews.length} سؤال | الثقة: ${qualityGate.avg_confidence} | التقييم: ${avgScore}/10 | ✅${qualityGate.auto_publishable} ⚠️${qualityGate.needs_review_count} ❌${qualityGate.needs_fix_count}`,
+      summary: `${verifiedReviews.length} سؤال | الثقة: ${qualityGate.avg_confidence} | التقييم: ${avgScore}/10 | ✅${qualityGate.auto_publishable} ⚠️${qualityGate.needs_review_count} ❌${qualityGate.needs_fix_count}${qualityGate.language_failures > 0 ? ` | 🔤${qualityGate.language_failures} لغة` : ''}`,
       issues_count: totalIssues,
-      reviews: allReviews,
+      reviews: verifiedReviews,
+      content_language: contentLang,
       batch_stats: {
         total_batches: totalBatches,
         completed_batches: totalBatches - failedBatches.length,
@@ -389,13 +514,13 @@ serve(async (req) => {
         auto_publishable: qualityGate.auto_publishable,
         needs_review_count: qualityGate.needs_review_count,
         needs_fix_count: qualityGate.needs_fix_count,
+        language_failures: qualityGate.language_failures,
         thresholds: { auto_publish: AUTO_PUBLISH_THRESHOLD, needs_review: NEEDS_REVIEW_THRESHOLD },
       },
     };
 
-    // Build corrected questions array
     const correctedQuestions = questions.map((originalQ: any, i: number) => {
-      const review = allReviews.find((r: any) => r.index === i);
+      const review = verifiedReviews.find((r: any) => r.index === i);
       if (review?.corrected) {
         return {
           ...originalQ,
@@ -412,6 +537,8 @@ serve(async (req) => {
 
     const newStatus = qualityGate.decision;
 
+    const langWarning = qualityGate.language_failures > 0 ? ` | ${qualityGate.language_failures} أسئلة فشلت في فحص اللغة` : '';
+
     const { error: updateError } = await adminSupabase
       .from("question_drafts")
       .update({
@@ -420,10 +547,10 @@ serve(async (req) => {
         corrected_questions_json: correctedQuestions,
         status: newStatus,
         notes: newStatus === "approved"
-          ? `✅ اجتاز بوابة الجودة تلقائياً — الثقة: ${qualityGate.avg_confidence}`
+          ? `✅ اجتاز بوابة الجودة تلقائياً — الثقة: ${qualityGate.avg_confidence}${langWarning}`
           : newStatus === "pending_review"
-            ? `⚠️ يحتاج مراجعة بشرية — الثقة: ${qualityGate.avg_confidence}`
-            : `❌ يحتاج إصلاح — ${qualityGate.needs_fix_count} أسئلة تحت الحد`,
+            ? `⚠️ يحتاج مراجعة بشرية — الثقة: ${qualityGate.avg_confidence}${langWarning}`
+            : `❌ يحتاج إصلاح — ${qualityGate.needs_fix_count} أسئلة تحت الحد${langWarning}`,
       })
       .eq("id", draft_id);
 
@@ -432,7 +559,7 @@ serve(async (req) => {
       return jsonResponse({ error: "Failed to save review", details: updateError.message }, 500);
     }
 
-    console.log(`[review-questions-draft] ✅ Review + Quality Gate complete. Decision: ${newStatus}. Confidence: ${qualityGate.avg_confidence}`);
+    console.log(`[review-questions-draft] ✅ Review complete. Decision: ${newStatus}. Lang: ${contentLang}. Lang failures: ${qualityGate.language_failures}`);
 
     return jsonResponse({
       ok: true,
@@ -440,7 +567,6 @@ serve(async (req) => {
       status: newStatus,
       report: mergedReport,
       quality_gate: mergedReport.quality_gate,
-      corrected_count: correctedQuestions.length,
     });
   } catch (e) {
     console.error("[review-questions-draft] Error:", e);

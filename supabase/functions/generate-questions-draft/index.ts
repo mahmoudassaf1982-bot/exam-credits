@@ -14,6 +14,113 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// ─── Content Language Detection ──────────────────────────────────────
+// Maps exam section/subject names to their content language
+function detectContentLanguage(examName: string, sectionId?: string | null): "en" | "ar" {
+  const englishPatterns = [
+    /english/i, /إنجليزي/i, /انجليزي/i, /انقليزي/i, /لغة إنجليزية/i,
+    /sat/i, /ielts/i, /toefl/i, /grammar/i, /vocabulary/i, /reading comprehension/i,
+  ];
+  const combined = `${examName} ${sectionId || ""}`;
+  for (const p of englishPatterns) {
+    if (p.test(combined)) return "en";
+  }
+  return "ar";
+}
+
+function buildPrompts(
+  examName: string,
+  countryName: string,
+  difficulty: string,
+  count: number,
+  contentLang: "en" | "ar"
+): { system: string; user: string } {
+  if (contentLang === "en") {
+    // ── FULL ENGLISH GENERATION ──────────────────────────────────
+    const system = `You are an Elite Exam Question Generator for SARIS Exams platform.
+You MUST generate ALL content in ENGLISH ONLY.
+
+🚨 HARD LANGUAGE LOCK — ENGLISH ONLY 🚨
+- Question text: ENGLISH ONLY
+- All 4 options (A,B,C,D): ENGLISH ONLY
+- Explanation: ENGLISH ONLY
+- Topic name: ENGLISH ONLY
+- Instructions: ENGLISH ONLY
+- NO Arabic characters allowed AT ALL — not even a single Arabic word
+- If you output ANY Arabic text, the entire batch will be REJECTED
+
+Rules:
+- Academic English, clear and exam-grade
+- Each question: max 2 lines stem
+- Exactly 4 options (A, B, C, D)
+- Exactly one correct answer
+- Smart distractors (plausible, reflect common mistakes)
+- No answer hinted in stem
+- Concise explanation (1-3 sentences) in English
+- Return JSON array ONLY, no markdown
+
+Context: ${examName} - ${countryName}`;
+
+    const diffMap: Record<string, string> = { easy: "Easy", medium: "Medium", hard: "Hard" };
+    const diffLabel = diffMap[difficulty] || "Medium";
+
+    const user = `Generate exactly ${count} questions at difficulty "${diffLabel}" for "${examName}" (${countryName}).
+
+CRITICAL: Every single character of output must be English. Zero Arabic allowed.
+
+Return JSON array with this schema per item:
+{
+  "question_text": string (ENGLISH ONLY),
+  "options": { "A": string, "B": string, "C": string, "D": string },
+  "correct_answer": "A" | "B" | "C" | "D",
+  "explanation": string (ENGLISH ONLY),
+  "metadata": { "section": string, "difficulty": "${difficulty}", "topic": string (ENGLISH ONLY) }
+}
+⚠️ Return JSON array ONLY.`;
+
+    return { system, user };
+  }
+
+  // ── FULL ARABIC GENERATION ──────────────────────────────────────
+  const diffMap: Record<string, string> = { easy: "سهل", medium: "متوسط", hard: "صعب" };
+  const diffAr = diffMap[difficulty] || "متوسط";
+
+  const system = `You are an Elite Exam Question Generator for SARIS Exams platform.
+You MUST generate ALL content in ARABIC ONLY.
+
+🚨 HARD LANGUAGE LOCK — ARABIC ONLY 🚨
+- Question text: ARABIC ONLY
+- All 4 options: ARABIC ONLY
+- Explanation: ARABIC ONLY
+- Topic name: ARABIC ONLY
+- NO English words allowed (except proper nouns, formulas, or technical terms that have no Arabic equivalent)
+
+Rules:
+- Academic Arabic, clear and exam-grade
+- Each question: max 2 lines stem
+- Exactly 4 options (A, B, C, D)
+- Exactly one correct answer
+- Smart distractors (plausible, reflect common mistakes)
+- No answer hinted in stem
+- Concise explanation (1-3 sentences)
+- Return JSON array ONLY, no markdown
+
+Context: ${examName} - ${countryName}`;
+
+  const user = `Generate exactly ${count} questions at difficulty "${diffAr}" for "${examName}" (${countryName}).
+Return JSON array with this schema per item:
+{
+  "question_text": string (Arabic),
+  "options": { "A": string, "B": string, "C": string, "D": string },
+  "correct_answer": "A" | "B" | "C" | "D",
+  "explanation": string,
+  "metadata": { "section": string, "difficulty": "${difficulty}", "topic": string }
+}
+⚠️ Return JSON array ONLY.`;
+
+  return { system, user };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -27,7 +134,6 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
 
-    // Verify user is admin
     const userSupabase = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -42,7 +148,7 @@ serve(async (req) => {
     if (!isAdmin) return jsonResponse({ error: "Forbidden: admin only" }, 403);
 
     const params = await req.json();
-    const { country_id, exam_template_id, section_id, difficulty, count } = params;
+    const { country_id, exam_template_id, section_id, difficulty, count, content_language: explicitLang } = params;
 
     if (!country_id || !count || count < 1 || count > 50) {
       return jsonResponse({ error: "Invalid params: country_id and count (1-50) required" }, 400);
@@ -61,38 +167,14 @@ serve(async (req) => {
       if (et) examName = et.name_ar;
     }
 
-    const diffMap: Record<string, string> = { easy: "سهل", medium: "متوسط", hard: "صعب" };
-    const diffAr = diffMap[difficulty] || "متوسط";
+    // Determine content language: explicit param > auto-detect from exam/section name
+    const contentLang: "en" | "ar" = explicitLang === "en" ? "en" : explicitLang === "ar" ? "ar" : detectContentLanguage(examName, section_id);
 
     const generatorModel = "google/gemini-2.5-flash";
 
-    const systemPrompt = `You are an Elite Exam Question Generator for SARIS Exams platform.
-Generate exam questions in Arabic with academic quality.
+    const { system: systemPrompt, user: userPrompt } = buildPrompts(examName, countryName, difficulty, count, contentLang);
 
-Rules:
-- Academic Arabic, clear and exam-grade
-- Each question: max 2 lines stem
-- Exactly 4 options (A, B, C, D)
-- Exactly one correct answer
-- Smart distractors (plausible, reflect common mistakes)
-- No answer hinted in stem
-- Concise explanation (1-3 sentences)
-- Return JSON array ONLY, no markdown
-
-Context: ${examName} - ${countryName}`;
-
-    const userPrompt = `Generate exactly ${count} questions at difficulty "${diffAr}" for "${examName}" (${countryName}).
-Return JSON array with this schema per item:
-{
-  "question_text": string (Arabic),
-  "options": { "A": string, "B": string, "C": string, "D": string },
-  "correct_answer": "A" | "B" | "C" | "D",
-  "explanation": string,
-  "metadata": { "section": string, "difficulty": "${difficulty}", "topic": string }
-}
-⚠️ Return JSON array ONLY.`;
-
-    console.log("[generate-questions-draft] Generating", count, "questions with", generatorModel);
+    console.log(`[generate-questions-draft] Generating ${count} questions, lang=${contentLang}, model=${generatorModel}`);
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -121,7 +203,6 @@ Return JSON array with this schema per item:
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content || "";
 
-    // Parse JSON from response
     const cleaned = rawContent.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
     const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
     if (!arrayMatch) {
@@ -139,7 +220,6 @@ Return JSON array with this schema per item:
       return jsonResponse({ error: "No questions generated" }, 500);
     }
 
-    // Normalize to internal schema
     const optionIds = ["a", "b", "c", "d"];
     const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
     const draftQuestions = questions.map((q: any, i: number) => {
@@ -158,10 +238,10 @@ Return JSON array with this schema per item:
         difficulty: q.metadata?.difficulty || difficulty,
         topic: q.metadata?.topic || q.metadata?.section || examName,
         section_id: section_id || null,
+        content_language: contentLang,
       };
     });
 
-    // Insert draft into question_drafts
     const { data: draft, error: insertError } = await adminSupabase
       .from("question_drafts")
       .insert({
@@ -183,12 +263,13 @@ Return JSON array with this schema per item:
       return jsonResponse({ error: "Failed to save draft", details: insertError.message }, 500);
     }
 
-    console.log("[generate-questions-draft] ✅ Created draft:", draft.id, "with", draftQuestions.length, "questions");
+    console.log("[generate-questions-draft] ✅ Created draft:", draft.id, "with", draftQuestions.length, "questions, lang:", contentLang);
 
     return jsonResponse({
       ok: true,
       draft_id: draft.id,
       question_count: draftQuestions.length,
+      content_language: contentLang,
     });
   } catch (e) {
     console.error("[generate-questions-draft] Error:", e);
