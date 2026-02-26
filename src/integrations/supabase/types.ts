@@ -940,6 +940,84 @@ export type Database = {
         }
         Relationships: []
       }
+      student_live_insights: {
+        Row: {
+          created_at: string
+          exam_session_id: string
+          id: string
+          insight_type: string
+          message: string
+          question_index: number | null
+          section_name: string | null
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          exam_session_id: string
+          id?: string
+          insight_type: string
+          message: string
+          question_index?: number | null
+          section_name?: string | null
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          exam_session_id?: string
+          id?: string
+          insight_type?: string
+          message?: string
+          question_index?: number | null
+          section_name?: string | null
+          student_id?: string
+        }
+        Relationships: []
+      }
+      student_score_predictions: {
+        Row: {
+          confidence: number
+          created_at: string
+          exam_session_id: string
+          exam_template_id: string
+          factors: Json
+          id: string
+          predicted_max: number
+          predicted_min: number
+          readiness_level: string
+          strong_sections: Json
+          student_id: string
+          weak_sections: Json
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          exam_session_id: string
+          exam_template_id: string
+          factors?: Json
+          id?: string
+          predicted_max?: number
+          predicted_min?: number
+          readiness_level?: string
+          strong_sections?: Json
+          student_id: string
+          weak_sections?: Json
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          exam_session_id?: string
+          exam_template_id?: string
+          factors?: Json
+          id?: string
+          predicted_max?: number
+          predicted_min?: number
+          readiness_level?: string
+          strong_sections?: Json
+          student_id?: string
+          weak_sections?: Json
+        }
+        Relationships: []
+      }
       sync_audit_log: {
         Row: {
           action: string
