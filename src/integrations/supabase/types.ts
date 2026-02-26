@@ -940,6 +940,39 @@ export type Database = {
         }
         Relationships: []
       }
+      student_learning_dna: {
+        Row: {
+          confidence_score: number
+          dna_type: string
+          evolution_stage: number
+          history_json: Json
+          id: string
+          last_updated_at: string
+          student_id: string
+          trend_direction: string
+        }
+        Insert: {
+          confidence_score?: number
+          dna_type?: string
+          evolution_stage?: number
+          history_json?: Json
+          id?: string
+          last_updated_at?: string
+          student_id: string
+          trend_direction?: string
+        }
+        Update: {
+          confidence_score?: number
+          dna_type?: string
+          evolution_stage?: number
+          history_json?: Json
+          id?: string
+          last_updated_at?: string
+          student_id?: string
+          trend_direction?: string
+        }
+        Relationships: []
+      }
       student_live_insights: {
         Row: {
           created_at: string
