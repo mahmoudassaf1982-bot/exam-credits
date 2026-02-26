@@ -33,6 +33,7 @@ export function useTrainingRecommendationsRealtime(studentId: string | undefined
   const [recommendations, setRecommendations] = useState<RecommendationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const fallbackRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevRecsRef = useRef<RecommendationRow[]>([]);
 
   const fetchRecommendations = useCallback(async () => {
     if (!studentId) return;
@@ -44,13 +45,15 @@ export function useTrainingRecommendationsRealtime(studentId: string | undefined
       .order('created_at', { ascending: false })
       .limit(4);
 
+    
     if (!error && data) {
       const newRecs = data as unknown as RecommendationRow[];
       
       // Detect removed weaknesses (were in old list but not in new)
-      if (recommendations.length > 0 && newRecs.length > 0) {
+      const prev = prevRecsRef.current;
+      if (prev.length > 0 && newRecs.length > 0) {
         const newKeys = new Set(newRecs.map(r => r.weakness_key));
-        const removed = recommendations.filter(r => !newKeys.has(r.weakness_key));
+        const removed = prev.filter(r => !newKeys.has(r.weakness_key));
         for (const r of removed) {
           const sectionName = (r.recommendation_json as any)?.sectionName || r.target_section || r.weakness_key;
           const msg = motivationalMessages[Math.floor(Math.random() * motivationalMessages.length)];
@@ -58,10 +61,11 @@ export function useTrainingRecommendationsRealtime(studentId: string | undefined
         }
       }
       
+      prevRecsRef.current = newRecs;
       setRecommendations(newRecs);
     }
     setLoading(false);
-  }, [studentId, recommendations]);
+  }, [studentId]);
 
   useEffect(() => {
     if (!studentId) return;
