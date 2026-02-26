@@ -36,13 +36,21 @@ interface ThinkingReport {
   };
 }
 
+export interface DNAContext {
+  dna_type: string;
+  trend_direction: string;
+  evolution_stage: number;
+  confidence_score: number;
+}
+
 /**
- * Generate training recommendations based on student weaknesses and thinking patterns.
+ * Generate training recommendations based on student weaknesses, thinking patterns, and DNA.
  * Pure logic — no heavy AI calls.
  */
 export function generateRecommendations(
   memory: MemoryProfile | null,
-  thinkingReport: ThinkingReport | null
+  thinkingReport: ThinkingReport | null,
+  dna?: DNAContext | null
 ): TrainingRecommendation[] {
   const recs: TrainingRecommendation[] = [];
 
@@ -186,6 +194,158 @@ export function generateRecommendations(
       target_accuracy: 80,
       current_accuracy: accuracy,
     });
+  }
+
+  // ─── DNA-Based Recommendations ───
+  if (dna && dna.confidence_score >= 50) {
+    const hasDnaRec = (type: string) => recs.some(r => r.weakness_key.startsWith(`dna:${type}`));
+
+    switch (dna.dna_type) {
+      case 'fast_executor':
+        if (!hasDnaRec('accuracy')) {
+          recs.push({
+            recommendation_type: 'accuracy_drill',
+            title: 'تدريب دقة مخصص لنمطك',
+            description: 'نمطك سريع التنفيذ — ركّز على القراءة المتأنية والدقة قبل السرعة.',
+            reason: 'بصمة التعلم: سريع التنفيذ. الدقة هي أولويتك الآن.',
+            goal: 'رفع الدقة مع الحفاظ على السرعة',
+            weakness_key: 'dna:accuracy:fast_executor',
+            suggested_training_mode: 'practice',
+            difficulty_level: dna.trend_direction === 'declining' ? 'easy' : 'medium',
+            estimated_duration: dna.trend_direction === 'declining' ? '10 دقائق' : '15 دقيقة',
+            target_section_name: null,
+            target_accuracy: 70,
+            current_accuracy: memory.accuracy_profile,
+          });
+        }
+        break;
+
+      case 'cautious':
+        if (!hasDnaRec('speed')) {
+          recs.push({
+            recommendation_type: 'speed_drill',
+            title: 'تدريب سرعة مخصص لنمطك',
+            description: 'نمطك حذر ومتأنٍّ — تدرّب على الإجابة أسرع مع الحفاظ على دقتك.',
+            reason: 'بصمة التعلم: حذر ومتأنٍّ. السرعة هي أولويتك الآن.',
+            goal: 'تحسين إدارة الوقت',
+            weakness_key: 'dna:speed:cautious',
+            suggested_training_mode: 'practice',
+            difficulty_level: 'mixed',
+            estimated_duration: '10 دقائق',
+            target_section_name: null,
+            target_accuracy: 70,
+            current_accuracy: memory.accuracy_profile,
+          });
+        }
+        break;
+
+      case 'analytical':
+        if (!hasDnaRec('mixed')) {
+          recs.push({
+            recommendation_type: 'progressive_path',
+            title: 'تدريب تفكير مرن',
+            description: 'نمطك تحليلي — جرّب أسئلة مختلطة لتعزيز المرونة وتقليل التحليل الزائد.',
+            reason: 'بصمة التعلم: تحليلي. التنويع يعزز المرونة.',
+            goal: 'تحسين سرعة اتخاذ القرار',
+            weakness_key: 'dna:mixed:analytical',
+            suggested_training_mode: 'practice',
+            difficulty_level: 'mixed',
+            estimated_duration: '15 دقيقة',
+            target_section_name: null,
+            target_accuracy: 75,
+            current_accuracy: memory.accuracy_profile,
+          });
+        }
+        break;
+
+      case 'accuracy_focused':
+        if (!hasDnaRec('speed_ramp')) {
+          recs.push({
+            recommendation_type: 'speed_drill',
+            title: 'تدريب سرعة تصاعدي',
+            description: 'دقتك ممتازة! جرّب جلسات قصيرة موقوتة لتحسين سرعتك.',
+            reason: 'بصمة التعلم: مركّز على الدقة. أضف السرعة للتوازن.',
+            goal: 'إنهاء الاختبار في الوقت',
+            weakness_key: 'dna:speed_ramp:accuracy_focused',
+            suggested_training_mode: 'practice',
+            difficulty_level: dna.trend_direction === 'declining' ? 'easy' : 'medium',
+            estimated_duration: '10 دقائق',
+            target_section_name: null,
+            target_accuracy: 70,
+            current_accuracy: memory.accuracy_profile,
+          });
+        }
+        break;
+
+      case 'speed_focused':
+        if (!hasDnaRec('accuracy_gate')) {
+          recs.push({
+            recommendation_type: 'accuracy_drill',
+            title: 'تدريب بوابة الدقة',
+            description: 'سرعتك عالية! يجب تحقيق دقة ≥65% قبل التقدم لمستوى أصعب.',
+            reason: 'بصمة التعلم: مركّز على السرعة. الدقة شرط التقدم.',
+            goal: 'تحقيق دقة ≥65% للتقدم',
+            weakness_key: 'dna:accuracy_gate:speed_focused',
+            suggested_training_mode: 'practice',
+            difficulty_level: dna.trend_direction === 'declining' ? 'easy' : 'medium',
+            estimated_duration: '10 دقائق',
+            target_section_name: null,
+            target_accuracy: 65,
+            current_accuracy: memory.accuracy_profile,
+          });
+        }
+        break;
+
+      case 'adaptive':
+        if (!hasDnaRec('progressive')) {
+          recs.push({
+            recommendation_type: 'progressive_path',
+            title: 'تحدّي تصاعدي',
+            description: 'أنت متكيّف ومتحسن — جرّب أسئلة أصعب لدفع حدودك.',
+            reason: 'بصمة التعلم: متكيّف. الوقت لمستوى أعلى.',
+            goal: 'التقدم لمستوى صعوبة أعلى',
+            weakness_key: 'dna:progressive:adaptive',
+            suggested_training_mode: 'practice',
+            difficulty_level: 'hard',
+            estimated_duration: '15 دقيقة',
+            target_section_name: null,
+            target_accuracy: 80,
+            current_accuracy: memory.accuracy_profile,
+          });
+        }
+        break;
+
+      case 'balanced':
+      default:
+        if (!hasDnaRec('progressive_balanced')) {
+          recs.push({
+            recommendation_type: 'progressive_path',
+            title: 'تدريب تدريجي متوازن',
+            description: 'أداؤك متوازن! استمر بالتدريب المتنوع مع زيادة الصعوبة تدريجياً.',
+            reason: 'بصمة التعلم: متوازن. التنوع يحافظ على التقدم.',
+            goal: 'الحفاظ على الأداء المتميز',
+            weakness_key: 'dna:progressive_balanced:balanced',
+            suggested_training_mode: 'practice',
+            difficulty_level: 'mixed',
+            estimated_duration: '10 دقائق',
+            target_section_name: null,
+            target_accuracy: 80,
+            current_accuracy: memory.accuracy_profile,
+          });
+        }
+        break;
+    }
+  }
+
+  // ─── Declining trend adjustments ───
+  if (dna && dna.trend_direction === 'declining' && dna.confidence_score >= 50) {
+    for (const rec of recs) {
+      // Shorter sessions
+      rec.estimated_duration = '10 دقائق';
+      // Lower difficulty by 1 step
+      if (rec.difficulty_level === 'hard') rec.difficulty_level = 'medium';
+      else if (rec.difficulty_level === 'medium') rec.difficulty_level = 'easy';
+    }
   }
 
   // Fallback: if no weaknesses found
