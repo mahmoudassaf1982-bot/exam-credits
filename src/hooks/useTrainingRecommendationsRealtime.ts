@@ -8,12 +8,18 @@ export interface RecommendationRow {
   student_id: string;
   weakness_key: string;
   recommendation_json: TrainingRecommendation;
+  recommendation_type: string;
+  recommended_mode: string;
+  target_section: string | null;
+  difficulty: string;
+  reason_text: string;
   is_completed: boolean;
   started_at: string | null;
   completed_at: string | null;
   training_session_id: string | null;
   source_exam_id: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 export function useTrainingRecommendationsRealtime(studentId: string | undefined) {

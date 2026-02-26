@@ -1076,43 +1076,61 @@ export type Database = {
         Row: {
           completed_at: string | null
           created_at: string
+          difficulty: string | null
           id: string
           improvement_delta: number | null
           is_completed: boolean
+          reason_text: string | null
           recommendation_json: Json
+          recommendation_type: string
+          recommended_mode: string | null
           result_score: number | null
           source_exam_id: string | null
           started_at: string | null
           student_id: string
+          target_section: string | null
           training_session_id: string | null
+          updated_at: string
           weakness_key: string
         }
         Insert: {
           completed_at?: string | null
           created_at?: string
+          difficulty?: string | null
           id?: string
           improvement_delta?: number | null
           is_completed?: boolean
+          reason_text?: string | null
           recommendation_json?: Json
+          recommendation_type: string
+          recommended_mode?: string | null
           result_score?: number | null
           source_exam_id?: string | null
           started_at?: string | null
           student_id: string
+          target_section?: string | null
           training_session_id?: string | null
+          updated_at?: string
           weakness_key: string
         }
         Update: {
           completed_at?: string | null
           created_at?: string
+          difficulty?: string | null
           id?: string
           improvement_delta?: number | null
           is_completed?: boolean
+          reason_text?: string | null
           recommendation_json?: Json
+          recommendation_type?: string
+          recommended_mode?: string | null
           result_score?: number | null
           source_exam_id?: string | null
           started_at?: string | null
           student_id?: string
+          target_section?: string | null
           training_session_id?: string | null
+          updated_at?: string
           weakness_key?: string
         }
         Relationships: []
