@@ -237,10 +237,10 @@ export async function saveRecommendations(
     improvement_delta: null,
   }));
 
-  // Upsert on (student_id, recommendation_type) — replaces stale recs automatically
+  // Upsert on (student_id, weakness_key) — replaces stale recs automatically
   const { error } = await supabase
     .from('student_training_recommendations' as any)
-    .upsert(rows, { onConflict: 'student_id,recommendation_type' });
+    .upsert(rows, { onConflict: 'student_id,weakness_key' });
 
   if (error) {
     console.error('[recommendations] save error:', error);
