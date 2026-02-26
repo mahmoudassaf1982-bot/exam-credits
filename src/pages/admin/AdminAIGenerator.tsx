@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Loader2, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ArrowLeft, Cog } from 'lucide-react';
+import ActiveJobsBadge from '@/components/admin/ActiveJobsBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -98,6 +99,9 @@ export default function AdminAIGenerator() {
             طابور المراجعة
           </button>
         </p>
+        <div className="mt-3">
+          <ActiveJobsBadge />
+        </div>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
