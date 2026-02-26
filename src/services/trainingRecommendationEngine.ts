@@ -218,30 +218,36 @@ export async function saveRecommendations(
   sourceExamId: string | null,
   recommendations: TrainingRecommendation[]
 ): Promise<boolean> {
-  // Mark old incomplete recs as completed first
-  await supabase
-    .from('student_training_recommendations' as any)
-    .update({ is_completed: true })
-    .eq('student_id', studentId)
-    .eq('is_completed', false);
-
-  // Insert new ones
+  // Build upsert rows with normalised columns
   const rows = recommendations.map(rec => ({
     student_id: studentId,
     source_exam_id: sourceExamId,
     weakness_key: rec.weakness_key,
     recommendation_json: rec,
+    recommendation_type: rec.recommendation_type,
+    recommended_mode: rec.suggested_training_mode || 'practice',
+    target_section: rec.target_section_name || null,
+    difficulty: rec.difficulty_level || 'mixed',
+    reason_text: rec.reason || '',
     is_completed: false,
+    started_at: null,
+    completed_at: null,
+    training_session_id: null,
+    result_score: null,
+    improvement_delta: null,
   }));
 
+  // Upsert on (student_id, recommendation_type) — replaces stale recs automatically
   const { error } = await supabase
     .from('student_training_recommendations' as any)
-    .insert(rows);
+    .upsert(rows, { onConflict: 'student_id,recommendation_type' });
 
   if (error) {
     console.error('[recommendations] save error:', error);
     return false;
   }
+
+  console.log('[recommendations] saved', rows.length, 'recommendations for student', studentId);
   return true;
 }
 
