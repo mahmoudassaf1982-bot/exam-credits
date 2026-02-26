@@ -14,6 +14,179 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_dead_letter_jobs: {
+        Row: {
+          attempts: number
+          failed_at: string
+          id: string
+          job_id: string
+          last_error: string | null
+          params_json: Json | null
+          type: string
+        }
+        Insert: {
+          attempts?: number
+          failed_at?: string
+          id?: string
+          job_id: string
+          last_error?: string | null
+          params_json?: Json | null
+          type: string
+        }
+        Update: {
+          attempts?: number
+          failed_at?: string
+          id?: string
+          job_id?: string
+          last_error?: string | null
+          params_json?: Json | null
+          type?: string
+        }
+        Relationships: []
+      }
+      ai_job_items: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          input_json: Json
+          item_index: number
+          job_id: string
+          output_json: Json | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          input_json?: Json
+          item_index: number
+          job_id: string
+          output_json?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          input_json?: Json
+          item_index?: number
+          job_id?: string
+          output_json?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_job_items_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "ai_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_jobs: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          created_by: string
+          finished_at: string | null
+          id: string
+          idempotency_key: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          next_run_at: string
+          params_json: Json
+          priority: number
+          progress_done: number
+          progress_failed: number
+          progress_total: number
+          started_at: string | null
+          status: string
+          target_draft_id: string | null
+          target_exam_session_id: string | null
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          created_by: string
+          finished_at?: string | null
+          id?: string
+          idempotency_key: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          next_run_at?: string
+          params_json?: Json
+          priority?: number
+          progress_done?: number
+          progress_failed?: number
+          progress_total?: number
+          started_at?: string | null
+          status?: string
+          target_draft_id?: string | null
+          target_exam_session_id?: string | null
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          created_by?: string
+          finished_at?: string | null
+          id?: string
+          idempotency_key?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          next_run_at?: string
+          params_json?: Json
+          priority?: number
+          progress_done?: number
+          progress_failed?: number
+          progress_total?: number
+          started_at?: string | null
+          status?: string
+          target_draft_id?: string | null
+          target_exam_session_id?: string | null
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ai_system_state: {
+        Row: {
+          gemini_circuit_open_until: string | null
+          gemini_failures_window: number
+          gemini_last_failure_at: string | null
+          id: number
+        }
+        Insert: {
+          gemini_circuit_open_until?: string | null
+          gemini_failures_window?: number
+          gemini_last_failure_at?: string | null
+          id?: number
+        }
+        Update: {
+          gemini_circuit_open_until?: string | null
+          gemini_failures_window?: number
+          gemini_last_failure_at?: string | null
+          id?: number
+        }
+        Relationships: []
+      }
       calibration_log: {
         Row: {
           accuracy: number

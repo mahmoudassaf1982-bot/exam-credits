@@ -35,6 +35,7 @@ import AdminStats from "./pages/admin/AdminStats";
 import AdminContentManager from "./pages/admin/AdminContentManager";
 import AdminAIReviewQueue from "./pages/admin/AdminAIReviewQueue";
 import AdminBankHealth from "./pages/admin/AdminBankHealth";
+import AdminJobs from "./pages/admin/AdminJobs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -91,6 +92,7 @@ const App = () => (
             <Route path="/app/admin/content" element={<ProtectedRoute><AdminAppLayout><AdminContentManager /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/review-queue" element={<ProtectedRoute><AdminAppLayout><AdminAIReviewQueue /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/bank-health" element={<ProtectedRoute><AdminAppLayout><AdminBankHealth /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/jobs" element={<ProtectedRoute><AdminAppLayout><AdminJobs /></AdminAppLayout></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
