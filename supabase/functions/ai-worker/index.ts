@@ -222,6 +222,14 @@ async function callGemini(
 
 async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   const params = job.params_json;
+
+  // ── Crash Recovery: reset stale "running" items back to "pending" ──
+  await admin
+    .from("ai_job_items")
+    .update({ status: "pending", started_at: null })
+    .eq("job_id", job.id)
+    .eq("status", "running");
+
   const { data: items } = await admin
     .from("ai_job_items")
     .select("*")
@@ -230,7 +238,8 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
     .order("item_index", { ascending: true });
 
   if (!items || items.length === 0) {
-    await releaseJob(admin, job.id, "succeeded");
+    // Check if there are succeeded items — if so, finalize
+    await finalizeGenerateJob(admin, job);
     return;
   }
 
@@ -343,20 +352,40 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
     }
   }
 
-  // Save draft to DB if we have questions
-  if (allGeneratedQuestions.length > 0) {
-    const params_json = job.params_json;
-    const { data: draft, error: draftError } = await admin
+  // Finalize: collect all outputs and create/update draft
+  await finalizeGenerateJob(admin, job);
+}
+
+// ── Collect all succeeded item outputs and save draft ──
+async function finalizeGenerateJob(admin: any, job: any) {
+  // Gather questions from ALL succeeded items (including previous runs)
+  const { data: succeededItems } = await admin
+    .from("ai_job_items")
+    .select("output_json")
+    .eq("job_id", job.id)
+    .eq("status", "succeeded")
+    .order("item_index", { ascending: true });
+
+  const allQuestions: any[] = [];
+  for (const item of (succeededItems || [])) {
+    const qs = item.output_json?.questions;
+    if (Array.isArray(qs)) allQuestions.push(...qs);
+  }
+
+  // Create or update draft if we have questions and no draft yet
+  if (allQuestions.length > 0 && !job.target_draft_id) {
+    const p = job.params_json;
+    const { data: draft } = await admin
       .from("question_drafts")
       .insert({
         created_by: job.created_by,
-        country_id: params_json.country_id,
-        exam_template_id: params_json.exam_template_id || null,
-        section_id: params_json.section_id || null,
-        difficulty: params_json.difficulty || "medium",
-        count: allGeneratedQuestions.length,
+        country_id: p.country_id,
+        exam_template_id: p.exam_template_id || null,
+        section_id: p.section_id || null,
+        difficulty: p.difficulty || "medium",
+        count: allQuestions.length,
         generator_model: "google/gemini-2.5-flash",
-        draft_questions_json: allGeneratedQuestions,
+        draft_questions_json: allQuestions,
         status: "pending_review",
       })
       .select("id")
@@ -364,8 +393,15 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
 
     if (draft) {
       await admin.from("ai_jobs").update({ target_draft_id: draft.id }).eq("id", job.id);
-      console.log(`[ai-worker] ✅ Draft created: ${draft.id} with ${allGeneratedQuestions.length} questions`);
+      console.log(`[ai-worker] ✅ Draft created: ${draft.id} with ${allQuestions.length} questions`);
     }
+  } else if (allQuestions.length > 0 && job.target_draft_id) {
+    // Update existing draft with combined questions
+    await admin.from("question_drafts").update({
+      draft_questions_json: allQuestions,
+      count: allQuestions.length,
+    }).eq("id", job.target_draft_id);
+    console.log(`[ai-worker] ✅ Draft ${job.target_draft_id} updated with ${allQuestions.length} questions`);
   }
 
   // Determine final status
@@ -411,6 +447,13 @@ async function processReviewDraftJob(admin: any, job: any, apiKey: string) {
     return;
   }
 
+  // ── Crash Recovery: reset stale "running" items back to "pending" ──
+  await admin
+    .from("ai_job_items")
+    .update({ status: "pending", started_at: null })
+    .eq("job_id", job.id)
+    .eq("status", "running");
+
   const { data: items } = await admin
     .from("ai_job_items")
     .select("*")
@@ -419,7 +462,8 @@ async function processReviewDraftJob(admin: any, job: any, apiKey: string) {
     .order("item_index", { ascending: true });
 
   if (!items || items.length === 0) {
-    await releaseJob(admin, job.id, "succeeded");
+    // Finalize with previously succeeded items
+    await finalizeReviewJob(admin, job, draftId);
     return;
   }
 
@@ -485,7 +529,25 @@ async function processReviewDraftJob(admin: any, job: any, apiKey: string) {
     }
   }
 
-  // Save review results to draft
+  // Finalize review with all outputs (current + previous runs)
+  await finalizeReviewJob(admin, job, draftId);
+}
+
+// ── Collect all review outputs and save to draft ──
+async function finalizeReviewJob(admin: any, job: any, draftId: string) {
+  const { data: succeededItems } = await admin
+    .from("ai_job_items")
+    .select("output_json")
+    .eq("job_id", job.id)
+    .eq("status", "succeeded")
+    .order("item_index", { ascending: true });
+
+  const allReviews: any[] = [];
+  for (const item of (succeededItems || [])) {
+    const revs = item.output_json?.reviews;
+    if (Array.isArray(revs)) allReviews.push(...revs);
+  }
+
   if (allReviews.length > 0) {
     const correctedQuestions = allReviews
       .filter((r: any) => r.corrected)
@@ -507,7 +569,7 @@ async function processReviewDraftJob(admin: any, job: any, apiKey: string) {
         reviews: allReviews,
         quality_gate: { decision, avg_confidence: avgConfidence },
       },
-      reviewer_model: model,
+      reviewer_model: "google/gemini-2.5-pro",
       status: decision,
     }).eq("id", draftId);
   }
