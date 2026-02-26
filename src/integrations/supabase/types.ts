@@ -1110,6 +1110,38 @@ export type Database = {
         }
         Returns: number
       }
+      claim_next_job: {
+        Args: { worker_id: string }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          created_by: string
+          finished_at: string | null
+          id: string
+          idempotency_key: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          next_run_at: string
+          params_json: Json
+          priority: number
+          progress_done: number
+          progress_failed: number
+          progress_total: number
+          started_at: string | null
+          status: string
+          target_draft_id: string | null
+          target_exam_session_id: string | null
+          type: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "ai_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_admin_notification_email: { Args: never; Returns: string }
       has_role: {
         Args: {
