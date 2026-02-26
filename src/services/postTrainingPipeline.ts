@@ -81,17 +81,31 @@ export async function runPostTrainingPipeline(
 
   const thinkingReport = thinkingData ? (thinkingData.report_json as any) : null;
 
-  // 4. Generate base recommendations
-  let recommendations = generateRecommendations(memory, thinkingReport);
+  // 4. Load DNA context
+  const { data: dnaData } = await supabase
+    .from('student_learning_dna')
+    .select('dna_type, trend_direction, evolution_stage, confidence_score')
+    .eq('student_id', studentId)
+    .maybeSingle();
 
-  // 5. Apply adaptive rules based on history
+  const dnaContext = dnaData ? {
+    dna_type: (dnaData as any).dna_type,
+    trend_direction: (dnaData as any).trend_direction,
+    evolution_stage: (dnaData as any).evolution_stage,
+    confidence_score: (dnaData as any).confidence_score,
+  } : null;
+
+  // 5. Generate base recommendations with DNA context
+  let recommendations = generateRecommendations(memory, thinkingReport, dnaContext);
+
+  // 6. Apply adaptive rules based on history
   const context = await loadAdaptiveContext(studentId);
   recommendations = applyAdaptiveRules(recommendations, context);
 
-  // 6. Save new recommendations (with consecutive count tracking)
+  // 7. Save new recommendations (with consecutive count tracking)
   await saveAdaptiveRecommendations(studentId, sessionId, recommendations, context);
 
-  console.log('[PostTraining] Pipeline complete. Generated', recommendations.length, 'adaptive recommendations');
+  console.log('[PostTraining] Pipeline complete. Generated', recommendations.length, 'adaptive recommendations (DNA:', dnaContext?.dna_type || 'none', ')');
 }
 
 /**
