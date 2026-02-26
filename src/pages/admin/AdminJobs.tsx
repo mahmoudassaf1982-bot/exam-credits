@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import E2ETestDialog from '@/components/admin/E2ETestDialog';
 
 interface Job {
   id: string;
@@ -207,6 +208,7 @@ export default function AdminJobs() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <E2ETestDialog onComplete={fetchJobs} />
             <Button onClick={handleTriggerWorker} disabled={workerRunning} variant="outline" size="sm">
               {workerRunning ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <Zap className="h-4 w-4 ml-2" />}
               تشغيل العامل
