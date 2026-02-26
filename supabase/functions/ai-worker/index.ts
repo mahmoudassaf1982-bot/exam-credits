@@ -95,56 +95,20 @@ async function recordApiFailure(admin: any, statusCode: number) {
   await admin.from("ai_system_state").update(update).eq("id", 1);
 }
 
-// ─── Atomic Job Claim ────────────────────────────────────────────────
+// ─── Atomic Job Claim (via Postgres RPC — FOR UPDATE SKIP LOCKED) ───
 async function claimJob(admin: any, workerId: string): Promise<any | null> {
-  const lockCutoff = new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60 * 1000).toISOString();
-  const now = new Date().toISOString();
+  const { data, error } = await admin.rpc("claim_next_job", { worker_id: workerId });
 
-  // Step 1: Find claimable job
-  // Use .in() for status and combine lock check into one .or()
-  const { data: candidates, error: findError } = await admin
-    .from("ai_jobs")
-    .select("id, attempt_count, status, locked_by, locked_at")
-    .in("status", ["queued", "partial"])
-    .lte("next_run_at", now)
-    .or(`locked_by.is.null,locked_at.lt.${lockCutoff}`)
-    .order("priority", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(1);
-
-  if (findError) {
-    console.log("[ai-worker] Error finding jobs:", findError.message);
+  if (error) {
+    console.log("[ai-worker] claim_next_job RPC error:", error.message);
     return null;
   }
 
-  if (!candidates || candidates.length === 0) return null;
-
-  const candidate = candidates[0];
-  console.log(`[ai-worker] Found candidate: ${candidate.id} status=${candidate.status} locked_by=${candidate.locked_by}`);
-
-  // Step 2: Atomically claim via conditional update
-  const { data: claimed, error: claimError } = await admin
-    .from("ai_jobs")
-    .update({
-      locked_by: workerId,
-      locked_at: now,
-      status: "running",
-      started_at: now,
-      attempt_count: candidate.attempt_count + 1,
-    })
-    .eq("id", candidate.id)
-    .in("status", ["queued", "partial"])
-    .or(`locked_by.is.null,locked_at.lt.${lockCutoff}`)
-    .select()
-    .maybeSingle();
-
-  if (claimError) {
-    console.log("[ai-worker] Claim error:", claimError.message, claimError.code);
-    return null;
-  }
+  // RPC returns an array (RETURNS SETOF); take first row or null
+  const claimed = Array.isArray(data) ? data[0] ?? null : data;
 
   if (!claimed) {
-    console.log("[ai-worker] Failed to claim job (race lost):", candidate.id);
+    console.log("[ai-worker] No claimable jobs found");
     return null;
   }
 
