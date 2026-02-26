@@ -28,8 +28,9 @@ import InsightsTimeline from '@/components/exam/InsightsTimeline';
 import { useLivePerformanceInsights } from '@/hooks/useLivePerformanceInsights';
 import { predictRealExamScore, savePrediction } from '@/services/aiScorePrediction';
 import { analyzeThinkingPattern, saveThinkingReport, loadThinkingReport } from '@/services/thinkingAnalysis';
-import { updateStudentMemory } from '@/services/studentMemory';
+import { updateStudentMemory, getStudentMemory } from '@/services/studentMemory';
 import ThinkingAnalysisCard from '@/components/exam/ThinkingAnalysisCard';
+import { generateRecommendations, saveRecommendations } from '@/services/trainingRecommendationEngine';
 
 interface QuestionData {
   id: string;
@@ -424,8 +425,19 @@ export default function ExamSession() {
         console.warn('[ThinkingAnalysis] Error:', e);
       }
 
-      // Memory update (fire-and-forget)
-      updateStudentMemory(user.id).catch(e => console.warn('[Memory] Error:', e));
+      // Memory update + recommendation generation (fire-and-forget)
+      updateStudentMemory(user.id).then(async () => {
+        try {
+          const memProfile = await getStudentMemory(user.id);
+          const latestThinking = await loadThinkingReport(sessionId);
+          if (memProfile) {
+            const recs = generateRecommendations(memProfile, latestThinking);
+            await saveRecommendations(user.id, sessionId, recs);
+          }
+        } catch (e) {
+          console.warn('[Recommendations] Error:', e);
+        }
+      }).catch(e => console.warn('[Memory] Error:', e));
     }
   }, [submitting, session, sessionId, answers, refreshWallet, navigate]);
 

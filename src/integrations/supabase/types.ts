@@ -1072,6 +1072,36 @@ export type Database = {
         }
         Relationships: []
       }
+      student_training_recommendations: {
+        Row: {
+          created_at: string
+          id: string
+          is_completed: boolean
+          recommendation_json: Json
+          source_exam_id: string | null
+          student_id: string
+          weakness_key: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_completed?: boolean
+          recommendation_json?: Json
+          source_exam_id?: string | null
+          student_id: string
+          weakness_key: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_completed?: boolean
+          recommendation_json?: Json
+          source_exam_id?: string | null
+          student_id?: string
+          weakness_key?: string
+        }
+        Relationships: []
+      }
       sync_audit_log: {
         Row: {
           action: string
