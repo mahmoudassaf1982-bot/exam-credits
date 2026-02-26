@@ -23,6 +23,10 @@ import {
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import ExamReview from '@/components/exam/ExamReview';
+import PredictedScoreSection from '@/components/exam/PredictedScoreSection';
+import InsightsTimeline from '@/components/exam/InsightsTimeline';
+import { useLivePerformanceInsights } from '@/hooks/useLivePerformanceInsights';
+import { predictRealExamScore, savePrediction } from '@/services/aiScorePrediction';
 
 interface QuestionData {
   id: string;
@@ -101,7 +105,7 @@ function normalizeQuestionsJson(questionsJson: Record<string, unknown[]>): Recor
 export default function ExamSession() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { refreshWallet } = useAuth();
+  const { refreshWallet, user } = useAuth();
 
   const [session, setSession] = useState<ExamSessionData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,10 +119,14 @@ export default function ExamSession() {
   const [showReview, setShowReview] = useState(false);
   const [scoreData, setScoreData] = useState<Record<string, unknown> | null>(null);
   const [reviewQuestions, setReviewQuestions] = useState<Record<string, FullQuestionData[]> | null>(null);
+  const [predictionData, setPredictionData] = useState<any>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiresAtRef = useRef<Date | null>(null);
   const serverTimeOffsetRef = useRef<number>(0);
   const attemptTokenRef = useRef<string | null>(null);
+
+  // Live performance insights
+  const { insights, trackAnswer } = useLivePerformanceInsights(sessionId, user?.id);
 
   // Load session and call start-exam
   const loadSession = useCallback(async () => {
@@ -175,6 +183,17 @@ export default function ExamSession() {
         setShowResults(true);
         setScoreData(sessionData.score_json);
         setReviewQuestions(sessionData.review_questions_json || null);
+        
+        // Load existing prediction if available
+        supabase
+          .from('student_score_predictions' as any)
+          .select('*')
+          .eq('exam_session_id', sessionId)
+          .maybeSingle()
+          .then(({ data: pred }) => {
+            if (pred) setPredictionData(pred);
+          });
+        
         setLoading(false);
         return;
       }
@@ -303,8 +322,21 @@ export default function ExamSession() {
         }
         return updated;
       });
+
+      // Track for live insights
+      if (currentQuestion && currentSection) {
+        trackAnswer({
+          questionId,
+          optionId,
+          questionIndex: currentQuestionIdx,
+          sectionName: currentSection.name_ar,
+          difficulty: currentQuestion.difficulty || 'medium',
+          topic: currentQuestion.topic || '',
+          timestamp: Date.now(),
+        });
+      }
     },
-    [sessionId]
+    [sessionId, currentQuestion, currentSection, currentQuestionIdx, trackAnswer]
   );
 
   const handleSubmit = useCallback(async () => {
@@ -336,6 +368,16 @@ export default function ExamSession() {
     setShowResults(true);
     setSubmitting(false);
     refreshWallet();
+
+    // Run AI prediction in background
+    if (user && sessionId && session && result.score) {
+      predictRealExamScore(user.id, sessionId, session.exam_snapshot.template.id, result.score)
+        .then(pred => {
+          setPredictionData(pred);
+          savePrediction(user.id, sessionId, session.exam_snapshot.template.id, pred);
+        })
+        .catch(e => console.warn('[Prediction] Error:', e));
+    }
   }, [submitting, session, sessionId, answers, refreshWallet, navigate]);
 
   // ── Loading State ──
@@ -462,6 +504,16 @@ export default function ExamSession() {
               })}
             </div>
           </div>
+
+          {/* AI Predicted Score */}
+          {predictionData && (
+            <PredictedScoreSection prediction={predictionData} />
+          )}
+
+          {/* Live Insights Timeline */}
+          {insights.length > 0 && (
+            <InsightsTimeline insights={insights} />
+          )}
 
           <div className="flex gap-3">
             <Button
