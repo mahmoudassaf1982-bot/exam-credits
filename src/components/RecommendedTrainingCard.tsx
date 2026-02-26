@@ -1,12 +1,18 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Brain, Target, Zap, Clock, TrendingUp, ArrowLeft, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Brain, Target, Zap, Clock, TrendingUp, ArrowLeft, Sparkles, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { toast } from 'sonner';
+import type { RecommendationRow } from '@/hooks/useTrainingRecommendationsRealtime';
 import type { TrainingRecommendation } from '@/services/trainingRecommendationEngine';
+import { startTrainingFromRecommendation } from '@/services/startTrainingFromRecommendation';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Props {
-  recommendations: TrainingRecommendation[];
-  onStartTraining: (rec: TrainingRecommendation) => void;
+  recommendations: RecommendationRow[];
+  loading?: boolean;
 }
 
 const typeConfig: Record<string, { icon: typeof Brain; color: string; bgColor: string }> = {
@@ -17,8 +23,38 @@ const typeConfig: Record<string, { icon: typeof Brain; color: string; bgColor: s
   balanced: { icon: CheckCircle2, color: 'text-success', bgColor: 'bg-success/10' },
 };
 
-export default function RecommendedTrainingCard({ recommendations, onStartTraining }: Props) {
+export default function RecommendedTrainingCard({ recommendations, loading: externalLoading }: Props) {
+  const navigate = useNavigate();
+  const { refreshWallet } = useAuth();
+  const [startingId, setStartingId] = useState<string | null>(null);
+
+  if (externalLoading) {
+    return (
+      <div className="rounded-2xl border bg-card shadow-card p-8 text-center">
+        <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+      </div>
+    );
+  }
+
   if (recommendations.length === 0) return null;
+
+  const handleStartTraining = async (row: RecommendationRow) => {
+    setStartingId(row.id);
+    try {
+      const result = await startTrainingFromRecommendation(row);
+      if (result.success && result.sessionId) {
+        await refreshWallet();
+        toast.success('تم بدء تدريب مخصص بناءً على نقاط ضعفك');
+        navigate(`/app/exam-session/${result.sessionId}`);
+      } else {
+        toast.error(result.error || 'فشل في بدء التدريب');
+      }
+    } catch {
+      toast.error('حدث خطأ أثناء بدء التدريب');
+    } finally {
+      setStartingId(null);
+    }
+  };
 
   return (
     <motion.div
@@ -40,16 +76,19 @@ export default function RecommendedTrainingCard({ recommendations, onStartTraini
 
       {/* Recommendations */}
       <div className="divide-y">
-        {recommendations.map((rec, idx) => {
+        {recommendations.map((row, idx) => {
+          const rec = row.recommendation_json as TrainingRecommendation;
           const cfg = typeConfig[rec.recommendation_type] || typeConfig.balanced;
           const Icon = cfg.icon;
           const progressPct = rec.target_accuracy > 0
             ? Math.round((rec.current_accuracy / rec.target_accuracy) * 100)
             : 0;
+          const isStarting = startingId === row.id;
+          const alreadyStarted = !!row.started_at && !!row.training_session_id;
 
           return (
             <motion.div
-              key={rec.weakness_key}
+              key={row.id}
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1 + idx * 0.05 }}
@@ -92,12 +131,33 @@ export default function RecommendedTrainingCard({ recommendations, onStartTraini
                     </div>
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={() => onStartTraining(rec)}
+                      variant={alreadyStarted ? 'outline' : 'default'}
+                      onClick={() => {
+                        if (alreadyStarted && row.training_session_id) {
+                          navigate(`/app/exam-session/${row.training_session_id}`);
+                        } else {
+                          handleStartTraining(row);
+                        }
+                      }}
+                      disabled={isStarting}
                       className="text-xs gap-1 h-7"
                     >
-                      ابدأ التدريب
-                      <ArrowLeft className="h-3 w-3" />
+                      {isStarting ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          جارٍ التجهيز...
+                        </>
+                      ) : alreadyStarted ? (
+                        <>
+                          استكمال التدريب
+                          <ArrowLeft className="h-3 w-3" />
+                        </>
+                      ) : (
+                        <>
+                          ابدأ التدريب
+                          <ArrowLeft className="h-3 w-3" />
+                        </>
+                      )}
                     </Button>
                   </div>
                 </div>

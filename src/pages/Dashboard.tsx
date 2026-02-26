@@ -12,8 +12,7 @@ import { Progress } from '@/components/ui/progress';
 import SkillMapCard from '@/components/SkillMapCard';
 import RecommendedTrainingCard from '@/components/RecommendedTrainingCard';
 import { getStudentMemory } from '@/services/studentMemory';
-import { generateRecommendations, loadRecommendations, saveRecommendations, type TrainingRecommendation } from '@/services/trainingRecommendationEngine';
-import { loadThinkingReport } from '@/services/thinkingAnalysis';
+import { useTrainingRecommendationsRealtime } from '@/hooks/useTrainingRecommendationsRealtime';
 
 interface ExamStats {
   totalSessions: number;
@@ -36,8 +35,8 @@ export default function Dashboard() {
   const [txStats, setTxStats] = useState({ debitCount: 0 });
   const [examStats, setExamStats] = useState<ExamStats>({ totalSessions: 0, completedSessions: 0, passedSessions: 0, avgPercentage: 0, recentSessions: [] });
   const [memoryProfile, setMemoryProfile] = useState<{ strength_map: Record<string, number>; weakness_map: Record<string, number>; speed_profile: string; accuracy_profile: number } | null>(null);
-  const [recommendations, setRecommendations] = useState<TrainingRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
+  const { recommendations, loading: recsLoading } = useTrainingRecommendationsRealtime(user?.id);
 
   useEffect(() => {
     if (!user) return;
@@ -92,23 +91,9 @@ export default function Dashboard() {
         });
       }
 
-      // Load memory profile and recommendations
+      // Load memory profile
       const memProfile = await getStudentMemory(user.id);
       if (memProfile) setMemoryProfile(memProfile);
-
-      // Load latest thinking report for recommendation context
-      const latestSession = sessRes.data?.find(s => s.status === 'completed');
-      const thinkingReport = latestSession ? await loadThinkingReport(latestSession.id) : null;
-
-      // Try loading saved recommendations first
-      let recs = await loadRecommendations(user.id);
-      
-      // If none exist, generate fresh ones
-      if (recs.length === 0 && memProfile) {
-        recs = generateRecommendations(memProfile, thinkingReport);
-        await saveRecommendations(user.id, latestSession?.id || null, recs);
-      }
-      setRecommendations(recs);
 
       setLoading(false);
     };
@@ -116,11 +101,6 @@ export default function Dashboard() {
   }, [user]);
 
   const { templates: userExams } = useExamTemplates(user?.countryId);
-
-  const handleStartRecommendedTraining = (rec: TrainingRecommendation) => {
-    // Navigate to exams page - the training will use existing SessionCostDialog flow
-    navigate('/app/exams');
-  };
 
   return (
     <div className="space-y-8">
@@ -205,7 +185,7 @@ export default function Dashboard() {
       {/* Recommended Training */}
       <RecommendedTrainingCard
         recommendations={recommendations}
-        onStartTraining={handleStartRecommendedTraining}
+        loading={recsLoading}
       />
 
       {/* Recent Exam Results */}
