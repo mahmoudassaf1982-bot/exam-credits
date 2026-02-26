@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { updateStudentMemory, getStudentMemory } from './studentMemory';
 import { generateRecommendations, saveRecommendations } from './trainingRecommendationEngine';
 import { loadAdaptiveContext, applyAdaptiveRules, logRecommendationToHistory } from './adaptiveRecommendationEngine';
+import { updateLearningDNA } from './learningDNAEngine';
 
 /**
  * Complete post-training pipeline:
@@ -64,6 +65,10 @@ export async function runPostTrainingPipeline(
   // 2. Update student memory
   const memory = await updateStudentMemory(studentId);
   console.log('[PostTraining] Memory updated');
+
+  // 2.5. Update Learning DNA
+  await updateLearningDNA(studentId);
+  console.log('[PostTraining] Learning DNA updated');
 
   // 3. Load thinking report (latest)
   const { data: thinkingData } = await supabase

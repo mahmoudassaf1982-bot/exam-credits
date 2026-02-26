@@ -11,6 +11,7 @@ import type { PointsTransaction } from '@/types';
 import { Progress } from '@/components/ui/progress';
 import SkillMapCard from '@/components/SkillMapCard';
 import RecommendedTrainingCard from '@/components/RecommendedTrainingCard';
+import LearningDNACard from '@/components/LearningDNACard';
 import { getStudentMemory } from '@/services/studentMemory';
 import { useTrainingRecommendationsRealtime } from '@/hooks/useTrainingRecommendationsRealtime';
 
@@ -182,11 +183,16 @@ export default function Dashboard() {
       {/* Skill Map */}
       {memoryProfile && <SkillMapCard profile={memoryProfile} />}
 
+      {/* Learning DNA */}
+      <LearningDNACard studentId={user?.id} />
+
       {/* Recommended Training */}
-      <RecommendedTrainingCard
-        recommendations={recommendations}
-        loading={recsLoading}
-      />
+      <div data-training-recommendations>
+        <RecommendedTrainingCard
+          recommendations={recommendations}
+          loading={recsLoading}
+        />
+      </div>
 
       {/* Recent Exam Results */}
       {examStats.recentSessions.length > 0 && (
