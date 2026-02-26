@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ArrowLeft, Cog } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ export default function AdminAIGenerator() {
   const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
   const [contentLang, setContentLang] = useState<'auto' | 'en' | 'ar'>('auto');
-  const [lastResult, setLastResult] = useState<{ draft_id: string; question_count: number; content_language: string } | null>(null);
+  const [lastResult, setLastResult] = useState<{ draft_id?: string; job_id: string; question_count?: number; content_language?: string } | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -56,26 +56,28 @@ export default function AdminAIGenerator() {
     setLastResult(null);
 
     try {
-      const body: any = {
+      const params: any = {
         country_id: country,
         exam_template_id: examTemplateId || null,
         difficulty,
         count: numberOfQuestions,
       };
-      if (contentLang !== 'auto') body.content_language = contentLang;
+      if (contentLang !== 'auto') params.content_language = contentLang;
 
-      const { data, error } = await supabase.functions.invoke('generate-questions-draft', { body });
+      const { data, error } = await supabase.functions.invoke('ai-enqueue', {
+        body: {
+          type: 'generate_draft',
+          params,
+        },
+      });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
       setLastResult({
-        draft_id: data.draft_id,
-        question_count: data.question_count,
-        content_language: data.content_language,
+        job_id: data.job_id,
       });
 
-      const langLabel = data.content_language === 'en' ? '(English)' : '(عربي)';
-      toast({ title: `تم إنشاء مسودة بـ ${data.question_count} سؤال ${langLabel} ✨` });
+      toast({ title: `تم إضافة مهمة التوليد للطابور ✨ — يمكنك إغلاق الصفحة بأمان` });
     } catch (e: any) {
       toast({ title: 'خطأ في التوليد', description: e?.message, variant: 'destructive' });
     } finally {
@@ -165,16 +167,20 @@ export default function AdminAIGenerator() {
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-6 w-6 text-emerald-600" />
                 <div>
-                  <h3 className="font-bold text-lg">تم إنشاء المسودة بنجاح!</h3>
+                  <h3 className="font-bold text-lg">تم إضافة المهمة للطابور بنجاح!</h3>
                   <p className="text-sm text-muted-foreground">
-                    {lastResult.question_count} سؤال — اللغة: {lastResult.content_language === 'en' ? 'English' : 'عربي'}
+                    يمكنك إغلاق الصفحة بأمان — المهمة تعمل في الخلفية
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
-                <Button onClick={() => navigate('/app/admin/review-queue')} className="gradient-primary text-primary-foreground">
+                <Button onClick={() => navigate('/app/admin/jobs')} className="gradient-primary text-primary-foreground">
+                  <Cog className="h-4 w-4 ml-2" />
+                  متابعة المهام
+                </Button>
+                <Button onClick={() => navigate('/app/admin/review-queue')} variant="outline">
                   <ArrowLeft className="h-4 w-4 ml-2" />
-                  الذهاب لطابور المراجعة
+                  طابور المراجعة
                 </Button>
                 <Button variant="outline" onClick={() => setLastResult(null)}>
                   توليد مسودة أخرى

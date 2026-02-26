@@ -44,3 +44,9 @@ verify_jwt = false
 
 [functions.bank-health-report]
 verify_jwt = false
+
+[functions.ai-enqueue]
+verify_jwt = false
+
+[functions.ai-worker]
+verify_jwt = false

@@ -245,38 +245,17 @@ export default function AdminAIReviewQueue() {
 
   const handleReview = async (draftId: string) => {
     setActionLoading(`review-${draftId}`);
-    const pollInterval = setInterval(async () => {
-      const { data: progressDraft } = await supabase
-        .from('question_drafts')
-        .select('notes')
-        .eq('id', draftId)
-        .single();
-      if (progressDraft?.notes?.includes('مراجعة جارية')) {
-        toast({ title: '⏳ ' + progressDraft.notes, duration: 2000 });
-      }
-    }, 8000);
-
     try {
-      const { data, error } = await supabase.functions.invoke('review-questions-draft', {
-        body: { draft_id: draftId },
+      const { data, error } = await supabase.functions.invoke('ai-enqueue', {
+        body: { type: 'review_draft', draft_id: draftId },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
-      const qg = data.quality_gate;
-      const gateMsg = qg
-        ? ` | بوابة الجودة: ${Math.round(qg.avg_confidence * 100)}% — ${qg.decision === 'approved' ? 'جاهز ✅' : qg.decision === 'pending_review' ? 'مراجعة ⚠️' : 'إصلاح ❌'}`
-        : '';
-      toast({ title: `تمت المراجعة والتصحيح${gateMsg}`, description: data.report?.summary || '' });
+      toast({ title: '✅ تم إضافة مهمة المراجعة للطابور — يمكنك إغلاق الصفحة بأمان' });
       fetchDrafts();
-      if (selectedDraft?.id === draftId) {
-        const { data: refreshed } = await supabase.from('question_drafts').select('*').eq('id', draftId).single();
-        if (refreshed) setSelectedDraft(refreshed as unknown as Draft);
-      }
     } catch (e: any) {
       toast({ title: 'خطأ في المراجعة', description: e?.message, variant: 'destructive' });
     } finally {
-      clearInterval(pollInterval);
       setActionLoading(null);
     }
   };
@@ -284,12 +263,12 @@ export default function AdminAIReviewQueue() {
   const handlePublish = async (draftId: string) => {
     setActionLoading(`publish-${draftId}`);
     try {
-      const { data, error } = await supabase.functions.invoke('publish-draft', {
-        body: { draft_id: draftId },
+      const { data, error } = await supabase.functions.invoke('ai-enqueue', {
+        body: { type: 'publish_draft', draft_id: draftId },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast({ title: `تم نشر ${data.published_count} سؤال في بنك الأسئلة ✅` });
+      toast({ title: '✅ تم إضافة مهمة النشر للطابور' });
       setSelectedDraft(null);
       fetchDrafts();
     } catch (e: any) {
