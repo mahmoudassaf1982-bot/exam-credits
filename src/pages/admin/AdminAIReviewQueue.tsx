@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import ActiveJobsBadge from '@/components/admin/ActiveJobsBadge';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -379,6 +380,9 @@ export default function AdminAIReviewQueue() {
             مراجعة الأسئلة المولّدة
           </h1>
           <p className="mt-1 text-muted-foreground">راجع المسودات واعتمدها أو ارفضها — التوليد يتم من بوابة التوليد</p>
+          <div className="mt-3">
+            <ActiveJobsBadge />
+          </div>
         </div>
         <Button onClick={() => navigate('/app/admin/ai-generator')} className="gradient-primary text-primary-foreground">
           <Sparkles className="h-4 w-4 ml-2" />
