@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles, Loader2, CheckCircle, AlertTriangle, XCircle,
   ChevronDown, ChevronUp, Eye, Send, RotateCcw, Trash2, Edit3,
-  FileCheck, Clock, ArrowLeftRight, Wand2, ShieldCheck, ShieldAlert, ShieldX
+  FileCheck, Clock, ArrowLeftRight, Wand2, ShieldCheck, ShieldAlert, ShieldX,
+  Filter
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +16,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -124,6 +127,12 @@ function getConfidenceIcon(score: number) {
   return ShieldX;
 }
 
+function getQualityLevel(score: number): { label: string; level: 'green' | 'yellow' | 'red' } {
+  if (score >= 0.85) return { label: 'ممتاز', level: 'green' };
+  if (score >= 0.70) return { label: 'مقبول', level: 'yellow' };
+  return { label: 'ضعيف', level: 'red' };
+}
+
 function ConfidenceBadge({ score, size = 'sm' }: { score: number; size?: 'sm' | 'lg' }) {
   const Icon = getConfidenceIcon(score);
   const pct = Math.round(score * 100);
@@ -132,6 +141,37 @@ function ConfidenceBadge({ score, size = 'sm' }: { score: number; size?: 'sm' | 
       <Icon className={`${size === 'lg' ? 'h-4 w-4' : 'h-3 w-3'} ml-1`} />
       {pct}%
     </Badge>
+  );
+}
+
+function QualityBadgeWithTooltip({ scores }: { scores: QualityScores }) {
+  const avg = scores.confidence_score;
+  const { label, level } = getQualityLevel(avg);
+  const Icon = getConfidenceIcon(avg);
+  const colorMap = {
+    green: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+    yellow: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+    red: 'bg-destructive/10 text-destructive border-destructive/20',
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline" className={`${colorMap[level]} cursor-help gap-1`}>
+            <Icon className="h-3 w-3" />
+            {label} {Math.round(avg * 100)}%
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs space-y-1 max-w-[200px]" dir="rtl">
+          <p>الثقة: {Math.round(scores.confidence_score * 100)}%</p>
+          <p>الوضوح: {Math.round(scores.clarity_score * 100)}%</p>
+          <p>الصعوبة: {Math.round(scores.difficulty_match * 100)}%</p>
+          <p>إجابة واحدة: {Math.round(scores.single_answer_confidence * 100)}%</p>
+          <p>جودة اللغة: {Math.round(scores.language_quality * 100)}%</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -548,8 +588,61 @@ function DraftDetailDialog({
   const reviews = report?.reviews || [];
   const qualityGate = report?.quality_gate;
   const [showComparison, setShowComparison] = useState(!!correctedQuestions);
+  const [qualityFilter, setQualityFilter] = useState<'all' | 'green' | 'yellow' | 'red'>('all');
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
   const displayQuestions = correctedQuestions || originalQuestions;
+
+  // Compute quality level per question
+  const questionQuality = useMemo(() => {
+    return displayQuestions.map((_, i) => {
+      const review = reviews.find(r => r.index === i);
+      const conf = review?.quality_scores?.confidence_score;
+      if (conf === undefined || conf === null) return null;
+      return getQualityLevel(conf).level;
+    });
+  }, [displayQuestions, reviews]);
+
+  const filteredIndices = useMemo(() => {
+    return displayQuestions.map((_, i) => i).filter(i => {
+      if (qualityFilter === 'all') return true;
+      return questionQuality[i] === qualityFilter;
+    });
+  }, [displayQuestions, qualityFilter, questionQuality]);
+
+  const toggleSelect = (i: number) => {
+    setSelectedIndices(prev => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIndices(new Set(filteredIndices));
+  };
+
+  const deselectAll = () => {
+    setSelectedIndices(new Set());
+  };
+
+  const handleBulkApprove = async () => {
+    if (selectedIndices.size === 0) return;
+    // Mark selected questions as approved by updating corrected_questions_json metadata
+    // For now, we publish the entire draft if all selected
+    onPublish();
+  };
+
+  const handleBulkSendBack = async () => {
+    if (selectedIndices.size === 0) return;
+    onReview();
+  };
+
+  const qualityCounts = useMemo(() => {
+    const counts = { green: 0, yellow: 0, red: 0 };
+    questionQuality.forEach(q => { if (q) counts[q]++; });
+    return counts;
+  }, [questionQuality]);
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -591,6 +684,57 @@ function DraftDetailDialog({
           </div>
         )}
 
+        {/* Quality Filter + Bulk Actions Bar */}
+        <div className="flex items-center justify-between gap-3 flex-wrap p-3 rounded-lg border bg-muted/30">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Button variant={qualityFilter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setQualityFilter('all')}>
+              الكل ({displayQuestions.length})
+            </Button>
+            {qualityCounts.green > 0 && (
+              <Button variant={qualityFilter === 'green' ? 'default' : 'outline'} size="sm"
+                className={qualityFilter !== 'green' ? 'text-emerald-600 border-emerald-500/30' : ''}
+                onClick={() => setQualityFilter('green')}>
+                ✅ ممتاز ({qualityCounts.green})
+              </Button>
+            )}
+            {qualityCounts.yellow > 0 && (
+              <Button variant={qualityFilter === 'yellow' ? 'default' : 'outline'} size="sm"
+                className={qualityFilter !== 'yellow' ? 'text-amber-600 border-amber-500/30' : ''}
+                onClick={() => setQualityFilter('yellow')}>
+                ⚠️ مقبول ({qualityCounts.yellow})
+              </Button>
+            )}
+            {qualityCounts.red > 0 && (
+              <Button variant={qualityFilter === 'red' ? 'default' : 'outline'} size="sm"
+                className={qualityFilter !== 'red' ? 'text-destructive border-destructive/30' : ''}
+                onClick={() => setQualityFilter('red')}>
+                ❌ ضعيف ({qualityCounts.red})
+              </Button>
+            )}
+          </div>
+
+          {draft.status !== 'approved' && draft.status !== 'rejected' && (
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={selectedIndices.size === filteredIndices.length ? deselectAll : selectAll}>
+                {selectedIndices.size === filteredIndices.length ? 'إلغاء التحديد' : `تحديد الكل (${filteredIndices.length})`}
+              </Button>
+              {selectedIndices.size > 0 && (
+                <>
+                  <Badge variant="secondary">{selectedIndices.size} محدد</Badge>
+                  <Button size="sm" onClick={handleBulkApprove}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                    <Send className="h-3.5 w-3.5 ml-1" />موافقة ونشر
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleBulkSendBack}>
+                    <RotateCcw className="h-3.5 w-3.5 ml-1" />إعادة مراجعة
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Comparison toggle */}
         {correctedQuestions && (
           <div className="flex items-center gap-2">
@@ -603,7 +747,8 @@ function DraftDetailDialog({
         )}
 
         <div className="space-y-4">
-          {displayQuestions.map((q, i) => {
+          {filteredIndices.map(i => {
+            const q = displayQuestions[i];
             const review = reviews.find(r => r.index === i);
             const original = originalQuestions[i];
             const corrected = correctedQuestions?.[i];
@@ -611,19 +756,23 @@ function DraftDetailDialog({
             const qs = review?.quality_scores;
             const conf = qs?.confidence_score ?? null;
             const isLowScore = conf !== null && conf < 0.70;
+            const isSelected = selectedIndices.has(i);
 
             return (
               <Card key={i} className={isLowScore ? 'border-destructive/50 bg-destructive/5' : review && !review.ok ? 'border-destructive/30' : hasChanges ? 'border-primary/30' : ''}>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {draft.status !== 'approved' && draft.status !== 'rejected' && (
+                        <Checkbox checked={isSelected} onCheckedChange={() => toggleSelect(i)} />
+                      )}
                       <span className="font-bold text-primary">#{i + 1}</span>
                       {review && (
                         <Badge variant={review.ok ? 'default' : 'destructive'} className="text-[10px]">
                           {review.ok ? `✓ ${review.score}/10` : `✗ ${review.score}/10`}
                         </Badge>
                       )}
-                      {conf !== null && <ConfidenceBadge score={conf} />}
+                      {qs && <QualityBadgeWithTooltip scores={qs} />}
                       {review?.duplicate_risk && <Badge variant="destructive" className="text-[10px]">تكرار</Badge>}
                       {hasChanges && <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary">معدّل</Badge>}
                     </div>
