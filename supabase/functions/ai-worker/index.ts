@@ -98,40 +98,52 @@ async function recordApiFailure(admin: any, statusCode: number) {
 // ─── Atomic Job Claim ────────────────────────────────────────────────
 async function claimJob(admin: any, workerId: string): Promise<any | null> {
   const lockCutoff = new Date(Date.now() - LOCK_TIMEOUT_MINUTES * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
 
-  // Step 1: Find claimable job using FOR UPDATE SKIP LOCKED via RPC
-  // Since we can't do raw SQL easily, we use a two-step approach with optimistic locking
-  const { data: candidates } = await admin
+  // Step 1: Find claimable job
+  // Use .in() for status and combine lock check into one .or()
+  const { data: candidates, error: findError } = await admin
     .from("ai_jobs")
-    .select("id, attempt_count")
-    .or(`status.eq.queued,status.eq.partial`)
-    .lte("next_run_at", new Date().toISOString())
+    .select("id, attempt_count, status, locked_by, locked_at")
+    .in("status", ["queued", "partial"])
+    .lte("next_run_at", now)
     .or(`locked_by.is.null,locked_at.lt.${lockCutoff}`)
     .order("priority", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(1);
 
+  if (findError) {
+    console.log("[ai-worker] Error finding jobs:", findError.message);
+    return null;
+  }
+
   if (!candidates || candidates.length === 0) return null;
 
   const candidate = candidates[0];
+  console.log(`[ai-worker] Found candidate: ${candidate.id} status=${candidate.status} locked_by=${candidate.locked_by}`);
 
   // Step 2: Atomically claim via conditional update
   const { data: claimed, error: claimError } = await admin
     .from("ai_jobs")
     .update({
       locked_by: workerId,
-      locked_at: new Date().toISOString(),
+      locked_at: now,
       status: "running",
-      started_at: new Date().toISOString(), // COALESCE handled by trigger
+      started_at: now,
       attempt_count: candidate.attempt_count + 1,
     })
     .eq("id", candidate.id)
-    .or(`locked_by.is.null,locked_at.lt.${lockCutoff}`)
     .in("status", ["queued", "partial"])
+    .or(`locked_by.is.null,locked_at.lt.${lockCutoff}`)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (claimError || !claimed) {
+  if (claimError) {
+    console.log("[ai-worker] Claim error:", claimError.message, claimError.code);
+    return null;
+  }
+
+  if (!claimed) {
     console.log("[ai-worker] Failed to claim job (race lost):", candidate.id);
     return null;
   }
@@ -259,6 +271,21 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
 
   const contentLang = params.content_language || "ar";
   const model = "google/gemini-2.5-flash";
+
+  // ── E2E Test: skip AI calls, mark items as succeeded immediately ──
+  if (params.e2e_test) {
+    for (const item of items) {
+      await admin.from("ai_job_items").update({
+        status: "succeeded",
+        output_json: { questions: [{ text_ar: "سؤال اختباري", options: [{id:"a",textAr:"أ"},{id:"b",textAr:"ب"},{id:"c",textAr:"ج"},{id:"d",textAr:"د"}], correct_option_id: "a", explanation: "اختبار", difficulty: "medium", topic: "e2e_test" }] },
+        finished_at: new Date().toISOString(),
+        attempt_count: item.attempt_count + 1,
+      }).eq("id", item.id);
+    }
+    await admin.from("ai_jobs").update({ progress_done: items.length, progress_failed: 0 }).eq("id", job.id);
+    await finalizeGenerateJob(admin, job);
+    return;
+  }
 
   let totalDone = job.progress_done;
   let totalFailed = job.progress_failed;
