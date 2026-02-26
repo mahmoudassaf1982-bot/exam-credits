@@ -31,6 +31,7 @@ import { analyzeThinkingPattern, saveThinkingReport, loadThinkingReport } from '
 import { updateStudentMemory, getStudentMemory } from '@/services/studentMemory';
 import ThinkingAnalysisCard from '@/components/exam/ThinkingAnalysisCard';
 import { generateRecommendations, saveRecommendations } from '@/services/trainingRecommendationEngine';
+import { runPostTrainingPipeline } from '@/services/postTrainingPipeline';
 
 interface QuestionData {
   id: string;
@@ -425,36 +426,11 @@ export default function ExamSession() {
         console.warn('[ThinkingAnalysis] Error:', e);
       }
 
-      // Mark any recommendation linked to this session as completed
-      supabase
-        .from('student_training_recommendations')
-        .update({
-          is_completed: true,
-          completed_at: new Date().toISOString(),
-          result_score: (result.score as any)?.percentage || 0,
-        } as any)
-        .eq('training_session_id', sessionId)
-        .then(() => console.log('[Recommendations] Marked completed for session'));
-
-      // Memory update + recommendation generation (awaited chain)
-      updateStudentMemory(user.id).then(async (memProfile) => {
-        try {
-          // Always read from DB for deterministic results
-          const freshMemory = memProfile || await getStudentMemory(user.id);
-          const latestThinking = await loadThinkingReport(sessionId);
-          console.log('[AutoLoop] Memory:', freshMemory, 'Thinking:', !!latestThinking);
-          if (freshMemory) {
-            const recs = generateRecommendations(freshMemory, latestThinking);
-            console.log('[AutoLoop] Generated', recs.length, 'recommendations');
-            const saved = await saveRecommendations(user.id, sessionId, recs);
-            console.log('[AutoLoop] Saved recommendations:', saved);
-          } else {
-            console.warn('[AutoLoop] No memory profile found, skipping recommendations');
-          }
-        } catch (e) {
-          console.error('[AutoLoop] Recommendation generation error:', e);
-        }
-      }).catch(e => console.error('[AutoLoop] Memory update error:', e));
+      // Run the intelligent post-training pipeline
+      const sessionScore = (result.score as any)?.percentage || 0;
+      runPostTrainingPipeline(user.id, sessionId!, sessionScore)
+        .then(() => console.log('[AutoLoop] Intelligent pipeline complete'))
+        .catch(e => console.error('[AutoLoop] Pipeline error:', e));
     }
   }, [submitting, session, sessionId, answers, refreshWallet, navigate]);
 
