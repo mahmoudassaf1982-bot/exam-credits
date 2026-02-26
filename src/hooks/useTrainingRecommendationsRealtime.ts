@@ -3,6 +3,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { TrainingRecommendation } from '@/services/trainingRecommendationEngine';
 
+const motivationalMessages = [
+  'أحسنت! 🎉',
+  'عمل رائع! 💪',
+  'ممتاز! 🌟',
+  'استمر على هذا المستوى! 🚀',
+];
+
 export interface RecommendationRow {
   id: string;
   student_id: string;
@@ -38,10 +45,23 @@ export function useTrainingRecommendationsRealtime(studentId: string | undefined
       .limit(4);
 
     if (!error && data) {
-      setRecommendations(data as unknown as RecommendationRow[]);
+      const newRecs = data as unknown as RecommendationRow[];
+      
+      // Detect removed weaknesses (were in old list but not in new)
+      if (recommendations.length > 0 && newRecs.length > 0) {
+        const newKeys = new Set(newRecs.map(r => r.weakness_key));
+        const removed = recommendations.filter(r => !newKeys.has(r.weakness_key));
+        for (const r of removed) {
+          const sectionName = (r.recommendation_json as any)?.sectionName || r.target_section || r.weakness_key;
+          const msg = motivationalMessages[Math.floor(Math.random() * motivationalMessages.length)];
+          toast.success(`${msg} لقد أتقنت قسم "${sectionName}"`, { duration: 6000 });
+        }
+      }
+      
+      setRecommendations(newRecs);
     }
     setLoading(false);
-  }, [studentId]);
+  }, [studentId, recommendations]);
 
   useEffect(() => {
     if (!studentId) return;
