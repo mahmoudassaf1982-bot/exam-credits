@@ -1003,6 +1003,51 @@ export type Database = {
         }
         Relationships: []
       }
+      student_recommendation_history: {
+        Row: {
+          completed_at: string
+          created_at: string
+          difficulty: string | null
+          id: string
+          improvement_delta: number | null
+          recommendation_type: string
+          result_score: number | null
+          source_exam_id: string | null
+          student_id: string
+          target_section: string | null
+          training_session_id: string | null
+          weakness_key: string
+        }
+        Insert: {
+          completed_at?: string
+          created_at?: string
+          difficulty?: string | null
+          id?: string
+          improvement_delta?: number | null
+          recommendation_type: string
+          result_score?: number | null
+          source_exam_id?: string | null
+          student_id: string
+          target_section?: string | null
+          training_session_id?: string | null
+          weakness_key: string
+        }
+        Update: {
+          completed_at?: string
+          created_at?: string
+          difficulty?: string | null
+          id?: string
+          improvement_delta?: number | null
+          recommendation_type?: string
+          result_score?: number | null
+          source_exam_id?: string | null
+          student_id?: string
+          target_section?: string | null
+          training_session_id?: string | null
+          weakness_key?: string
+        }
+        Relationships: []
+      }
       student_score_predictions: {
         Row: {
           confidence: number
@@ -1075,6 +1120,7 @@ export type Database = {
       student_training_recommendations: {
         Row: {
           completed_at: string | null
+          consecutive_count: number
           created_at: string
           difficulty: string | null
           id: string
@@ -1095,6 +1141,7 @@ export type Database = {
         }
         Insert: {
           completed_at?: string | null
+          consecutive_count?: number
           created_at?: string
           difficulty?: string | null
           id?: string
@@ -1115,6 +1162,7 @@ export type Database = {
         }
         Update: {
           completed_at?: string | null
+          consecutive_count?: number
           created_at?: string
           difficulty?: string | null
           id?: string
