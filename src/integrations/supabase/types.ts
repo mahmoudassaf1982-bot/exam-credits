@@ -1074,30 +1074,45 @@ export type Database = {
       }
       student_training_recommendations: {
         Row: {
+          completed_at: string | null
           created_at: string
           id: string
+          improvement_delta: number | null
           is_completed: boolean
           recommendation_json: Json
+          result_score: number | null
           source_exam_id: string | null
+          started_at: string | null
           student_id: string
+          training_session_id: string | null
           weakness_key: string
         }
         Insert: {
+          completed_at?: string | null
           created_at?: string
           id?: string
+          improvement_delta?: number | null
           is_completed?: boolean
           recommendation_json?: Json
+          result_score?: number | null
           source_exam_id?: string | null
+          started_at?: string | null
           student_id: string
+          training_session_id?: string | null
           weakness_key: string
         }
         Update: {
+          completed_at?: string | null
           created_at?: string
           id?: string
+          improvement_delta?: number | null
           is_completed?: boolean
           recommendation_json?: Json
+          result_score?: number | null
           source_exam_id?: string | null
+          started_at?: string | null
           student_id?: string
+          training_session_id?: string | null
           weakness_key?: string
         }
         Relationships: []

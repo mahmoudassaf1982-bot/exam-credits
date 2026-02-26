@@ -425,6 +425,17 @@ export default function ExamSession() {
         console.warn('[ThinkingAnalysis] Error:', e);
       }
 
+      // Mark any recommendation linked to this session as completed
+      supabase
+        .from('student_training_recommendations')
+        .update({
+          is_completed: true,
+          completed_at: new Date().toISOString(),
+          result_score: (result.score as any)?.percentage || 0,
+        } as any)
+        .eq('training_session_id', sessionId)
+        .then(() => console.log('[Recommendations] Marked completed for session'));
+
       // Memory update + recommendation generation (fire-and-forget)
       updateStudentMemory(user.id).then(async () => {
         try {
