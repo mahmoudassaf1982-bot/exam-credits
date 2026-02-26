@@ -9,6 +9,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { PointsTransaction } from '@/types';
 import { Progress } from '@/components/ui/progress';
+import SkillMapCard from '@/components/SkillMapCard';
+import { getStudentMemory } from '@/services/studentMemory';
 
 interface ExamStats {
   totalSessions: number;
@@ -29,6 +31,7 @@ export default function Dashboard() {
   const [recentTx, setRecentTx] = useState<PointsTransaction[]>([]);
   const [txStats, setTxStats] = useState({ debitCount: 0 });
   const [examStats, setExamStats] = useState<ExamStats>({ totalSessions: 0, completedSessions: 0, passedSessions: 0, avgPercentage: 0, recentSessions: [] });
+  const [memoryProfile, setMemoryProfile] = useState<{ strength_map: Record<string, number>; weakness_map: Record<string, number>; speed_profile: string; accuracy_profile: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -83,6 +86,10 @@ export default function Dashboard() {
           recentSessions: recent,
         });
       }
+
+      // Load memory profile
+      const memProfile = await getStudentMemory(user.id);
+      if (memProfile) setMemoryProfile(memProfile);
 
       setLoading(false);
     };
@@ -167,6 +174,9 @@ export default function Dashboard() {
           icon={Target}
         />
       </motion.div>
+
+      {/* Skill Map */}
+      {memoryProfile && <SkillMapCard profile={memoryProfile} />}
 
       {/* Recent Exam Results */}
       {examStats.recentSessions.length > 0 && (
