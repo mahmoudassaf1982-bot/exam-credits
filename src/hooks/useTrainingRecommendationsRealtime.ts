@@ -33,7 +33,16 @@ export function useTrainingRecommendationsRealtime(studentId: string | undefined
   const [recommendations, setRecommendations] = useState<RecommendationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const fallbackRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevRecsRef = useRef<RecommendationRow[]>([]);
+
+  // Persist previous recs across page navigations via sessionStorage
+  const prevRecsRef = useRef<RecommendationRow[]>(
+    (() => {
+      try {
+        const stored = sessionStorage.getItem(`prev_recs_${studentId}`);
+        return stored ? JSON.parse(stored) : [];
+      } catch { return []; }
+    })()
+  );
 
   const fetchRecommendations = useCallback(async () => {
     if (!studentId) return;
@@ -62,6 +71,7 @@ export function useTrainingRecommendationsRealtime(studentId: string | undefined
       }
       
       prevRecsRef.current = newRecs;
+      try { sessionStorage.setItem(`prev_recs_${studentId}`, JSON.stringify(newRecs)); } catch {}
       setRecommendations(newRecs);
     }
     setLoading(false);
