@@ -27,6 +27,9 @@ import PredictedScoreSection from '@/components/exam/PredictedScoreSection';
 import InsightsTimeline from '@/components/exam/InsightsTimeline';
 import { useLivePerformanceInsights } from '@/hooks/useLivePerformanceInsights';
 import { predictRealExamScore, savePrediction } from '@/services/aiScorePrediction';
+import { analyzeThinkingPattern, saveThinkingReport, loadThinkingReport } from '@/services/thinkingAnalysis';
+import { updateStudentMemory } from '@/services/studentMemory';
+import ThinkingAnalysisCard from '@/components/exam/ThinkingAnalysisCard';
 
 interface QuestionData {
   id: string;
@@ -120,6 +123,8 @@ export default function ExamSession() {
   const [scoreData, setScoreData] = useState<Record<string, unknown> | null>(null);
   const [reviewQuestions, setReviewQuestions] = useState<Record<string, FullQuestionData[]> | null>(null);
   const [predictionData, setPredictionData] = useState<any>(null);
+  const [thinkingReport, setThinkingReport] = useState<any>(null);
+  const answerTimestampsRef = useRef<Record<string, number>>({});
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expiresAtRef = useRef<Date | null>(null);
   const serverTimeOffsetRef = useRef<number>(0);
@@ -184,7 +189,7 @@ export default function ExamSession() {
         setScoreData(sessionData.score_json);
         setReviewQuestions(sessionData.review_questions_json || null);
         
-        // Load existing prediction if available
+        // Load existing prediction and thinking report if available
         supabase
           .from('student_score_predictions' as any)
           .select('*')
@@ -193,6 +198,10 @@ export default function ExamSession() {
           .then(({ data: pred }) => {
             if (pred) setPredictionData(pred);
           });
+
+        loadThinkingReport(sessionId).then(report => {
+          if (report) setThinkingReport(report);
+        });
         
         setLoading(false);
         return;
@@ -311,6 +320,9 @@ export default function ExamSession() {
 
   const handleSelectAnswer = useCallback(
     (questionId: string, optionId: string) => {
+      // Track timestamp for thinking analysis
+      answerTimestampsRef.current[questionId] = Date.now();
+
       setAnswers((prev) => {
         const updated = { ...prev, [questionId]: optionId };
         if (sessionId) {
@@ -369,14 +381,51 @@ export default function ExamSession() {
     setSubmitting(false);
     refreshWallet();
 
-    // Run AI prediction in background
+    // Run AI prediction + thinking analysis + memory update in background
     if (user && sessionId && session && result.score) {
+      // Prediction
       predictRealExamScore(user.id, sessionId, session.exam_snapshot.template.id, result.score)
         .then(pred => {
           setPredictionData(pred);
           savePrediction(user.id, sessionId, session.exam_snapshot.template.id, pred);
         })
         .catch(e => console.warn('[Prediction] Error:', e));
+
+      // Thinking analysis
+      try {
+        const allQuestions: { id: string; difficulty: string; topic: string; correct_option_id: string }[] = [];
+        const reviewQs = result.review_questions || {};
+        for (const sectionQuestions of Object.values(reviewQs)) {
+          for (const q of (sectionQuestions as any[])) {
+            allQuestions.push(q);
+          }
+        }
+
+        const timestamps = answerTimestampsRef.current;
+        const sortedIds = Object.keys(timestamps).sort((a, b) => timestamps[a] - timestamps[b]);
+
+        const answerData = sortedIds.map((qId, idx) => {
+          const q = allQuestions.find(x => x.id === qId);
+          const prevTime = idx > 0 ? timestamps[sortedIds[idx - 1]] : timestamps[qId] - 15000;
+          return {
+            questionId: qId,
+            selectedOptionId: answers[qId] || '',
+            correctOptionId: q?.correct_option_id || '',
+            difficulty: q?.difficulty || 'medium',
+            topic: q?.topic || '',
+            timeSpentMs: timestamps[qId] - prevTime,
+          };
+        });
+
+        const report = analyzeThinkingPattern(answerData);
+        setThinkingReport(report);
+        saveThinkingReport(user.id, sessionId, report);
+      } catch (e) {
+        console.warn('[ThinkingAnalysis] Error:', e);
+      }
+
+      // Memory update (fire-and-forget)
+      updateStudentMemory(user.id).catch(e => console.warn('[Memory] Error:', e));
     }
   }, [submitting, session, sessionId, answers, refreshWallet, navigate]);
 
@@ -508,6 +557,11 @@ export default function ExamSession() {
           {/* AI Predicted Score */}
           {predictionData && (
             <PredictedScoreSection prediction={predictionData} />
+          )}
+
+          {/* AI Thinking Analysis */}
+          {thinkingReport && (
+            <ThinkingAnalysisCard report={thinkingReport} />
           )}
 
           {/* Live Insights Timeline */}

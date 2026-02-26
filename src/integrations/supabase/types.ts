@@ -973,6 +973,36 @@ export type Database = {
         }
         Relationships: []
       }
+      student_memory_profile: {
+        Row: {
+          accuracy_profile: number
+          id: string
+          last_updated: string
+          speed_profile: string
+          strength_map: Json
+          student_id: string
+          weakness_map: Json
+        }
+        Insert: {
+          accuracy_profile?: number
+          id?: string
+          last_updated?: string
+          speed_profile?: string
+          strength_map?: Json
+          student_id: string
+          weakness_map?: Json
+        }
+        Update: {
+          accuracy_profile?: number
+          id?: string
+          last_updated?: string
+          speed_profile?: string
+          strength_map?: Json
+          student_id?: string
+          weakness_map?: Json
+        }
+        Relationships: []
+      }
       student_score_predictions: {
         Row: {
           confidence: number
@@ -1015,6 +1045,30 @@ export type Database = {
           strong_sections?: Json
           student_id?: string
           weak_sections?: Json
+        }
+        Relationships: []
+      }
+      student_thinking_reports: {
+        Row: {
+          created_at: string
+          exam_session_id: string
+          id: string
+          report_json: Json
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          exam_session_id: string
+          id?: string
+          report_json?: Json
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          exam_session_id?: string
+          id?: string
+          report_json?: Json
+          student_id?: string
         }
         Relationships: []
       }
