@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Dna, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
@@ -20,6 +21,8 @@ export default function LearningDNACard({ studentId }: Props) {
   const [loading, setLoading] = useState(true);
   const [showTimeline, setShowTimeline] = useState(false);
   const mountedRef = useRef(true);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,7 +89,25 @@ export default function LearningDNACard({ studentId }: Props) {
 
   const scrollToTraining = () => {
     const el = document.querySelector('[data-training-recommendations]');
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (location.pathname.includes('/performance')) {
+      // On performance page, switch to recommendations tab
+      const tabTrigger = document.querySelector('[data-value="recommendations"]') as HTMLElement;
+      if (tabTrigger) {
+        tabTrigger.click();
+      } else {
+        navigate('/app/dashboard');
+        setTimeout(() => {
+          document.querySelector('[data-training-recommendations]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 500);
+      }
+    } else {
+      navigate('/app/dashboard');
+      setTimeout(() => {
+        document.querySelector('[data-training-recommendations]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 500);
+    }
   };
 
   return (
