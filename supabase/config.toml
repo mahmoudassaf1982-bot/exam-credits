@@ -53,3 +53,9 @@ verify_jwt = false
 
 [functions.question-bank-stats]
 verify_jwt = false
+
+[functions.question-bank-health]
+verify_jwt = false
+
+[functions.question-bank-generate]
+verify_jwt = false

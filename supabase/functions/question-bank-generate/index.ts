@@ -2,106 +2,127 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-saris-key, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
+
+function verifyKey(req: Request): boolean {
+  const key = req.headers.get('x-saris-key');
+  const expected = Deno.env.get('N8N_SARIS_KEY');
+  return !!key && !!expected && key === expected;
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (!verifyKey(req)) {
+    return new Response(JSON.stringify({ error: 'Forbidden: invalid x-saris-key' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed. Use POST.' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+    const body = await req.json();
+    const {
+      exam_template_id,
+      section_id = null,
+      country_id = 'kw',
+      difficulty = 'medium',
+      count = 10,
+      language = 'ar',
+    } = body;
+
+    if (!exam_template_id) {
+      return new Response(JSON.stringify({ error: 'exam_template_id is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!['easy', 'medium', 'hard'].includes(difficulty)) {
+      return new Response(JSON.stringify({ error: 'difficulty must be easy, medium, or hard' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (count < 1 || count > 100) {
+      return new Response(JSON.stringify({ error: 'count must be between 1 and 100' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-
-    // Verify caller is admin
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: userError } = await userClient.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
-    }
-
-    const { data: roleData } = await userClient
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!roleData || roleData.role !== 'admin') {
-      return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: corsHeaders });
-    }
-
-    // Parse request body
-    const body = await req.json();
-    const {
-      exam_template_id,
-      section_id,
-      country_id = 'kw',
-      difficulty = 'medium',
-      count = 10,
-      topic,
-    } = body;
-
-    if (!exam_template_id) {
-      return new Response(JSON.stringify({ error: 'exam_template_id is required' }), { status: 400, headers: corsHeaders });
-    }
-
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // Get exam template info
+    // Verify exam template exists
     const { data: tmpl } = await admin
       .from('exam_templates')
-      .select('name_ar')
+      .select('id, name_ar')
       .eq('id', exam_template_id)
       .single();
 
-    // Get section info if provided
-    let sectionName = '';
-    if (section_id) {
-      const { data: sec } = await admin
-        .from('exam_sections')
-        .select('name_ar')
-        .eq('id', section_id)
-        .single();
-      sectionName = sec?.name_ar || '';
+    if (!tmpl) {
+      return new Response(JSON.stringify({ error: 'exam_template_id not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    // Enqueue an AI job for generation
-    const idempotencyKey = `n8n-generate-${exam_template_id}-${section_id || 'all'}-${difficulty}-${Date.now()}`;
+    // Get a system admin user for created_by
+    const { data: adminRole } = await admin
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'admin')
+      .limit(1)
+      .single();
+
+    if (!adminRole) {
+      return new Response(JSON.stringify({ error: 'No admin user found for job creation' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const idempotencyKey = `n8n-gen-${exam_template_id}-${section_id || 'all'}-${difficulty}-${count}-${Date.now()}`;
 
     const { data: job, error: jobErr } = await admin
       .from('ai_jobs')
       .insert({
         type: 'generate_questions_draft',
-        created_by: user.id,
+        status: 'queued',
+        created_by: adminRole.user_id,
         idempotency_key: idempotencyKey,
         priority: 3,
         progress_total: count,
         params_json: {
           country_id,
           exam_template_id,
-          section_id: section_id || null,
+          section_id,
           difficulty,
           count,
-          topic: topic || null,
+          language,
           generator_model: 'google/gemini-2.5-flash',
           reviewer_model: 'google/gemini-2.5-pro',
         },
       })
-      .select()
+      .select('id, status, created_at')
       .single();
 
     if (jobErr) throw jobErr;
 
-    // Trigger the worker
+    // Trigger the worker (best-effort)
     try {
       await fetch(`${supabaseUrl}/functions/v1/ai-worker`, {
         method: 'POST',
@@ -118,15 +139,10 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       job_id: job.id,
-      message: `تم إنشاء مهمة توليد ${count} سؤال (${difficulty}) للاختبار "${tmpl?.name_ar || exam_template_id}"${sectionName ? ` - قسم "${sectionName}"` : ''}`,
-      params: {
-        exam_template_id,
-        section_id,
-        country_id,
-        difficulty,
-        count,
-        topic,
-      },
+      job_status: job.status,
+      created_at: job.created_at,
+      message: `تم إنشاء مهمة توليد ${count} سؤال ${difficulty} للاختبار "${tmpl.name_ar}"`,
+      params: { exam_template_id, section_id, country_id, difficulty, count, language },
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -135,7 +151,7 @@ Deno.serve(async (req) => {
     console.error('question-bank-generate error:', err);
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }), {
       status: 500,
-      headers: corsHeaders,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
