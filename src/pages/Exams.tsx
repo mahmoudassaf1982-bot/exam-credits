@@ -236,21 +236,14 @@ export default function Exams() {
                       </p>
                     </div>
                   </div>
-                  {isReady ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openSession(exam, 'practice')}
-                      className="text-xs"
-                    >
-                      ابدأ
-                    </Button>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
-                      <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-                      <span>غير جاهز</span>
-                    </div>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openSession(exam, 'practice')}
+                    className="text-xs"
+                  >
+                    ابدأ
+                  </Button>
                 </div>
 
                 {/* Analysis */}
@@ -269,21 +262,14 @@ export default function Exams() {
                       </p>
                     </div>
                   </div>
-                  {isReady ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openSession(exam, 'analysis')}
-                      className="text-xs"
-                    >
-                      تحليل
-                    </Button>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
-                      <AlertCircle className="h-3.5 w-3.5 text-destructive" />
-                      <span>غير جاهز</span>
-                    </div>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openSession(exam, 'analysis')}
+                    className="text-xs"
+                  >
+                    تحليل
+                  </Button>
                 </div>
               </div>
             </motion.div>
