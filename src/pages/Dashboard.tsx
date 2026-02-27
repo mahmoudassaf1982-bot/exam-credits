@@ -12,8 +12,12 @@ import { Progress } from '@/components/ui/progress';
 import SkillMapCard from '@/components/SkillMapCard';
 import RecommendedTrainingCard from '@/components/RecommendedTrainingCard';
 import LearningDNACard from '@/components/LearningDNACard';
+import SmartInsightHeader from '@/components/SmartInsightHeader';
+import ProgressJourney from '@/components/ProgressJourney';
+import QuickAIActions from '@/components/QuickAIActions';
 import { getStudentMemory } from '@/services/studentMemory';
 import { useTrainingRecommendationsRealtime } from '@/hooks/useTrainingRecommendationsRealtime';
+import type { LearningDNA } from '@/services/learningDNAEngine';
 
 interface ExamStats {
   totalSessions: number;
@@ -36,15 +40,17 @@ export default function Dashboard() {
   const [txStats, setTxStats] = useState({ debitCount: 0 });
   const [examStats, setExamStats] = useState<ExamStats>({ totalSessions: 0, completedSessions: 0, passedSessions: 0, avgPercentage: 0, recentSessions: [] });
   const [memoryProfile, setMemoryProfile] = useState<{ strength_map: Record<string, number>; weakness_map: Record<string, number>; speed_profile: string; accuracy_profile: number } | null>(null);
+  const [dna, setDna] = useState<LearningDNA | null>(null);
   const [loading, setLoading] = useState(true);
   const { recommendations, loading: recsLoading } = useTrainingRecommendationsRealtime(user?.id);
 
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      const [txRes, sessRes] = await Promise.all([
+      const [txRes, sessRes, dnaRes] = await Promise.all([
         supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
         supabase.from('exam_sessions').select('id, status, score_json, exam_snapshot, completed_at').order('started_at', { ascending: false }).limit(100),
+        supabase.from('student_learning_dna' as any).select('*').eq('student_id', user.id).maybeSingle(),
       ]);
 
       if (txRes.data) {
@@ -92,7 +98,8 @@ export default function Dashboard() {
         });
       }
 
-      // Load memory profile
+      if (dnaRes.data) setDna(dnaRes.data as any);
+
       const memProfile = await getStudentMemory(user.id);
       if (memProfile) setMemoryProfile(memProfile);
 
@@ -104,7 +111,14 @@ export default function Dashboard() {
   const { templates: userExams } = useExamTemplates(user?.countryId);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Smart AI Insight */}
+      <SmartInsightHeader
+        dna={dna}
+        avgPercentage={examStats.avgPercentage}
+        completedSessions={examStats.completedSessions}
+      />
+
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
@@ -151,34 +165,17 @@ export default function Dashboard() {
         transition={{ duration: 0.4, delay: 0.15 }}
         className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
       >
-        <StatsCard
-          title="رصيد النقاط"
-          value={wallet?.balance ?? 0}
-          subtitle="نقطة متاحة"
-          icon={Coins}
-          variant="gold"
-        />
-        <StatsCard
-          title="الاختبارات المكتملة"
-          value={examStats.completedSessions}
-          subtitle={`من أصل ${examStats.totalSessions} جلسة`}
-          icon={BookOpen}
-          variant="info"
-        />
-        <StatsCard
-          title="معدل النجاح"
-          value={examStats.completedSessions > 0 ? `${Math.round((examStats.passedSessions / examStats.completedSessions) * 100)}%` : '—'}
-          subtitle={`${examStats.passedSessions} ناجح من ${examStats.completedSessions}`}
-          icon={Trophy}
-          variant="success"
-        />
-        <StatsCard
-          title="متوسط الأداء"
-          value={examStats.avgPercentage > 0 ? `${examStats.avgPercentage}%` : '—'}
-          subtitle="معدل الدرجات"
-          icon={Target}
-        />
+        <StatsCard title="رصيد النقاط" value={wallet?.balance ?? 0} subtitle="نقطة متاحة" icon={Coins} variant="gold" />
+        <StatsCard title="الاختبارات المكتملة" value={examStats.completedSessions} subtitle={`من أصل ${examStats.totalSessions} جلسة`} icon={BookOpen} variant="info" />
+        <StatsCard title="معدل النجاح" value={examStats.completedSessions > 0 ? `${Math.round((examStats.passedSessions / examStats.completedSessions) * 100)}%` : '—'} subtitle={`${examStats.passedSessions} ناجح من ${examStats.completedSessions}`} icon={Trophy} variant="success" />
+        <StatsCard title="متوسط الأداء" value={examStats.avgPercentage > 0 ? `${examStats.avgPercentage}%` : '—'} subtitle="معدل الدرجات" icon={Target} />
       </motion.div>
+
+      {/* Progress Journey (Mini Timeline) */}
+      <ProgressJourney sessions={examStats.recentSessions} />
+
+      {/* Quick AI Action Buttons */}
+      <QuickAIActions />
 
       {/* Skill Map */}
       {memoryProfile && <SkillMapCard profile={memoryProfile} />}
@@ -188,10 +185,7 @@ export default function Dashboard() {
 
       {/* Recommended Training */}
       <div data-training-recommendations>
-        <RecommendedTrainingCard
-          recommendations={recommendations}
-          loading={recsLoading}
-        />
+        <RecommendedTrainingCard recommendations={recommendations} loading={recsLoading} />
       </div>
 
       {/* Recent Exam Results */}
@@ -207,31 +201,21 @@ export default function Dashboard() {
               <History className="h-5 w-5 text-primary" />
               آخر الاختبارات
             </h2>
-            <Link to="/app/history" className="text-sm text-primary font-medium hover:underline">
-              عرض الكل
-            </Link>
+            <Link to="/app/history" className="text-sm text-primary font-medium hover:underline">عرض الكل</Link>
           </div>
           <div className="divide-y">
             {examStats.recentSessions.map((s) => (
-              <Link
-                key={s.id}
-                to={`/app/exam-session/${s.id}`}
-                className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
-              >
+              <Link key={s.id} to={`/app/exam-session/${s.id}`} className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors">
                 <div className={`flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0 ${s.passed ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
                   {s.passed ? <Trophy className="h-5 w-5" /> : <Target className="h-5 w-5" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{s.examName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {s.completedAt ? new Date(s.completedAt).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }) : ''}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{s.completedAt ? new Date(s.completedAt).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }) : ''}</p>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
                   <Progress value={s.percentage} className="h-1.5 w-16" />
-                  <span className={`text-sm font-bold font-mono ${s.passed ? 'text-success' : 'text-destructive'}`}>
-                    {s.percentage}%
-                  </span>
+                  <span className={`text-sm font-bold font-mono ${s.passed ? 'text-success' : 'text-destructive'}`}>{s.percentage}%</span>
                 </div>
               </Link>
             ))}
@@ -248,50 +232,25 @@ export default function Dashboard() {
       >
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="font-bold text-lg">آخر الحركات</h2>
-          <Link
-            to="/app/wallet"
-            className="text-sm text-primary font-medium hover:underline"
-          >
-            عرض الكل
-          </Link>
+          <Link to="/app/wallet" className="text-sm text-primary font-medium hover:underline">عرض الكل</Link>
         </div>
         <div className="divide-y">
           {loading ? (
-            <div className="p-8 text-center">
-              <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-            </div>
+            <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></div>
           ) : recentTx.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground text-sm">لا توجد حركات بعد</div>
           ) : (
             recentTx.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
-              >
-                <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                    tx.type === 'credit'
-                      ? 'bg-success/10 text-success'
-                      : 'bg-destructive/10 text-destructive'
-                  }`}
-                >
+              <div key={tx.id} className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tx.type === 'credit' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
                   <Coins className="h-5 w-5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    {reasonLabels[tx.reason] || tx.reason}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(tx.createdAt).toLocaleDateString('ar-SA')}
-                  </p>
+                  <p className="text-sm font-medium text-foreground">{reasonLabels[tx.reason] || tx.reason}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(tx.createdAt).toLocaleDateString('ar-SA')}</p>
                 </div>
-                <span
-                  className={`text-sm font-bold ${
-                    tx.type === 'credit' ? 'text-success' : 'text-destructive'
-                  }`}
-                >
-                  {tx.type === 'credit' ? '+' : '-'}
-                  {tx.amount}
+                <span className={`text-sm font-bold ${tx.type === 'credit' ? 'text-success' : 'text-destructive'}`}>
+                  {tx.type === 'credit' ? '+' : '-'}{tx.amount}
                 </span>
               </div>
             ))
@@ -339,39 +298,22 @@ export default function Dashboard() {
         transition={{ duration: 0.4, delay: 0.25 }}
         className="grid gap-4 sm:grid-cols-3"
       >
-        <Link
-          to="/app/exams"
-          className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-primary text-primary-foreground">
-            <BookOpen className="h-6 w-6" />
-          </div>
+        <Link to="/app/exams" className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-primary text-primary-foreground"><BookOpen className="h-6 w-6" /></div>
           <div>
             <h3 className="font-bold text-foreground">ابدأ اختبار</h3>
             <p className="text-xs text-muted-foreground">محاكاة أو تدريب ذكي</p>
           </div>
         </Link>
-
-        <Link
-          to="/app/referral"
-          className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success text-success-foreground">
-            <UserPlus className="h-6 w-6" />
-          </div>
+        <Link to="/app/referral" className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-success text-success-foreground"><UserPlus className="h-6 w-6" /></div>
           <div>
             <h3 className="font-bold text-foreground">ادعُ أصدقاءك</h3>
             <p className="text-xs text-muted-foreground">واحصل على نقاط مجانية</p>
           </div>
         </Link>
-
-        <Link
-          to="/app/topup"
-          className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-gold text-gold-foreground">
-            <Coins className="h-6 w-6" />
-          </div>
+        <Link to="/app/topup" className="group flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card transition-all hover:shadow-card-hover">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-gold text-gold-foreground"><Coins className="h-6 w-6" /></div>
           <div>
             <h3 className="font-bold text-foreground">شراء نقاط</h3>
             <p className="text-xs text-muted-foreground">أو اشتراك Diamond</p>
