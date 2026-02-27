@@ -125,13 +125,27 @@ export default function LearningDNACard({ studentId }: Props) {
           </div>
         </div>
 
-        {/* Confidence */}
+        {/* Confidence Meter */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">دقة التحليل</span>
-            <span className="font-bold font-mono text-foreground">{dna.confidence_score}%</span>
+            <span className="text-muted-foreground flex items-center gap-1">🎯 ثقة النظام بتحليل نمطك</span>
+            <motion.span
+              key={dna.confidence_score}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="font-bold font-mono text-foreground"
+            >
+              {dna.confidence_score}%
+            </motion.span>
           </div>
-          <Progress value={dna.confidence_score} className="h-1.5" />
+          <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${dna.confidence_score}%` }}
+              transition={{ duration: 1, delay: 0.3, ease: 'easeOut' }}
+              className="h-full rounded-full bg-primary"
+            />
+          </div>
         </div>
 
         {/* Smart Insight */}
