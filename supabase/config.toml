@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.ai-worker]
 verify_jwt = false
+
+[functions.question-bank-stats]
+verify_jwt = false
