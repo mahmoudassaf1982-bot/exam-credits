@@ -25,7 +25,7 @@ const navItems = [
   { path: '/app', label: 'لوحة التحكم', icon: LayoutDashboard },
   { path: '/app/exams', label: 'الاختبارات', icon: BookOpen },
   { path: '/app/history', label: 'سجل الاختبارات', icon: History },
-  { path: '/app/performance', label: 'ملف الأداء', icon: Target },
+  { path: '/app/performance', label: 'ملف الأداء الشامل', icon: Target },
   { path: '/app/wallet', label: 'المحفظة', icon: Wallet },
   { path: '/app/referral', label: 'دعوة صديق', icon: UserPlus },
   { path: '/app/topup', label: 'شراء نقاط', icon: ShoppingCart },
