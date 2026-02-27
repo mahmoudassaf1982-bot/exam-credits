@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useExamTemplates } from '@/hooks/useExamTemplates';
+import { useExamReadiness } from '@/hooks/useExamReadiness';
 import { SessionCostDialog } from '@/components/SessionCostDialog';
 import { PredictiveScoreCard } from '@/components/PredictiveScoreCard';
 import type { ExamTemplate, SessionType } from '@/types';
@@ -15,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -28,6 +30,7 @@ export default function Exams() {
   const [expandedExam, setExpandedExam] = useState<string | null>(null);
 
   const { templates: userExams, loading: examsLoading } = useExamTemplates(user?.countryId);
+  const { readiness: examReadiness } = useExamReadiness(userExams);
 
   const openSession = (exam: ExamTemplate, type: SessionType) => {
     setSelectedExam(exam);
@@ -66,6 +69,7 @@ export default function Exams() {
       <div className="grid gap-6 sm:grid-cols-2">
         {userExams.map((exam, i) => {
           const isExpanded = expandedExam === exam.id;
+          const isReady = examReadiness[exam.id] !== false;
           return (
             <motion.div
               key={exam.id}
@@ -200,13 +204,20 @@ export default function Exams() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={() => openSession(exam, 'simulation')}
-                    className="gradient-primary text-primary-foreground text-xs"
-                  >
-                    ابدأ
-                  </Button>
+                  {isReady ? (
+                    <Button
+                      size="sm"
+                      onClick={() => openSession(exam, 'simulation')}
+                      className="gradient-primary text-primary-foreground text-xs"
+                    >
+                      ابدأ
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                      <span>غير جاهز</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Practice */}
@@ -225,14 +236,21 @@ export default function Exams() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => openSession(exam, 'practice')}
-                    className="text-xs"
-                  >
-                    ابدأ
-                  </Button>
+                  {isReady ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openSession(exam, 'practice')}
+                      className="text-xs"
+                    >
+                      ابدأ
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                      <span>غير جاهز</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Analysis */}
@@ -251,14 +269,21 @@ export default function Exams() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => openSession(exam, 'analysis')}
-                    className="text-xs"
-                  >
-                    تحليل
-                  </Button>
+                  {isReady ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openSession(exam, 'analysis')}
+                      className="text-xs"
+                    >
+                      تحليل
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted rounded-lg px-3 py-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                      <span>غير جاهز</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
