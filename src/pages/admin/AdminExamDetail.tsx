@@ -17,7 +17,7 @@ interface ExamTemplate {
   id: string; country_id: string; slug: string; name_ar: string; description_ar: string;
   is_active: boolean; default_time_limit_sec: number; default_question_count: number;
   simulation_cost_points: number; practice_cost_points: number; analysis_cost_points: number;
-  available_languages: string[];
+  available_languages: string[]; bank_multiplier: number;
 }
 
 interface ExamSection {
@@ -130,6 +130,7 @@ export default function AdminExamDetail() {
       practice_cost_points: template.practice_cost_points,
       analysis_cost_points: template.analysis_cost_points,
       available_languages: template.available_languages,
+      bank_multiplier: template.bank_multiplier,
     } as any).eq('id', template.id);
     if (error) toast.error('خطأ في الحفظ');
     else toast.success('تم حفظ التغييرات');
@@ -256,7 +257,7 @@ export default function AdminExamDetail() {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
             className="rounded-2xl border bg-card p-3 sm:p-5 shadow-card space-y-4">
             <h2 className="font-bold text-lg flex items-center gap-2"><Clock className="h-5 w-5 text-primary" />الإعدادات الافتراضية</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label>عدد الأسئلة</Label>
                 <Input type="number" value={template.default_question_count} onChange={(e) => updateField('default_question_count', Number(e.target.value))} min={1} dir="ltr" className="text-center" />
@@ -265,6 +266,11 @@ export default function AdminExamDetail() {
                 <Label>الزمن (بالثواني)</Label>
                 <Input type="number" value={template.default_time_limit_sec} onChange={(e) => updateField('default_time_limit_sec', Number(e.target.value))} min={60} dir="ltr" className="text-center" />
                 <p className="text-xs text-muted-foreground">= {formatTime(template.default_time_limit_sec)}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>مضاعف بنك الأسئلة</Label>
+                <Input type="number" value={template.bank_multiplier ?? 7} onChange={(e) => updateField('bank_multiplier', Math.min(20, Math.max(1, Number(e.target.value) || 1)))} min={1} max={20} dir="ltr" className="text-center" />
+                <p className="text-xs text-muted-foreground">يحدد عدد مرات تكرار حجم الاختبار في بنك الأسئلة لضمان التنوع</p>
               </div>
             </div>
           </motion.div>
