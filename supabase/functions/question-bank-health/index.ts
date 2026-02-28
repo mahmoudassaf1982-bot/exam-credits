@@ -28,17 +28,16 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // Get all active exam templates
+    // Get all active exam templates (including bank_multiplier)
     const { data: templates } = await admin
       .from('exam_templates')
-      .select('id, name_ar, country_id, target_easy_pct, target_medium_pct, target_hard_pct, health_alert_threshold_pct')
+      .select('id, name_ar, country_id, target_easy_pct, target_medium_pct, target_hard_pct, health_alert_threshold_pct, bank_multiplier')
       .eq('is_active', true);
 
     if (!templates || templates.length === 0) {
       return new Response(JSON.stringify({
         need_generation: false,
         suggested_jobs: [],
-        thresholds: {},
         pending_review_count: 0,
         exams: [],
         generated_at: new Date().toISOString(),
@@ -56,10 +55,12 @@ Deno.serve(async (req) => {
     const suggestedJobs: {
       exam_template_id: string;
       exam_name: string;
-      section_id: string | null;
-      section_name: string | null;
+      section_id: string;
+      section_name: string;
       difficulty: string;
-      count: number;
+      target: number;
+      current: number;
+      deficit: number;
       country_id: string;
       reason: string;
     }[] = [];
@@ -67,6 +68,17 @@ Deno.serve(async (req) => {
     const exams: any[] = [];
 
     for (const tmpl of templates) {
+      const multiplier = tmpl.bank_multiplier ?? 7;
+
+      // Get sections for this template
+      const { data: sections } = await admin
+        .from('exam_sections')
+        .select('id, name_ar, question_count, difficulty_mix_json')
+        .eq('exam_template_id', tmpl.id);
+
+      if (!sections || sections.length === 0) continue;
+
+      // Get all approved, non-deleted questions for this template
       const { data: questions } = await admin
         .from('questions')
         .select('id, difficulty, section_id')
@@ -75,100 +87,71 @@ Deno.serve(async (req) => {
         .is('deleted_at', null);
 
       const qs = questions || [];
-      const total = qs.length;
-      const easy = qs.filter((q: any) => q.difficulty === 'easy').length;
-      const medium = qs.filter((q: any) => q.difficulty === 'medium').length;
-      const hard = qs.filter((q: any) => q.difficulty === 'hard').length;
 
-      const easyPct = total > 0 ? Math.round((easy / total) * 100) : 0;
-      const mediumPct = total > 0 ? Math.round((medium / total) * 100) : 0;
-      const hardPct = total > 0 ? Math.round((hard / total) * 100) : 0;
+      const sectionResults: any[] = [];
 
-      const threshold = tmpl.health_alert_threshold_pct || 10;
-      const alerts: string[] = [];
+      for (const sec of sections) {
+        // Use section-level difficulty mix if available, otherwise template-level
+        const mix = sec.difficulty_mix_json as { easy?: number; medium?: number; hard?: number } | null;
+        const easyPct = (mix?.easy ?? tmpl.target_easy_pct) / 100;
+        const mediumPct = (mix?.medium ?? tmpl.target_medium_pct) / 100;
+        const hardPct = (mix?.hard ?? tmpl.target_hard_pct) / 100;
 
-      // Check shortages and build suggested jobs
-      const checkShortage = (diff: string, currentPct: number, targetPct: number, label: string) => {
-        if (targetPct - currentPct > threshold) {
-          const deficit = Math.max(Math.ceil((targetPct - currentPct) * total / 100), 10);
-          alerts.push(`نقص أسئلة ${label}: ${currentPct}% مقابل هدف ${targetPct}%`);
-          suggestedJobs.push({
-            exam_template_id: String(tmpl.id),
-            exam_name: tmpl.name_ar,
-            section_id: null,
-            section_name: null,
-            difficulty: diff,
-            count: deficit,
-            country_id: tmpl.country_id,
-            reason: `نقص ${label}: ${currentPct}% مقابل هدف ${targetPct}%`,
-          });
-        }
-      };
-
-      checkShortage('easy', easyPct, tmpl.target_easy_pct, 'سهلة');
-      checkShortage('medium', mediumPct, tmpl.target_medium_pct, 'متوسطة');
-      checkShortage('hard', hardPct, tmpl.target_hard_pct, 'صعبة');
-
-      // Per-section analysis
-      const { data: sections } = await admin
-        .from('exam_sections')
-        .select('id, name_ar')
-        .eq('exam_template_id', tmpl.id);
-
-      for (const sec of (sections || [])) {
         const secQs = qs.filter((q: any) => q.section_id === sec.id);
-        const sTotal = secQs.length;
-        const sEasy = secQs.filter((q: any) => q.difficulty === 'easy').length;
-        const sMedium = secQs.filter((q: any) => q.difficulty === 'medium').length;
-        const sHard = secQs.filter((q: any) => q.difficulty === 'hard').length;
 
-        const sEasyPct = sTotal > 0 ? Math.round((sEasy / sTotal) * 100) : 0;
-        const sMediumPct = sTotal > 0 ? Math.round((sMedium / sTotal) * 100) : 0;
-        const sHardPct = sTotal > 0 ? Math.round((sHard / sTotal) * 100) : 0;
+        const difficulties = [
+          { key: 'easy', label: 'سهلة', pct: easyPct },
+          { key: 'medium', label: 'متوسطة', pct: mediumPct },
+          { key: 'hard', label: 'صعبة', pct: hardPct },
+        ];
 
-        const checkSectionShortage = (diff: string, currentPct: number, targetPct: number, label: string) => {
-          if (targetPct - currentPct > threshold) {
-            const deficit = Math.max(Math.ceil((targetPct - currentPct) * sTotal / 100), 5);
+        const sectionDiffs: any[] = [];
+
+        for (const d of difficulties) {
+          const target = Math.ceil(sec.question_count * d.pct * multiplier);
+          const current = secQs.filter((q: any) => q.difficulty === d.key).length;
+          const deficit = Math.max(target - current, 0);
+
+          sectionDiffs.push({ difficulty: d.key, target, current, deficit });
+
+          if (deficit > 0) {
             suggestedJobs.push({
               exam_template_id: String(tmpl.id),
               exam_name: tmpl.name_ar,
               section_id: sec.id,
               section_name: sec.name_ar,
-              difficulty: diff,
-              count: deficit,
+              difficulty: d.key,
+              target,
+              current,
+              deficit,
               country_id: tmpl.country_id,
-              reason: `قسم "${sec.name_ar}": نقص ${label} (${currentPct}% مقابل ${targetPct}%)`,
+              reason: `قسم "${sec.name_ar}": نقص ${d.label} — ${current}/${target} (عجز ${deficit})`,
             });
           }
-        };
+        }
 
-        checkSectionShortage('easy', sEasyPct, tmpl.target_easy_pct, 'سهلة');
-        checkSectionShortage('medium', sMediumPct, tmpl.target_medium_pct, 'متوسطة');
-        checkSectionShortage('hard', sHardPct, tmpl.target_hard_pct, 'صعبة');
+        sectionResults.push({
+          section_id: sec.id,
+          section_name: sec.name_ar,
+          question_count: sec.question_count,
+          total_approved: secQs.length,
+          difficulties: sectionDiffs,
+        });
       }
 
       exams.push({
         exam_template_id: String(tmpl.id),
         exam_name: tmpl.name_ar,
         country_id: tmpl.country_id,
-        total_approved: total,
-        distribution: { easy, medium, hard, easy_pct: easyPct, medium_pct: mediumPct, hard_pct: hardPct },
-        targets: { easy_pct: tmpl.target_easy_pct, medium_pct: tmpl.target_medium_pct, hard_pct: tmpl.target_hard_pct },
-        threshold,
-        health_status: alerts.length > 0 ? 'unhealthy' : 'healthy',
-        alerts,
+        bank_multiplier: multiplier,
+        sections: sectionResults,
+        health_status: suggestedJobs.some(j => j.exam_template_id === String(tmpl.id)) ? 'unhealthy' : 'healthy',
       });
     }
 
     return new Response(JSON.stringify({
       need_generation: suggestedJobs.length > 0,
       suggested_jobs: suggestedJobs,
-      thresholds: {
-        default_easy_pct: 30,
-        default_medium_pct: 50,
-        default_hard_pct: 20,
-        alert_threshold_pct: 10,
-      },
       pending_review_count: pendingReviewCount ?? 0,
       exams,
       generated_at: new Date().toISOString(),

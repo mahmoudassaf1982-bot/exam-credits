@@ -502,6 +502,7 @@ export type Database = {
         Row: {
           analysis_cost_points: number
           available_languages: Json
+          bank_multiplier: number
           country_id: string
           created_at: string
           default_question_count: number
@@ -521,6 +522,7 @@ export type Database = {
         Insert: {
           analysis_cost_points?: number
           available_languages?: Json
+          bank_multiplier?: number
           country_id: string
           created_at?: string
           default_question_count?: number
@@ -540,6 +542,7 @@ export type Database = {
         Update: {
           analysis_cost_points?: number
           available_languages?: Json
+          bank_multiplier?: number
           country_id?: string
           created_at?: string
           default_question_count?: number
