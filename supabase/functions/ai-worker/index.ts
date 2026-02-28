@@ -563,6 +563,52 @@ async function finalizeReviewJob(admin: any, job: any, draftId: string) {
       reviewer_model: "google/gemini-2.5-pro",
       status: decision,
     }).eq("id", draftId);
+
+    // ─── Auto-Publish if approved ────────────────────────────────────
+    if (decision === "approved") {
+      const { data: settingRow } = await admin
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "auto_publish_enabled")
+        .single();
+
+      const autoPublishEnabled = settingRow?.value !== "false";
+
+      if (autoPublishEnabled) {
+        const { data: freshDraft } = await admin.from("question_drafts").select("*").eq("id", draftId).single();
+        if (freshDraft) {
+          const qToPublish = (correctedQuestions.length > 0 ? correctedQuestions : freshDraft.draft_questions_json) as any[];
+          const dbRows = qToPublish.map((q: any) => ({
+            country_id: freshDraft.country_id,
+            exam_template_id: freshDraft.exam_template_id || null,
+            section_id: q.section_id || freshDraft.section_id || null,
+            topic: q.topic || "عام",
+            difficulty: q.difficulty || freshDraft.difficulty || "medium",
+            text_ar: q.text_ar,
+            options: q.options,
+            correct_option_id: q.correct_option_id,
+            explanation: q.explanation || null,
+            is_approved: true,
+            status: "approved",
+            source: "ai",
+            draft_id: draftId,
+            language: q.content_language || "ar",
+          }));
+
+          const { data: inserted, error: insertError } = await admin.from("questions").insert(dbRows).select("id");
+          if (insertError) {
+            console.error("[ai-worker] Auto-publish insert error:", insertError);
+          } else {
+            await admin.from("question_drafts").update({
+              approved_by: job.created_by,
+              approved_at: new Date().toISOString(),
+              notes: `✅ نُشر تلقائياً (${inserted?.length || 0} سؤال) — ثقة ${Math.round(avgConfidence * 100)}%`,
+            }).eq("id", draftId);
+            console.log(`[ai-worker] 🚀 Auto-published ${inserted?.length || 0} questions from draft ${draftId}`);
+          }
+        }
+      }
+    }
   }
 
   // Determine final status
