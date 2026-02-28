@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
     const { data: job, error: jobErr } = await admin
       .from('ai_jobs')
       .insert({
-        type: 'generate_questions_draft',
+        type: 'generate_draft',
         status: 'queued',
         created_by: adminRole.user_id,
         idempotency_key: idempotencyKey,
