@@ -1,0 +1,2 @@
+ALTER TABLE public.ai_jobs DROP CONSTRAINT ai_jobs_type_check;
+ALTER TABLE public.ai_jobs ADD CONSTRAINT ai_jobs_type_check CHECK (type = ANY (ARRAY['generate_draft','review_draft','quality_gate','publish_draft','generate_questions_draft']::text[]));
