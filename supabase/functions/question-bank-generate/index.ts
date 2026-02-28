@@ -132,6 +132,38 @@ Deno.serve(async (req) => {
 
     if (jobErr) throw jobErr;
 
+    // Create ai_job_items (batches of 10 questions each)
+    const batchSize = 10;
+    const totalBatches = Math.ceil(count / batchSize);
+    const items: any[] = [];
+    for (let i = 0; i < totalBatches; i++) {
+      const batchCount = Math.min(batchSize, count - i * batchSize);
+      items.push({
+        job_id: job.id,
+        item_index: i,
+        status: 'pending',
+        input_json: {
+          batch_index: i,
+          count: batchCount,
+          country_id,
+          exam_template_id,
+          section_id,
+          difficulty,
+          language,
+        },
+      });
+    }
+
+    if (items.length > 0) {
+      const { error: itemsErr } = await admin.from('ai_job_items').insert(items);
+      if (itemsErr) {
+        console.error('question-bank-generate: failed to create job items:', itemsErr);
+        throw itemsErr;
+      }
+      // Update progress_total to match actual batch count
+      await admin.from('ai_jobs').update({ progress_total: items.length }).eq('id', job.id);
+    }
+
     // Trigger the worker (best-effort)
     try {
       await fetch(`${supabaseUrl}/functions/v1/ai-worker`, {
