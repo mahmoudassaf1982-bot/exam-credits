@@ -263,7 +263,20 @@ export default function AdminAIReviewQueue() {
       console.error('Failed to fetch drafts:', error);
       toast({ title: 'خطأ في تحميل المسودات', variant: 'destructive' });
     } else {
-      setDrafts((data || []) as unknown as Draft[]);
+      // Safely parse JSON fields that might come as strings
+      const safeDrafts = (data || []).map((d: any) => ({
+        ...d,
+        draft_questions_json: Array.isArray(d.draft_questions_json) 
+          ? d.draft_questions_json 
+          : (typeof d.draft_questions_json === 'string' ? (() => { try { return JSON.parse(d.draft_questions_json); } catch { return []; } })() : []),
+        corrected_questions_json: d.corrected_questions_json == null ? null 
+          : Array.isArray(d.corrected_questions_json) ? d.corrected_questions_json 
+          : (typeof d.corrected_questions_json === 'string' ? (() => { try { return JSON.parse(d.corrected_questions_json); } catch { return null; } })() : null),
+        reviewer_report_json: d.reviewer_report_json == null ? null
+          : typeof d.reviewer_report_json === 'object' ? d.reviewer_report_json
+          : (typeof d.reviewer_report_json === 'string' ? (() => { try { return JSON.parse(d.reviewer_report_json); } catch { return null; } })() : null),
+      }));
+      setDrafts(safeDrafts as Draft[]);
     }
     setLoading(false);
   }, [toast]);
@@ -820,15 +833,15 @@ function DraftDetailDialog({
                     </div>
                   ) : (
                     <>
-                      <p className="font-medium text-sm">{q.text_ar}</p>
+                      <p className="font-medium text-sm">{q?.text_ar || ''}</p>
                       <div className="grid grid-cols-2 gap-2">
-                        {q.options.map((opt, oi) => (
-                          <div key={opt.id} className={`text-xs p-2 rounded border ${opt.id === q.correct_option_id ? 'bg-emerald-500/10 border-emerald-500/30 font-semibold' : 'bg-muted/50'}`}>
-                            <span className="font-bold ml-1">{optionLabels[oi]}.</span> {opt.textAr}
+                        {(q?.options || []).map((opt, oi) => (
+                          <div key={opt?.id || oi} className={`text-xs p-2 rounded border ${opt?.id === q?.correct_option_id ? 'bg-emerald-500/10 border-emerald-500/30 font-semibold' : 'bg-muted/50'}`}>
+                            <span className="font-bold ml-1">{optionLabels[oi]}.</span> {opt?.textAr || ''}
                           </div>
                         ))}
                       </div>
-                      {q.explanation && <p className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">💡 {q.explanation}</p>}
+                      {q?.explanation && <p className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">💡 {q.explanation}</p>}
                     </>
                   )}
 
