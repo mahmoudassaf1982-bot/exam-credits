@@ -559,6 +559,61 @@ serve(async (req) => {
       return jsonResponse({ error: "Failed to save review", details: updateError.message }, 500);
     }
 
+    // ─── Auto-Publish if approved ────────────────────────────────────
+    let autoPublished = false;
+    let publishedCount = 0;
+    if (newStatus === "approved") {
+      // Check platform setting
+      const { data: settingRow } = await adminSupabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "auto_publish_enabled")
+        .single();
+
+      const autoPublishEnabled = settingRow?.value !== "false"; // default true
+
+      if (autoPublishEnabled) {
+        const questionsToPublish = correctedQuestions;
+        const dbRows = questionsToPublish.map((q: any) => ({
+          country_id: draft.country_id,
+          exam_template_id: draft.exam_template_id || null,
+          section_id: q.section_id || draft.section_id || null,
+          topic: q.topic || "عام",
+          difficulty: q.difficulty || draft.difficulty || "medium",
+          text_ar: q.text_ar,
+          options: q.options,
+          correct_option_id: q.correct_option_id,
+          explanation: q.explanation || null,
+          is_approved: true,
+          status: "approved",
+          source: "ai",
+          draft_id: draft_id,
+          language: q.content_language || contentLang || "ar",
+        }));
+
+        const { data: inserted, error: insertError } = await adminSupabase
+          .from("questions")
+          .insert(dbRows)
+          .select("id");
+
+        if (insertError) {
+          console.error("[review-questions-draft] Auto-publish insert error:", insertError);
+        } else {
+          publishedCount = inserted?.length || 0;
+          autoPublished = true;
+
+          // Update draft with approval info
+          await adminSupabase.from("question_drafts").update({
+            approved_by: userData.user.id,
+            approved_at: new Date().toISOString(),
+            notes: `✅ نُشر تلقائياً (${publishedCount} سؤال) — الثقة: ${qualityGate.avg_confidence}${langWarning}`,
+          }).eq("id", draft_id);
+
+          console.log(`[review-questions-draft] 🚀 Auto-published ${publishedCount} questions from draft ${draft_id}`);
+        }
+      }
+    }
+
     console.log(`[review-questions-draft] ✅ Review complete. Decision: ${newStatus}. Lang: ${contentLang}. Lang failures: ${qualityGate.language_failures}`);
 
     return jsonResponse({
@@ -567,6 +622,8 @@ serve(async (req) => {
       status: newStatus,
       report: mergedReport,
       quality_gate: mergedReport.quality_gate,
+      auto_published: autoPublished,
+      published_count: publishedCount,
     });
   } catch (e) {
     console.error("[review-questions-draft] Error:", e);
