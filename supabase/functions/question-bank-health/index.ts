@@ -11,6 +11,136 @@ function verifyKey(req: Request): boolean {
   return !!key && !!expected && key === expected;
 }
 
+interface HealthResult {
+  country_id: string;
+  need_generation: boolean;
+  suggested_jobs: any[];
+  pending_review_count: number;
+  exams: any[];
+  generated_at: string;
+}
+
+async function computeHealthForCountry(admin: any, countryId: string): Promise<HealthResult> {
+  const { data: templates } = await admin
+    .from('exam_templates')
+    .select('id, name_ar, country_id, target_easy_pct, target_medium_pct, target_hard_pct, health_alert_threshold_pct, bank_multiplier')
+    .eq('is_active', true)
+    .eq('country_id', countryId);
+
+  if (!templates || templates.length === 0) {
+    const { count: pendingReviewCount } = await admin
+      .from('question_drafts')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending_review')
+      .eq('country_id', countryId);
+
+    return {
+      country_id: countryId,
+      need_generation: false,
+      suggested_jobs: [],
+      pending_review_count: pendingReviewCount ?? 0,
+      exams: [],
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  const { count: pendingReviewCount } = await admin
+    .from('question_drafts')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending_review')
+    .eq('country_id', countryId);
+
+  const suggestedJobs: any[] = [];
+  const exams: any[] = [];
+
+  for (const tmpl of templates) {
+    const multiplier = tmpl.bank_multiplier ?? 7;
+
+    const { data: sections } = await admin
+      .from('exam_sections')
+      .select('id, name_ar, question_count, difficulty_mix_json')
+      .eq('exam_template_id', tmpl.id);
+
+    if (!sections || sections.length === 0) continue;
+
+    const { data: questions } = await admin
+      .from('questions')
+      .select('id, difficulty, section_id')
+      .eq('is_approved', true)
+      .eq('exam_template_id', String(tmpl.id))
+      .is('deleted_at', null);
+
+    const qs = questions || [];
+    const sectionResults: any[] = [];
+
+    for (const sec of sections) {
+      const mix = sec.difficulty_mix_json as { easy?: number; medium?: number; hard?: number } | null;
+      const easyPct = (mix?.easy ?? tmpl.target_easy_pct) / 100;
+      const mediumPct = (mix?.medium ?? tmpl.target_medium_pct) / 100;
+      const hardPct = (mix?.hard ?? tmpl.target_hard_pct) / 100;
+
+      const secQs = qs.filter((q: any) => q.section_id === sec.id);
+
+      const difficulties = [
+        { key: 'easy', label: 'سهلة', pct: easyPct },
+        { key: 'medium', label: 'متوسطة', pct: mediumPct },
+        { key: 'hard', label: 'صعبة', pct: hardPct },
+      ];
+
+      const sectionDiffs: any[] = [];
+
+      for (const d of difficulties) {
+        const target = Math.ceil(sec.question_count * d.pct * multiplier);
+        const current = secQs.filter((q: any) => q.difficulty === d.key).length;
+        const deficit = Math.max(target - current, 0);
+
+        sectionDiffs.push({ difficulty: d.key, target, current, deficit });
+
+        if (deficit > 0) {
+          suggestedJobs.push({
+            exam_template_id: String(tmpl.id),
+            exam_name: tmpl.name_ar,
+            section_id: sec.id,
+            section_name: sec.name_ar,
+            difficulty: d.key,
+            target,
+            current,
+            deficit,
+            country_id: tmpl.country_id,
+            reason: `قسم "${sec.name_ar}": نقص ${d.label} — ${current}/${target} (عجز ${deficit})`,
+          });
+        }
+      }
+
+      sectionResults.push({
+        section_id: sec.id,
+        section_name: sec.name_ar,
+        question_count: sec.question_count,
+        total_approved: secQs.length,
+        difficulties: sectionDiffs,
+      });
+    }
+
+    exams.push({
+      exam_template_id: String(tmpl.id),
+      exam_name: tmpl.name_ar,
+      country_id: tmpl.country_id,
+      bank_multiplier: multiplier,
+      sections: sectionResults,
+      health_status: suggestedJobs.some(j => j.exam_template_id === String(tmpl.id)) ? 'unhealthy' : 'healthy',
+    });
+  }
+
+  return {
+    country_id: countryId,
+    need_generation: suggestedJobs.length > 0,
+    suggested_jobs: suggestedJobs,
+    pending_review_count: pendingReviewCount ?? 0,
+    exams,
+    generated_at: new Date().toISOString(),
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -28,132 +158,40 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // Get all active exam templates (including bank_multiplier)
-    const { data: templates } = await admin
-      .from('exam_templates')
-      .select('id, name_ar, country_id, target_easy_pct, target_medium_pct, target_hard_pct, health_alert_threshold_pct, bank_multiplier')
-      .eq('is_active', true);
+    // Parse optional country_id from query string or body
+    const url = new URL(req.url);
+    let countryId = url.searchParams.get('country_id');
 
-    if (!templates || templates.length === 0) {
-      return new Response(JSON.stringify({
-        need_generation: false,
-        suggested_jobs: [],
-        pending_review_count: 0,
-        exams: [],
-        generated_at: new Date().toISOString(),
-      }), {
+    if (!countryId && req.method === 'POST') {
+      try {
+        const body = await req.json();
+        countryId = body.country_id || null;
+      } catch { /* no body */ }
+    }
+
+    if (countryId) {
+      // Single country mode (existing behavior)
+      const result = await computeHealthForCountry(admin, countryId);
+      return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Pending review count
-    const { count: pendingReviewCount } = await admin
-      .from('question_drafts')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'pending_review');
+    // All countries mode
+    const { data: countryRows } = await admin
+      .from('exam_templates')
+      .select('country_id')
+      .eq('is_active', true);
 
-    const suggestedJobs: {
-      exam_template_id: string;
-      exam_name: string;
-      section_id: string;
-      section_name: string;
-      difficulty: string;
-      target: number;
-      current: number;
-      deficit: number;
-      country_id: string;
-      reason: string;
-    }[] = [];
+    const distinctCountries = [...new Set((countryRows || []).map((r: any) => r.country_id))];
 
-    const exams: any[] = [];
-
-    for (const tmpl of templates) {
-      const multiplier = tmpl.bank_multiplier ?? 7;
-
-      // Get sections for this template
-      const { data: sections } = await admin
-        .from('exam_sections')
-        .select('id, name_ar, question_count, difficulty_mix_json')
-        .eq('exam_template_id', tmpl.id);
-
-      if (!sections || sections.length === 0) continue;
-
-      // Get all approved, non-deleted questions for this template
-      const { data: questions } = await admin
-        .from('questions')
-        .select('id, difficulty, section_id')
-        .eq('is_approved', true)
-        .eq('exam_template_id', String(tmpl.id))
-        .is('deleted_at', null);
-
-      const qs = questions || [];
-
-      const sectionResults: any[] = [];
-
-      for (const sec of sections) {
-        // Use section-level difficulty mix if available, otherwise template-level
-        const mix = sec.difficulty_mix_json as { easy?: number; medium?: number; hard?: number } | null;
-        const easyPct = (mix?.easy ?? tmpl.target_easy_pct) / 100;
-        const mediumPct = (mix?.medium ?? tmpl.target_medium_pct) / 100;
-        const hardPct = (mix?.hard ?? tmpl.target_hard_pct) / 100;
-
-        const secQs = qs.filter((q: any) => q.section_id === sec.id);
-
-        const difficulties = [
-          { key: 'easy', label: 'سهلة', pct: easyPct },
-          { key: 'medium', label: 'متوسطة', pct: mediumPct },
-          { key: 'hard', label: 'صعبة', pct: hardPct },
-        ];
-
-        const sectionDiffs: any[] = [];
-
-        for (const d of difficulties) {
-          const target = Math.ceil(sec.question_count * d.pct * multiplier);
-          const current = secQs.filter((q: any) => q.difficulty === d.key).length;
-          const deficit = Math.max(target - current, 0);
-
-          sectionDiffs.push({ difficulty: d.key, target, current, deficit });
-
-          if (deficit > 0) {
-            suggestedJobs.push({
-              exam_template_id: String(tmpl.id),
-              exam_name: tmpl.name_ar,
-              section_id: sec.id,
-              section_name: sec.name_ar,
-              difficulty: d.key,
-              target,
-              current,
-              deficit,
-              country_id: tmpl.country_id,
-              reason: `قسم "${sec.name_ar}": نقص ${d.label} — ${current}/${target} (عجز ${deficit})`,
-            });
-          }
-        }
-
-        sectionResults.push({
-          section_id: sec.id,
-          section_name: sec.name_ar,
-          question_count: sec.question_count,
-          total_approved: secQs.length,
-          difficulties: sectionDiffs,
-        });
-      }
-
-      exams.push({
-        exam_template_id: String(tmpl.id),
-        exam_name: tmpl.name_ar,
-        country_id: tmpl.country_id,
-        bank_multiplier: multiplier,
-        sections: sectionResults,
-        health_status: suggestedJobs.some(j => j.exam_template_id === String(tmpl.id)) ? 'unhealthy' : 'healthy',
-      });
+    const results: HealthResult[] = [];
+    for (const cid of distinctCountries) {
+      results.push(await computeHealthForCountry(admin, cid));
     }
 
     return new Response(JSON.stringify({
-      need_generation: suggestedJobs.length > 0,
-      suggested_jobs: suggestedJobs,
-      pending_review_count: pendingReviewCount ?? 0,
-      exams,
+      results,
       generated_at: new Date().toISOString(),
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
