@@ -5,10 +5,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-saris-key, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
+function normalizeSecret(value: string | null): string {
+  return (value ?? '').trim();
+}
+
 function verifyKey(req: Request): boolean {
-  const key = req.headers.get('x-saris-key');
-  const expected = Deno.env.get('N8N_SARIS_KEY');
-  return !!key && !!expected && key === expected;
+  const provided = normalizeSecret(req.headers.get('x-saris-key'));
+  const expected = normalizeSecret(Deno.env.get('N8N_SARIS_KEY'));
+  return provided.length > 0 && expected.length > 0 && provided === expected;
 }
 
 Deno.serve(async (req) => {
@@ -17,6 +21,12 @@ Deno.serve(async (req) => {
   }
 
   if (!verifyKey(req)) {
+    const providedRaw = req.headers.get('x-saris-key');
+    console.warn('question-bank-generate: invalid x-saris-key', {
+      hasHeader: !!providedRaw,
+      providedLength: providedRaw?.length ?? 0,
+    });
+
     return new Response(JSON.stringify({ error: 'Forbidden: invalid x-saris-key' }), {
       status: 403,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
