@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, Coins, Users, Filter, Bell, Loader2, Mail } from 'lucide-react';
+import { Settings, Save, Coins, Users, Filter, Bell, Loader2, Mail, Sparkles } from 'lucide-react';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { Switch } from '@/components/ui/switch';
 
 interface ReferralRow {
   id: string;
@@ -34,6 +35,9 @@ export default function AdminSettings() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [referrals, setReferrals] = useState<ReferralRow[]>([]);
   const [loadingReferrals, setLoadingReferrals] = useState(true);
+  const [autoPublishEnabled, setAutoPublishEnabled] = useState(true);
+  const [loadingAutoPublish, setLoadingAutoPublish] = useState(true);
+  const [savingAutoPublish, setSavingAutoPublish] = useState(false);
 
   useEffect(() => {
     const fetchAdminEmail = async () => {
@@ -46,6 +50,17 @@ export default function AdminSettings() {
       setLoadingEmail(false);
     };
     fetchAdminEmail();
+
+    const fetchAutoPublish = async () => {
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'auto_publish_enabled')
+        .single();
+      if (data) setAutoPublishEnabled(data.value !== 'false');
+      setLoadingAutoPublish(false);
+    };
+    fetchAutoPublish();
   }, []);
 
   useEffect(() => {
@@ -93,6 +108,21 @@ export default function AdminSettings() {
       toast.error('فشل حفظ البريد الإلكتروني');
     } else {
       toast.success('تم حفظ بريد التنبيهات بنجاح');
+    }
+  };
+
+  const handleToggleAutoPublish = async (checked: boolean) => {
+    setSavingAutoPublish(true);
+    setAutoPublishEnabled(checked);
+    const { error } = await supabase
+      .from('platform_settings')
+      .upsert({ key: 'auto_publish_enabled', value: checked ? 'true' : 'false' }, { onConflict: 'key' });
+    setSavingAutoPublish(false);
+    if (error) {
+      toast.error('فشل تحديث إعداد النشر التلقائي');
+      setAutoPublishEnabled(!checked);
+    } else {
+      toast.success(checked ? 'تم تفعيل النشر التلقائي' : 'تم تعطيل النشر التلقائي');
     }
   };
 
@@ -214,6 +244,56 @@ export default function AdminSettings() {
                   حفظ الإعدادات
                 </Button>
               </>
+            )}
+          </motion.div>
+
+          {/* Auto-Publish AI Card */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="rounded-2xl border bg-card p-6 shadow-card mt-4"
+          >
+            <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              النشر التلقائي للذكاء الاصطناعي
+            </h2>
+
+            <div className="flex items-center justify-between gap-4 p-4 rounded-xl border bg-muted/30">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">النشر التلقائي للمسودات عالية الجودة</p>
+                <p className="text-xs text-muted-foreground">
+                  عند تفعيله، تُنشر المسودات التي تحصل على ≥85% ثقة من Gemini Pro تلقائياً لبنك الأسئلة بدون تدخل الأدمن.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {(loadingAutoPublish || savingAutoPublish) && (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+                <Switch
+                  checked={autoPublishEnabled}
+                  onCheckedChange={handleToggleAutoPublish}
+                  disabled={loadingAutoPublish || savingAutoPublish}
+                />
+              </div>
+            </div>
+
+            {autoPublishEnabled && (
+              <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center gap-2">
+                <span className="text-emerald-600">✅</span>
+                <p className="text-xs text-muted-foreground">
+                  المسودات بثقة ≥85% ستُنشر تلقائياً. المسودات بثقة 70-84% تحتاج مراجعة يدوية.
+                </p>
+              </div>
+            )}
+
+            {!autoPublishEnabled && !loadingAutoPublish && (
+              <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 flex items-center gap-2">
+                <span className="text-amber-600">⚠️</span>
+                <p className="text-xs text-muted-foreground">
+                  جميع المسودات تحتاج موافقة يدوية من الأدمن قبل النشر.
+                </p>
+              </div>
             )}
           </motion.div>
         </TabsContent>
