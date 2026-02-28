@@ -135,10 +135,12 @@ function getQualityLevel(score: number): { label: string; level: 'green' | 'yell
 }
 
 function ConfidenceBadge({ score, size = 'sm' }: { score: number; size?: 'sm' | 'lg' }) {
-  const Icon = getConfidenceIcon(score);
-  const pct = Math.round(score * 100);
+  // Normalize: if score > 1, it's on 0-10 scale; convert to 0-1
+  const normalized = score > 1 ? score / 10 : score;
+  const Icon = getConfidenceIcon(normalized);
+  const pct = Math.round(normalized * 100);
   return (
-    <Badge variant="outline" className={`${getConfidenceBg(score)} ${getConfidenceColor(score)} ${size === 'lg' ? 'text-sm px-3 py-1' : 'text-[10px]'}`}>
+    <Badge variant="outline" className={`${getConfidenceBg(normalized)} ${getConfidenceColor(normalized)} ${size === 'lg' ? 'text-sm px-3 py-1' : 'text-[10px]'}`}>
       <Icon className={`${size === 'lg' ? 'h-4 w-4' : 'h-3 w-3'} ml-1`} />
       {pct}%
     </Badge>
