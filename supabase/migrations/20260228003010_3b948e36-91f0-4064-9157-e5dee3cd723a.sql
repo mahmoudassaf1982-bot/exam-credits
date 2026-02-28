@@ -1,0 +1,1 @@
+ALTER TABLE public.exam_templates ADD COLUMN bank_multiplier integer NOT NULL DEFAULT 7;
