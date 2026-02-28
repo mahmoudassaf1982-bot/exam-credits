@@ -222,13 +222,13 @@ function QualityGateCard({ gate }: { gate: QualityGate }) {
           {decisionLabels[gate.decision] || gate.decision}
         </p>
         <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-          <span className="text-emerald-600">✅ {gate.auto_publishable} جاهز</span>
-          <span className="text-amber-600">⚠️ {gate.needs_review_count} مراجعة</span>
-          <span className="text-destructive">❌ {gate.needs_fix_count} إصلاح</span>
+          {gate.auto_publishable !== undefined && <span className="text-emerald-600">✅ {gate.auto_publishable} جاهز</span>}
+          {gate.needs_review_count !== undefined && <span className="text-amber-600">⚠️ {gate.needs_review_count} مراجعة</span>}
+          {gate.needs_fix_count !== undefined && <span className="text-destructive">❌ {gate.needs_fix_count} إصلاح</span>}
           {(gate.language_failures ?? 0) > 0 && (
             <span className="text-destructive font-semibold">🔤 {gate.language_failures} فشل لغوي</span>
           )}
-          <span>الحد: {gate.thresholds.auto_publish * 100}%</span>
+          {gate.thresholds?.auto_publish !== undefined && <span>الحد: {gate.thresholds.auto_publish * 100}%</span>}
         </div>
       </CardContent>
     </Card>
@@ -808,27 +808,27 @@ function DraftDetailDialog({
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
                         <p className="text-[10px] font-bold text-destructive">الأصل (Flash)</p>
-                        <p className="text-sm">{original.text_ar}</p>
+                        <p className="text-sm">{original?.text_ar || ''}</p>
                         <div className="space-y-1">
-                          {original.options.map((opt, oi) => (
-                            <div key={opt.id} className={`text-xs p-1.5 rounded ${opt.id === original.correct_option_id ? 'bg-emerald-500/10 font-semibold' : 'bg-muted/30'}`}>
-                              <span className="font-bold ml-1">{optionLabels[oi]}.</span> {opt.textAr}
+                          {(original?.options || []).map((opt, oi) => (
+                            <div key={opt?.id || oi} className={`text-xs p-1.5 rounded ${opt?.id === original?.correct_option_id ? 'bg-emerald-500/10 font-semibold' : 'bg-muted/30'}`}>
+                              <span className="font-bold ml-1">{optionLabels[oi]}.</span> {opt?.textAr || ''}
                             </div>
                           ))}
                         </div>
-                        {original.explanation && <p className="text-[11px] text-muted-foreground">💡 {original.explanation}</p>}
+                        {original?.explanation && <p className="text-[11px] text-muted-foreground">💡 {original.explanation}</p>}
                       </div>
                       <div className="space-y-2 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
                         <p className="text-[10px] font-bold text-emerald-600">المصحح (Pro)</p>
-                        <p className="text-sm">{corrected!.text_ar}</p>
+                        <p className="text-sm">{corrected?.text_ar || ''}</p>
                         <div className="space-y-1">
-                          {corrected!.options.map((opt, oi) => (
-                            <div key={opt.id} className={`text-xs p-1.5 rounded ${opt.id === corrected!.correct_option_id ? 'bg-emerald-500/10 font-semibold' : 'bg-muted/30'}`}>
-                              <span className="font-bold ml-1">{optionLabels[oi]}.</span> {opt.textAr}
+                          {(corrected?.options || []).map((opt, oi) => (
+                            <div key={opt?.id || oi} className={`text-xs p-1.5 rounded ${opt?.id === corrected?.correct_option_id ? 'bg-emerald-500/10 font-semibold' : 'bg-muted/30'}`}>
+                              <span className="font-bold ml-1">{optionLabels[oi]}.</span> {opt?.textAr || ''}
                             </div>
                           ))}
                         </div>
-                        {corrected!.explanation && <p className="text-[11px] text-muted-foreground">💡 {corrected!.explanation}</p>}
+                        {corrected?.explanation && <p className="text-[11px] text-muted-foreground">💡 {corrected.explanation}</p>}
                       </div>
                     </div>
                   ) : (
@@ -845,14 +845,14 @@ function DraftDetailDialog({
                     </>
                   )}
 
-                  {review && review.issues.length > 0 && (
+                  {review && (review.issues || []).length > 0 && (
                     <div className="text-xs text-destructive space-y-0.5">
-                      {review.issues.map((issue, ii) => <p key={ii}>❌ {issue}</p>)}
+                      {(review.issues || []).map((issue, ii) => <p key={ii}>❌ {issue}</p>)}
                     </div>
                   )}
-                  {review && review.suggestions.length > 0 && (
+                  {review && (review.suggestions || []).length > 0 && (
                     <div className="text-xs text-amber-600 space-y-0.5">
-                      {review.suggestions.map((s, si) => <p key={si}>💡 {s}</p>)}
+                      {(review.suggestions || []).map((s, si) => <p key={si}>💡 {s}</p>)}
                     </div>
                   )}
                 </CardContent>
