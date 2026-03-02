@@ -90,6 +90,25 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ─── EXAM PROFILE GUARD (HARD BLOCK) ─────────────────────────────
+    const { data: examProfile } = await admin
+      .from('exam_profiles')
+      .select('profile_json, status')
+      .eq('exam_template_id', exam_template_id)
+      .single();
+
+    if (!examProfile || examProfile.status !== 'approved') {
+      return new Response(JSON.stringify({
+        error: 'Exam Profile is not approved. Admin must build & approve profile first.',
+        error_ar: 'ملف الاختبار غير معتمد. يجب على المسؤول بناء واعتماد الملف أولاً.',
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const profileSnapshot = examProfile.profile_json;
+
     // Get a system admin user for created_by
     const { data: adminRole } = await admin
       .from('user_roles')
@@ -116,6 +135,7 @@ Deno.serve(async (req) => {
         idempotency_key: idempotencyKey,
         priority: 3,
         progress_total: count,
+        profile_snapshot_json: profileSnapshot,
         params_json: {
           country_id,
           exam_template_id,
