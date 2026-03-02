@@ -19,6 +19,7 @@ import {
   FileCheck,
   Activity,
   Cog,
+  Shield,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,7 @@ const adminNavItems = [
   { path: '/app/admin/review-queue', label: 'مراجعة الأسئلة', icon: FileCheck },
   { path: '/app/admin/bank-health', label: 'صحة البنك', icon: Activity },
   { path: '/app/admin/jobs', label: 'مهام AI', icon: Cog },
+  { path: '/app/admin/exam-profiles', label: 'ملفات الاختبارات', icon: Shield },
   { path: '/app/admin/users', label: 'إدارة المستخدمين', icon: Users },
 ];
 

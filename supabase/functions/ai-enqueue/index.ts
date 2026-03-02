@@ -50,6 +50,49 @@ serve(async (req) => {
       return jsonResponse({ error: `Invalid type. Must be one of: ${validTypes.join(", ")}` }, 400);
     }
 
+    // ─── EXAM PROFILE GUARD (HARD BLOCK) ─────────────────────────────
+    const examTemplateId = params?.exam_template_id;
+    let profileSnapshot: any = null;
+
+    if (examTemplateId) {
+      const { data: profile } = await admin
+        .from("exam_profiles")
+        .select("profile_json, status")
+        .eq("exam_template_id", examTemplateId)
+        .single();
+
+      if (!profile || profile.status !== "approved") {
+        return jsonResponse({
+          error: "Exam Profile is not approved. Admin must build & approve profile first.",
+          error_ar: "ملف الاختبار غير معتمد. يجب على المسؤول بناء واعتماد الملف أولاً.",
+        }, 400);
+      }
+
+      // Validate required fields
+      const p = profile.profile_json;
+      const requiredChecks = [
+        p?.official_spec?.total_questions > 0,
+        p?.official_spec?.duration_minutes > 0,
+        Array.isArray(p?.official_spec?.sections) && p.official_spec.sections.length > 0,
+        Array.isArray(p?.official_spec?.languages) && p.official_spec.languages.length > 0,
+        ['direct', 'reasoning', 'mixed'].includes(p?.psychometric_dna?.thinking_style),
+        ['low', 'medium', 'high'].includes(p?.psychometric_dna?.time_pressure_level),
+        ['low', 'medium', 'high'].includes(p?.psychometric_dna?.trap_density),
+        p?.psychometric_dna?.reasoning_depth_level >= 1 && p?.psychometric_dna?.reasoning_depth_level <= 5,
+        p?.generation_rules?.options_count === 4,
+        p?.generation_rules?.single_correct_answer === true,
+      ];
+
+      if (requiredChecks.some(c => !c)) {
+        return jsonResponse({
+          error: "Exam Profile validation failed. Required fields are missing or invalid.",
+          error_ar: "فشل التحقق من ملف الاختبار. حقول مطلوبة مفقودة أو غير صالحة.",
+        }, 400);
+      }
+
+      profileSnapshot = profile.profile_json;
+    }
+
     // Build canonical params for idempotency
     const canonicalParams = JSON.stringify(params || {}, Object.keys(params || {}).sort());
     const idempotencyInput = `${type}|${draft_id || ""}|${userId}|${canonicalParams}|v1`;
@@ -69,7 +112,7 @@ serve(async (req) => {
       progressTotal = draft?.count || 10;
     }
 
-    // UPSERT with idempotency
+    // UPSERT with idempotency + FREEZE profile snapshot
     const { data: job, error: upsertError } = await admin
       .from("ai_jobs")
       .upsert(
@@ -86,6 +129,7 @@ serve(async (req) => {
           progress_done: 0,
           progress_failed: 0,
           next_run_at: new Date().toISOString(),
+          profile_snapshot_json: profileSnapshot, // IMMUTABLE snapshot
         },
         {
           onConflict: "idempotency_key",

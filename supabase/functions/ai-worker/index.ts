@@ -198,6 +198,7 @@ async function callGemini(
 
 async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   const params = job.params_json;
+  const profileSnapshot = job.profile_snapshot_json || null;
 
   // ── Crash Recovery: reset stale "running" items back to "pending" ──
   await admin
@@ -214,12 +215,10 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
     .order("item_index", { ascending: true });
 
   if (!items || items.length === 0) {
-    // Check if there are succeeded items — if so, finalize
     await finalizeGenerateJob(admin, job);
     return;
   }
 
-  // Import prompts from generate-questions-draft logic
   const countryId = params.country_id;
   const examTemplateId = params.exam_template_id;
   const difficulty = params.difficulty || "medium";
@@ -236,7 +235,7 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   const contentLang = params.content_language || "ar";
   const model = "google/gemini-2.5-flash";
 
-  // ── E2E Test: skip AI calls, mark items as succeeded immediately ──
+  // ── E2E Test: skip AI calls ──
   if (params.e2e_test) {
     for (const item of items) {
       await admin.from("ai_job_items").update({
@@ -255,20 +254,37 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   let totalFailed = job.progress_failed;
   let allGeneratedQuestions: any[] = [];
 
-  for (const item of items) {
-    if (item.attempt_count >= MAX_ITEM_RETRIES && item.status === "failed") {
-      continue; // skip permanently failed items
-    }
+  // Build profile-aware prompt
+  let profileContext = "";
+  if (profileSnapshot) {
+    const dna = profileSnapshot.psychometric_dna || {};
+    const rules = profileSnapshot.generation_rules || {};
+    profileContext = `
+EXAM PROFILE DNA (MUST FOLLOW):
+- Thinking Style: ${dna.thinking_style || "mixed"}
+- Time Pressure: ${dna.time_pressure_level || "medium"}
+- Reasoning Depth: ${dna.reasoning_depth_level || 3}/5
+- Trap Density: ${dna.trap_density || "medium"}
+- Distractor Style: ${dna.distractor_style?.type || "plausible"}
+- Wording Complexity: ${dna.wording_complexity || "medium"}
+- Calculation Load: ${dna.calculation_load || "low"}
+- Max stem length: ${rules.stem_max_chars || 200} chars
+- Options count: ${rules.options_count || 4}
+- MUST have exactly one correct answer
+- NEVER include the answer in the question stem
+`;
+  }
 
-    // Mark item as running
+  for (const item of items) {
+    if (item.attempt_count >= MAX_ITEM_RETRIES && item.status === "failed") continue;
+
     await admin.from("ai_job_items").update({ status: "running", started_at: new Date().toISOString(), attempt_count: item.attempt_count + 1 }).eq("id", item.id);
 
     const batchCount = item.input_json.count || 10;
 
-    // Build prompt (simplified version)
     const systemPrompt = contentLang === "en"
-      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`
-      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`;
+      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`
+      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`;
 
     const userPrompt = `Generate exactly ${batchCount} questions at difficulty "${difficulty}" for "${examName}" (${countryName}). Return JSON array ONLY.`;
 
@@ -349,7 +365,6 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
 
 // ── Collect all succeeded item outputs and save draft ──
 async function finalizeGenerateJob(admin: any, job: any) {
-  // Gather questions from ALL succeeded items (including previous runs)
   const { data: succeededItems } = await admin
     .from("ai_job_items")
     .select("output_json")
@@ -363,8 +378,35 @@ async function finalizeGenerateJob(admin: any, job: any) {
     if (Array.isArray(qs)) allQuestions.push(...qs);
   }
 
-  // Create or update draft if we have questions and no draft yet
-  if (allQuestions.length > 0 && !job.target_draft_id) {
+  // ── Deterministic Validation against profile snapshot ──
+  const profileSnapshot = job.profile_snapshot_json;
+  let validatedQuestions = allQuestions;
+
+  if (profileSnapshot && allQuestions.length > 0) {
+    const rules = profileSnapshot.generation_rules || {};
+    const spec = profileSnapshot.official_spec || {};
+    const sectionIds = new Set((spec.sections || []).map((s: any) => s.section_id));
+
+    validatedQuestions = allQuestions.filter((q: any) => {
+      const opts = Array.isArray(q.options) ? q.options : [];
+      // Must have exactly 4 options
+      if (opts.length !== (rules.options_count || 4)) return false;
+      // Must have correct_option_id
+      if (!q.correct_option_id) return false;
+      // correct_option_id must exist in options
+      if (!opts.some((o: any) => o.id === q.correct_option_id)) return false;
+      // Valid difficulty
+      if (!['easy', 'medium', 'hard'].includes(q.difficulty)) return false;
+      return true;
+    });
+
+    if (validatedQuestions.length < allQuestions.length) {
+      console.log(`[ai-worker] Profile validation: ${allQuestions.length - validatedQuestions.length} questions filtered out`);
+    }
+  }
+
+  // Create or update draft if we have questions
+  if (validatedQuestions.length > 0 && !job.target_draft_id) {
     const p = job.params_json;
     const { data: draft } = await admin
       .from("question_drafts")
@@ -374,9 +416,9 @@ async function finalizeGenerateJob(admin: any, job: any) {
         exam_template_id: p.exam_template_id || null,
         section_id: p.section_id || null,
         difficulty: p.difficulty || "medium",
-        count: allQuestions.length,
+        count: validatedQuestions.length,
         generator_model: "google/gemini-2.5-flash",
-        draft_questions_json: allQuestions,
+        draft_questions_json: validatedQuestions,
         status: "pending_review",
       })
       .select("id")
@@ -384,23 +426,18 @@ async function finalizeGenerateJob(admin: any, job: any) {
 
     if (draft) {
       await admin.from("ai_jobs").update({ target_draft_id: draft.id }).eq("id", job.id);
-      console.log(`[ai-worker] ✅ Draft created: ${draft.id} with ${allQuestions.length} questions`);
+      console.log(`[ai-worker] ✅ Draft created: ${draft.id} with ${validatedQuestions.length} questions`);
     }
-  } else if (allQuestions.length > 0 && job.target_draft_id) {
-    // Update existing draft with combined questions
+  } else if (validatedQuestions.length > 0 && job.target_draft_id) {
     await admin.from("question_drafts").update({
-      draft_questions_json: allQuestions,
-      count: allQuestions.length,
+      draft_questions_json: validatedQuestions,
+      count: validatedQuestions.length,
     }).eq("id", job.target_draft_id);
-    console.log(`[ai-worker] ✅ Draft ${job.target_draft_id} updated with ${allQuestions.length} questions`);
+    console.log(`[ai-worker] ✅ Draft ${job.target_draft_id} updated with ${validatedQuestions.length} questions`);
   }
 
   // Determine final status
-  const { data: finalItems } = await admin
-    .from("ai_job_items")
-    .select("status")
-    .eq("job_id", job.id);
-
+  const { data: finalItems } = await admin.from("ai_job_items").select("status").eq("job_id", job.id);
   const pending = finalItems?.filter((i: any) => i.status === "pending" || i.status === "running").length || 0;
   const failed = finalItems?.filter((i: any) => i.status === "failed").length || 0;
 
@@ -526,6 +563,7 @@ async function processReviewDraftJob(admin: any, job: any, apiKey: string) {
 
 // ── Collect all review outputs and save to draft ──
 async function finalizeReviewJob(admin: any, job: any, draftId: string) {
+  const profileSnapshot = job.profile_snapshot_json;
   const { data: succeededItems } = await admin
     .from("ai_job_items")
     .select("output_json")
@@ -547,9 +585,14 @@ async function finalizeReviewJob(admin: any, job: any, draftId: string) {
 
     const avgConfidence = allReviews.reduce((sum: number, r: any) => sum + (r.quality_scores?.confidence_score || 0), 0) / allReviews.length;
 
+    // Use profile thresholds if available, otherwise defaults
+    const thresholds = profileSnapshot?.psychometric_dna?.quality_gate_thresholds || {};
+    const approveThreshold = thresholds.min_confidence || 0.85;
+    const rejectThreshold = 0.70;
+
     let decision = "pending_review";
-    if (avgConfidence >= 0.85) decision = "approved";
-    else if (avgConfidence < 0.70) decision = "needs_fix";
+    if (avgConfidence >= approveThreshold) decision = "approved";
+    else if (avgConfidence < rejectThreshold) decision = "needs_fix";
 
     await admin.from("question_drafts").update({
       corrected_questions_json: correctedQuestions.length > 0 ? correctedQuestions : null,

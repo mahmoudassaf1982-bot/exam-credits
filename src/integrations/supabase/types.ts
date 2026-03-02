@@ -108,6 +108,7 @@ export type Database = {
           next_run_at: string
           params_json: Json
           priority: number
+          profile_snapshot_json: Json | null
           progress_done: number
           progress_failed: number
           progress_total: number
@@ -131,6 +132,7 @@ export type Database = {
           next_run_at?: string
           params_json?: Json
           priority?: number
+          profile_snapshot_json?: Json | null
           progress_done?: number
           progress_failed?: number
           progress_total?: number
@@ -154,6 +156,7 @@ export type Database = {
           next_run_at?: string
           params_json?: Json
           priority?: number
+          profile_snapshot_json?: Json | null
           progress_done?: number
           progress_failed?: number
           progress_total?: number
@@ -300,6 +303,47 @@ export type Database = {
           session_id?: string
         }
         Relationships: []
+      }
+      exam_profiles: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          exam_template_id: string
+          id: string
+          profile_json: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          exam_template_id: string
+          id?: string
+          profile_json?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          exam_template_id?: string
+          id?: string
+          profile_json?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_profiles_exam_template_id_fkey"
+            columns: ["exam_template_id"]
+            isOneToOne: true
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       exam_sections: {
         Row: {
@@ -1404,6 +1448,7 @@ export type Database = {
           next_run_at: string
           params_json: Json
           priority: number
+          profile_snapshot_json: Json | null
           progress_done: number
           progress_failed: number
           progress_total: number
