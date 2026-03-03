@@ -262,29 +262,67 @@ export default function AdminExamProfiles() {
     setInferringDNA(null);
   };
 
-  const retryJob = (job: ProfileJob) => {
+  const retryJob = async (job: ProfileJob) => {
     const tmplId = job.params_json?.exam_template_id;
     if (!tmplId || !job.operation) return;
+
     setDnaTargetTemplate(tmplId);
-    if (job.operation === 'infer_dna') {
-      setSampleQuestionsText(job.params_json?.sample_questions_text || '');
-      setInferringDNA(tmplId);
-      supabase.functions.invoke('exam-profile-builder', {
-        body: {
-          action: job.operation,
-          exam_template_id: tmplId,
-          sample_questions_text: job.params_json?.sample_questions_text || undefined,
-          job_id: job.id,
+
+    try {
+      if (job.operation === 'infer_dna') {
+        setSampleQuestionsText(job.params_json?.sample_questions_text || '');
+        setInferringDNA(tmplId);
+
+        const { data, error } = await supabase.functions.invoke('exam-profile-builder', {
+          body: {
+            action: 'infer_dna',
+            exam_template_id: tmplId,
+            sample_questions_text: job.params_json?.sample_questions_text || undefined,
+            job_id: job.id,
+          }
+        });
+
+        if (error) {
+          toast.error(error.message || 'فشلت إعادة المحاولة');
+          return;
         }
-      }).then(({ data, error }) => {
-        if (error || !data?.ok) {
-          toast.error(data?.message || error?.message || 'فشلت إعادة المحاولة');
-        } else {
-          toast.success('نجحت إعادة المحاولة');
+
+        if (!data?.ok) {
+          toast.error(data?.message || 'فشلت إعادة المحاولة');
+          return;
         }
-        setInferringDNA(null);
-        loadData();
-      });
+
+        toast.success('نجحت إعادة المحاولة');
+        return;
+      }
+
+      if (job.operation === 'fetch_spec') {
+        const { data, error } = await supabase.functions.invoke('exam-profile-builder', {
+          body: {
+            action: 'fetch_spec',
+            exam_template_id: tmplId,
+            job_id: job.id,
+          }
+        });
+
+        if (error) {
+          toast.error(error.message || 'فشلت إعادة جلب المواصفات');
+          return;
+        }
+
+        if (!data?.ok) {
+          toast.error(data?.message || 'فشلت إعادة جلب المواصفات');
+          return;
+        }
+
+        toast.success('نجحت إعادة جلب المواصفات');
+      }
+    } catch (e: any) {
+      console.error('retryJob unexpected error:', e);
+      toast.error(e?.message || 'حدث خطأ غير متوقع أثناء إعادة المحاولة');
+    } finally {
+      setInferringDNA(null);
+      await loadData();
     }
   };
 
