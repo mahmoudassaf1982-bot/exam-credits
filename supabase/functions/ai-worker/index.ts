@@ -345,16 +345,18 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   // ── Resolve allowed topics for the section ──
   const { topics: allowedTopics, sectionName } = await resolveAllowedTopics(admin, profileSnapshot, sectionId);
 
-  // ── HARD BLOCK: if section_id is specified but no topics defined → abort ──
-  if (sectionId && allowedTopics.length === 0) {
-    console.log(`[ai-worker] ❌ ABORT: section_id=${sectionId} has no allowed_topics — marking needs_review`);
+  // ── HARD BLOCK: if section_id is specified but no topics defined → needs_review ──
+  if (sectionId && (!allowedTopics || allowedTopics.length === 0)) {
+    const reason = `No topics configured for section "${sectionName || sectionId}". Cannot generate without topic constraints.`;
+    console.log(`[ai-worker] ❌ ABORT: ${reason}`);
     await admin.from("ai_jobs").update({
-      status: "failed",
-      last_error: `Section "${sectionName || sectionId}" has no allowed_topics defined. Cannot generate without topic constraints.`,
+      status: "needs_review",
+      last_error: reason,
       finished_at: new Date().toISOString(),
       locked_by: null,
       locked_at: null,
     }).eq("id", job.id);
+    console.log(`[ai-worker] 🔍 Job ${job.id} → needs_review (no topics for section)`);
     return;
   }
 
