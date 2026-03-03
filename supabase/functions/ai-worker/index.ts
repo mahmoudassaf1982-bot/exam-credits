@@ -708,7 +708,17 @@ async function finalizeGenerateJob(admin: any, job: any) {
     }).eq("id", job.id);
     console.log(`[ai-worker] 🔍 Job ${job.id} → needs_review (finalization: all topic failures)`);
   } else if (failed === finalItems?.length) {
-    await releaseJob(admin, job.id, "failed", "All items failed");
+    // All items failed — schedule retry with backoff (claim_next_job guards max attempts)
+    const backoff = exponentialBackoff(job.attempt_count || 1);
+    await admin.from("ai_jobs").update({
+      status: "failed",
+      locked_by: null,
+      locked_at: null,
+      last_error: "All items failed",
+      next_run_at: new Date(Date.now() + backoff).toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", job.id);
+    console.log(`[ai-worker] Job ${job.id} → failed (all items, retry in ${Math.round(backoff/1000)}s)`);
   } else {
     await releaseJob(admin, job.id, "succeeded");
   }
@@ -933,7 +943,17 @@ async function finalizeReviewJob(admin: any, job: any, draftId: string) {
       updated_at: new Date().toISOString(),
     }).eq("id", job.id);
   } else if (failed === finalItems?.length) {
-    await releaseJob(admin, job.id, "failed", "All review items failed");
+    // All review items failed — schedule retry with backoff
+    const backoff = exponentialBackoff(job.attempt_count || 1);
+    await admin.from("ai_jobs").update({
+      status: "failed",
+      locked_by: null,
+      locked_at: null,
+      last_error: "All review items failed",
+      next_run_at: new Date(Date.now() + backoff).toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", job.id);
+    console.log(`[ai-worker] Job ${job.id} → failed (all review items, retry in ${Math.round(backoff/1000)}s)`);
   } else {
     await releaseJob(admin, job.id, "succeeded");
   }
