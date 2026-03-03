@@ -4,14 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import {
   Shield, ShieldCheck, ShieldAlert, FileSearch, Brain, CheckCircle2,
-  Loader2, Edit, Eye, AlertTriangle, RefreshCw
+  Loader2, Edit, Eye, AlertTriangle, RefreshCw, RotateCcw, XCircle
 } from 'lucide-react';
 
 interface ExamProfile {
@@ -31,6 +30,17 @@ interface ExamTemplate {
   country_id: string;
   default_question_count: number;
   default_time_limit_sec: number;
+}
+
+interface ProfileJob {
+  id: string;
+  operation: string;
+  status: string;
+  attempt_count: number;
+  last_error: string | null;
+  params_json: any;
+  created_at: string;
+  updated_at: string;
 }
 
 const REQUIRED_FIELDS_CHECKS = [
@@ -59,7 +69,6 @@ function validateProfile(profile: any): { valid: boolean; errors: string[] } {
       errors.push(check.label);
     }
   }
-  // Check sections sum
   const sections = profile?.official_spec?.sections;
   const totalQ = profile?.official_spec?.total_questions;
   if (Array.isArray(sections) && totalQ > 0) {
@@ -71,9 +80,22 @@ function validateProfile(profile: any): { valid: boolean; errors: string[] } {
   return { valid: errors.length === 0, errors };
 }
 
+function getJobStatusBadge(job: ProfileJob) {
+  const statusMap: Record<string, { label: string; className: string }> = {
+    queued: { label: 'في الانتظار', className: 'bg-muted text-muted-foreground' },
+    running: { label: 'قيد التنفيذ', className: 'bg-blue-500/10 text-blue-600' },
+    succeeded: { label: 'نجح', className: 'bg-green-500/10 text-green-600' },
+    failed: { label: 'فشل', className: 'bg-destructive/10 text-destructive' },
+    needs_review: { label: 'يحتاج مراجعة', className: 'bg-yellow-500/10 text-yellow-700' },
+  };
+  const s = statusMap[job.status] || { label: job.status, className: 'bg-muted text-muted-foreground' };
+  return <Badge variant="outline" className={s.className}>{s.label}</Badge>;
+}
+
 export default function AdminExamProfiles() {
   const [templates, setTemplates] = useState<ExamTemplate[]>([]);
   const [profiles, setProfiles] = useState<Map<string, ExamProfile>>(new Map());
+  const [profileJobs, setProfileJobs] = useState<Map<string, ProfileJob[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<ExamTemplate | null>(null);
   const [editingProfile, setEditingProfile] = useState<any>(null);
@@ -87,14 +109,30 @@ export default function AdminExamProfiles() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [{ data: tData }, { data: pData }] = await Promise.all([
+    const [{ data: tData }, { data: pData }, { data: jData }] = await Promise.all([
       supabase.from('exam_templates').select('id, name_ar, country_id, default_question_count, default_time_limit_sec').eq('is_active', true).order('created_at'),
       supabase.from('exam_profiles' as any).select('*'),
+      supabase.from('ai_jobs').select('id, operation, status, attempt_count, last_error, params_json, created_at, updated_at')
+        .eq('type', 'profile_builder')
+        .order('created_at', { ascending: false })
+        .limit(50),
     ]);
     setTemplates((tData as any[]) || []);
     const pMap = new Map<string, ExamProfile>();
     ((pData as any[]) || []).forEach((p: ExamProfile) => pMap.set(p.exam_template_id, p));
     setProfiles(pMap);
+
+    // Group jobs by exam_template_id
+    const jMap = new Map<string, ProfileJob[]>();
+    ((jData as any[]) || []).forEach((j: any) => {
+      const tmplId = j.params_json?.exam_template_id;
+      if (tmplId) {
+        const arr = jMap.get(tmplId) || [];
+        arr.push(j as ProfileJob);
+        jMap.set(tmplId, arr);
+      }
+    });
+    setProfileJobs(jMap);
     setLoading(false);
   }, []);
 
@@ -177,13 +215,9 @@ export default function AdminExamProfiles() {
       if (error) throw error;
       toast.success('تم جلب المواصفات بنجاح');
       await loadData();
-      // If editor is open for this template, refresh
-      if (selectedTemplate?.id === tmplId) {
-        const updated = data?.profile;
-        if (updated) {
-          setEditingProfile(updated);
-          setJsonText(JSON.stringify(updated, null, 2));
-        }
+      if (selectedTemplate?.id === tmplId && data?.profile) {
+        setEditingProfile(data.profile);
+        setJsonText(JSON.stringify(data.profile, null, 2));
       }
     } catch (e: any) {
       toast.error('فشل جلب المواصفات: ' + e.message);
@@ -197,28 +231,61 @@ export default function AdminExamProfiles() {
     setShowDnaDialog(true);
   };
 
-  const inferDNA = async () => {
-    if (!dnaTargetTemplate) return;
-    setInferringDNA(dnaTargetTemplate);
+  const inferDNA = async (retryJobId?: string) => {
+    const targetId = dnaTargetTemplate;
+    if (!targetId) return;
+    setInferringDNA(targetId);
     try {
       const { data, error } = await supabase.functions.invoke('exam-profile-builder', {
-        body: { action: 'infer_dna', exam_template_id: dnaTargetTemplate, sample_questions_text: sampleQuestionsText || undefined }
+        body: {
+          action: 'infer_dna',
+          exam_template_id: targetId,
+          sample_questions_text: sampleQuestionsText || undefined,
+          ...(retryJobId ? { job_id: retryJobId } : {}),
+        }
       });
       if (error) throw error;
-      toast.success('تم استنتاج DNA بنجاح');
+      if (data?.ok) {
+        toast.success('تم استنتاج DNA بنجاح');
+      } else {
+        toast.error(data?.message || 'فشل استنتاج DNA');
+      }
       setShowDnaDialog(false);
       await loadData();
-      if (selectedTemplate?.id === dnaTargetTemplate) {
-        const updated = data?.profile;
-        if (updated) {
-          setEditingProfile(updated);
-          setJsonText(JSON.stringify(updated, null, 2));
-        }
+      if (selectedTemplate?.id === targetId && data?.profile) {
+        setEditingProfile(data.profile);
+        setJsonText(JSON.stringify(data.profile, null, 2));
       }
     } catch (e: any) {
       toast.error('فشل استنتاج DNA: ' + e.message);
     }
     setInferringDNA(null);
+  };
+
+  const retryJob = (job: ProfileJob) => {
+    const tmplId = job.params_json?.exam_template_id;
+    if (!tmplId || !job.operation) return;
+    setDnaTargetTemplate(tmplId);
+    if (job.operation === 'infer_dna') {
+      setSampleQuestionsText(job.params_json?.sample_questions_text || '');
+      setInferringDNA(tmplId);
+      supabase.functions.invoke('exam-profile-builder', {
+        body: {
+          action: job.operation,
+          exam_template_id: tmplId,
+          sample_questions_text: job.params_json?.sample_questions_text || undefined,
+          job_id: job.id,
+        }
+      }).then(({ data, error }) => {
+        if (error || !data?.ok) {
+          toast.error(data?.message || error?.message || 'فشلت إعادة المحاولة');
+        } else {
+          toast.success('نجحت إعادة المحاولة');
+        }
+        setInferringDNA(null);
+        loadData();
+      });
+    }
   };
 
   const getStatusBadge = (tmplId: string) => {
@@ -245,6 +312,9 @@ export default function AdminExamProfiles() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {templates.map(tmpl => {
           const profile = profiles.get(tmpl.id);
+          const jobs = profileJobs.get(tmpl.id) || [];
+          const latestJob = jobs[0]; // most recent
+
           return (
             <Card key={tmpl.id} className="relative">
               <CardHeader className="pb-3">
@@ -254,7 +324,7 @@ export default function AdminExamProfiles() {
                 </div>
                 <p className="text-xs text-muted-foreground">{tmpl.country_id} · {tmpl.default_question_count} سؤال</p>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => openEditor(tmpl)}>
                     {profile ? <Eye className="h-3 w-3 ml-1" /> : <Edit className="h-3 w-3 ml-1" />}
@@ -269,6 +339,40 @@ export default function AdminExamProfiles() {
                     استنتاج DNA
                   </Button>
                 </div>
+
+                {/* Latest job status */}
+                {latestJob && (
+                  <div className="border rounded-md p-2 space-y-1 text-xs bg-muted/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">آخر مهمة ({latestJob.operation || 'غير محدد'}):</span>
+                      {getJobStatusBadge(latestJob)}
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span>محاولات: {latestJob.attempt_count}/3</span>
+                      <span>·</span>
+                      <span>{new Date(latestJob.updated_at).toLocaleString('ar')}</span>
+                    </div>
+                    {latestJob.last_error && (
+                      <div className="flex items-start gap-1 text-destructive">
+                        <XCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                        <span className="line-clamp-2">{latestJob.last_error}</span>
+                      </div>
+                    )}
+                    {(latestJob.status === 'needs_review' || latestJob.status === 'failed') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full mt-1"
+                        disabled={inferringDNA === tmpl.id}
+                        onClick={() => retryJob(latestJob)}
+                      >
+                        <RotateCcw className="h-3 w-3 ml-1" />
+                        إعادة المحاولة
+                      </Button>
+                    )}
+                  </div>
+                )}
+
                 {profile?.approved_at && (
                   <p className="text-[10px] text-muted-foreground">اعتُمد: {new Date(profile.approved_at).toLocaleDateString('ar')}</p>
                 )}
@@ -351,7 +455,7 @@ export default function AdminExamProfiles() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDnaDialog(false)}>إلغاء</Button>
-            <Button onClick={inferDNA} disabled={!!inferringDNA}>
+            <Button onClick={() => inferDNA()} disabled={!!inferringDNA}>
               {inferringDNA ? <Loader2 className="h-4 w-4 ml-1 animate-spin" /> : <Brain className="h-4 w-4 ml-1" />}
               استنتاج DNA
             </Button>
