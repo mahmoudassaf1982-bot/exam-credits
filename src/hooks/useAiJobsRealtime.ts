@@ -130,7 +130,7 @@ export function useAiJobsRealtime(filterStatus?: string, filterType?: string) {
     };
   }, [fetchJobs, toast]);
 
-  const activeCount = jobs.filter(j => ['queued', 'running', 'partial'].includes(j.status)).length;
+  const activeCount = jobs.filter(j => ['queued', 'running'].includes(j.status)).length;
 
   return { jobs, loading, connectionStatus, activeCount, refetch: fetchJobs };
 }
@@ -192,7 +192,7 @@ export function useActiveJobsCount() {
       const { count: c } = await supabase
         .from('ai_jobs')
         .select('id', { count: 'exact', head: true })
-        .in('status', ['queued', 'running', 'partial']);
+        .in('status', ['queued', 'running']);
       setCount(c || 0);
     };
     fetch();

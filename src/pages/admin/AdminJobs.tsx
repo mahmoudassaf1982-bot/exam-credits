@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Cog, Loader2, CheckCircle, XCircle, Clock, Play, Pause,
-  RefreshCw, Zap, Ban, Eye, RotateCcw, Wifi, WifiOff
+  RefreshCw, Zap, Ban, Eye, RotateCcw, Wifi, WifiOff, AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -28,9 +28,9 @@ const TYPE_LABELS: Record<string, string> = {
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
   queued: { label: 'في الانتظار', color: 'bg-muted text-muted-foreground', icon: Clock },
   running: { label: 'قيد التنفيذ', color: 'bg-blue-500/10 text-blue-600 border-blue-500/20', icon: Play },
-  partial: { label: 'جزئي', color: 'bg-amber-500/10 text-amber-600 border-amber-500/20', icon: Pause },
   succeeded: { label: 'مكتمل', color: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20', icon: CheckCircle },
   failed: { label: 'فشل', color: 'bg-destructive/10 text-destructive border-destructive/20', icon: XCircle },
+  needs_review: { label: 'يحتاج مراجعة', color: 'bg-amber-500/10 text-amber-600 border-amber-500/20', icon: AlertTriangle },
   canceled: { label: 'ملغي', color: 'bg-muted text-muted-foreground', icon: Ban },
 };
 
@@ -67,8 +67,8 @@ export default function AdminJobs() {
 
   // Apply quick filter on top
   const filteredJobs = jobs.filter(j => {
-    if (quickFilter === 'active') return ['queued', 'running', 'partial'].includes(j.status);
-    if (quickFilter === 'completed') return ['succeeded', 'failed', 'canceled'].includes(j.status);
+    if (quickFilter === 'active') return ['queued', 'running'].includes(j.status);
+    if (quickFilter === 'completed') return ['succeeded', 'failed', 'needs_review', 'canceled'].includes(j.status);
     return true;
   });
 
