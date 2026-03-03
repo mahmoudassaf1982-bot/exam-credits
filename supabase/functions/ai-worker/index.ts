@@ -688,7 +688,15 @@ async function finalizeGenerateJob(admin: any, job: any) {
   const topicFailures = finalItems?.filter((i: any) => i.status === "failed" && i.error?.includes("Topic")).length || 0;
 
   if (pending > 0) {
-    await admin.from("ai_jobs").update({ status: "partial", locked_by: null, locked_at: null }).eq("id", job.id);
+    // Items still pending — set to failed with next_run_at for retry
+    const backoff = exponentialBackoff(job.attempt_count || 1);
+    await admin.from("ai_jobs").update({
+      status: "failed",
+      locked_by: null,
+      locked_at: null,
+      next_run_at: new Date(Date.now() + backoff).toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", job.id);
   } else if (topicFailures > 0 && validatedQuestions.length === 0) {
     // All items failed due to topic violations — needs admin review
     await admin.from("ai_jobs").update({
@@ -916,7 +924,14 @@ async function finalizeReviewJob(admin: any, job: any, draftId: string) {
   const failed = finalItems?.filter((i: any) => i.status === "failed").length || 0;
 
   if (pending > 0) {
-    await admin.from("ai_jobs").update({ status: "partial", locked_by: null, locked_at: null }).eq("id", job.id);
+    const backoff = exponentialBackoff(job.attempt_count || 1);
+    await admin.from("ai_jobs").update({
+      status: "failed",
+      locked_by: null,
+      locked_at: null,
+      next_run_at: new Date(Date.now() + backoff).toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", job.id);
   } else if (failed === finalItems?.length) {
     await releaseJob(admin, job.id, "failed", "All review items failed");
   } else {
@@ -993,9 +1008,19 @@ async function runWorker(admin: any, apiKey: string): Promise<{ processed: numbe
       break;
     }
 
-    // Check max attempts
+    // Check max attempts — exhausted → needs_review (not DLQ)
     if (job.attempt_count > MAX_JOB_ATTEMPTS) {
-      await moveToDLQ(admin, job);
+      const reason = `Max attempts (${MAX_JOB_ATTEMPTS}) exhausted for job type=${job.type}`;
+      console.log(`[ai-worker] ⚠️ ${reason} — marking needs_review`);
+      await admin.from("ai_jobs").update({
+        status: "needs_review",
+        last_error: reason,
+        locked_by: null,
+        locked_at: null,
+        next_run_at: null,
+        finished_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", job.id);
       processed++;
       continue;
     }
@@ -1020,14 +1045,15 @@ async function runWorker(admin: any, apiKey: string): Promise<{ processed: numbe
       errors.push(`Job ${job.id}: ${errorMsg}`);
       console.error(`[ai-worker] Error processing job ${job.id}:`, e);
 
-      // Set job back to partial for retry
+      // Set job back to failed for retry via claim_next_job
       const backoff = exponentialBackoff(job.attempt_count);
       await admin.from("ai_jobs").update({
-        status: "partial",
+        status: "failed",
         locked_by: null,
         locked_at: null,
         last_error: errorMsg,
         next_run_at: new Date(Date.now() + backoff).toISOString(),
+        updated_at: new Date().toISOString(),
       }).eq("id", job.id);
 
       processed++;
