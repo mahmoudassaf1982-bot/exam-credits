@@ -231,34 +231,48 @@ async function resolveAllowedTopics(
   return { topics: [], sectionName: null };
 }
 
-function buildTopicConstraint(allowedTopics: string[], sectionName: string | null, lang: "en" | "ar"): string {
+function buildTopicConstraint(sectionId: string | null, allowedTopics: string[], sectionName: string | null, lang: "en" | "ar"): string {
   if (allowedTopics.length === 0) return "";
-  const topicList = allowedTopics.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const topicsJson = JSON.stringify(allowedTopics);
 
   if (lang === "en") {
     return `
-🚨 HARD TOPIC CONSTRAINT — STRICTLY ENFORCED 🚨
-Section: ${sectionName || "Unknown"}
-You MUST generate questions ONLY from these allowed topics:
-${topicList}
 
-- Every question MUST include "topic_tag" matching EXACTLY one of the allowed topics above.
-- Questions about topics NOT in this list will be REJECTED.
-- Do NOT generate math/numeric questions if the section is verbal/language.
-- Do NOT generate verbal/language questions if the section is math/quantitative.
+You are generating exam questions for a specific section.
+
+SECTION_ID: ${sectionId}
+ALLOWED_TOPICS: ${topicsJson}
+
+STRICT RULES (MANDATORY):
+1) You MUST generate questions ONLY from ALLOWED_TOPICS.
+2) You MUST NOT generate content outside these topics.
+3) If a question would belong to another topic, DO NOT generate it.
+4) Each question MUST include:
+   - "section_id": "${sectionId}" (must match SECTION_ID)
+   - "topic_tag": (must be exactly one of ALLOWED_TOPICS)
+
+If you cannot comply, return:
+{ "error": "topic_violation" }
 `;
   }
 
   return `
-🚨 قيد المواضيع الصارم — إلزامي 🚨
-القسم: ${sectionName || "غير محدد"}
-يجب توليد أسئلة فقط من المواضيع المسموحة التالية:
-${topicList}
 
-- كل سؤال يجب أن يتضمن "topic_tag" يطابق أحد المواضيع أعلاه تماماً.
-- سيتم رفض أي سؤال عن موضوع غير مدرج.
-- لا تولد أسئلة رياضية إذا كان القسم لغوياً.
-- لا تولد أسئلة لغوية إذا كان القسم كمياً/رياضياً.
+أنت تولّد أسئلة اختبار لقسم محدد.
+
+SECTION_ID: ${sectionId}
+ALLOWED_TOPICS: ${topicsJson}
+
+قواعد صارمة (إلزامية):
+1) يجب توليد أسئلة فقط من ALLOWED_TOPICS.
+2) يُمنع توليد محتوى خارج هذه المواضيع.
+3) إذا كان السؤال ينتمي لموضوع آخر، لا تولّده.
+4) كل سؤال يجب أن يتضمن:
+   - "section_id": "${sectionId}" (يطابق SECTION_ID)
+   - "topic_tag": (يطابق أحد ALLOWED_TOPICS تماماً)
+
+إذا لم تستطع الالتزام، أرجع:
+{ "error": "topic_violation" }
 `;
 }
 
@@ -336,7 +350,7 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
     return;
   }
 
-  const topicConstraint = buildTopicConstraint(allowedTopics, sectionName, contentLang as "en" | "ar");
+  const topicConstraint = buildTopicConstraint(sectionId, allowedTopics, sectionName, contentLang as "en" | "ar");
 
   // ── E2E Test: skip AI calls ──
   if (params.e2e_test) {
@@ -422,6 +436,21 @@ EXAM PROFILE DNA (MUST FOLLOW):
       try {
         const rawContent = result.data?.choices?.[0]?.message?.content || "";
         const cleaned = rawContent.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+
+        // Check if AI returned topic_violation error
+        if (cleaned.includes('"topic_violation"') || cleaned.includes('"error"')) {
+          try {
+            const errObj = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] || "{}");
+            if (errObj.error === "topic_violation") {
+              console.log(`[ai-worker] ⚠️ AI reported topic_violation — retry ${retryCount + 1}/${MAX_TOPIC_RETRIES}`);
+              totalTopicViolations++;
+              retryCount++;
+              if (retryCount <= MAX_TOPIC_RETRIES) { await sleep(1000); continue; }
+              throw new Error("AI cannot comply with topic constraints after retries");
+            }
+          } catch { /* not a topic violation JSON, continue parsing */ }
+        }
+
         const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
         if (!arrayMatch) throw new Error("No JSON array found");
 
