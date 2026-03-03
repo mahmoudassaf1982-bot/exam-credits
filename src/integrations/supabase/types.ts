@@ -106,6 +106,7 @@ export type Database = {
           locked_at: string | null
           locked_by: string | null
           next_run_at: string
+          operation: string | null
           params_json: Json
           priority: number
           profile_snapshot_json: Json | null
@@ -130,6 +131,7 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           next_run_at?: string
+          operation?: string | null
           params_json?: Json
           priority?: number
           profile_snapshot_json?: Json | null
@@ -154,6 +156,7 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           next_run_at?: string
+          operation?: string | null
           params_json?: Json
           priority?: number
           profile_snapshot_json?: Json | null
@@ -1446,6 +1449,7 @@ export type Database = {
           locked_at: string | null
           locked_by: string | null
           next_run_at: string
+          operation: string | null
           params_json: Json
           priority: number
           profile_snapshot_json: Json | null
@@ -1472,6 +1476,10 @@ export type Database = {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      lock_profile_job: {
+        Args: { p_job_id: string; p_worker_id: string }
         Returns: boolean
       }
     }
