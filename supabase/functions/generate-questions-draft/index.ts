@@ -223,10 +223,10 @@ serve(async (req) => {
     // Build topic constraint for prompt
     let topicConstraint = "";
     if (allowedTopics.length > 0) {
-      const topicList = allowedTopics.map((t, i) => `${i + 1}. ${t}`).join("\n");
+      const topicsJson = JSON.stringify(allowedTopics);
       topicConstraint = contentLang === "en"
-        ? `\n🚨 HARD TOPIC CONSTRAINT 🚨\nSection: ${sectionName}\nGenerate ONLY from these topics:\n${topicList}\nEvery question MUST include "topic_tag" matching one of the above.\n`
-        : `\n🚨 قيد المواضيع الصارم 🚨\nالقسم: ${sectionName}\nولّد فقط من هذه المواضيع:\n${topicList}\nكل سؤال يجب أن يتضمن "topic_tag" يطابق أحد المواضيع أعلاه.\n`;
+        ? `\nYou are generating exam questions for a specific section.\nSECTION_ID: ${section_id}\nALLOWED_TOPICS: ${topicsJson}\n\nSTRICT RULES (MANDATORY):\n1) You MUST generate questions ONLY from ALLOWED_TOPICS.\n2) You MUST NOT generate content outside these topics.\n3) If a question would belong to another topic, DO NOT generate it.\n4) Each question MUST include:\n   - "section_id": "${section_id}" (must match SECTION_ID)\n   - "topic_tag": (must be exactly one of ALLOWED_TOPICS)\n\nIf you cannot comply, return:\n{ "error": "topic_violation" }\n`
+        : `\nأنت تولّد أسئلة اختبار لقسم محدد.\nSECTION_ID: ${section_id}\nALLOWED_TOPICS: ${topicsJson}\n\nقواعد صارمة (إلزامية):\n1) يجب توليد أسئلة فقط من ALLOWED_TOPICS.\n2) يُمنع توليد محتوى خارج هذه المواضيع.\n3) إذا كان السؤال ينتمي لموضوع آخر، لا تولّده.\n4) كل سؤال يجب أن يتضمن:\n   - "section_id": "${section_id}" (يطابق SECTION_ID)\n   - "topic_tag": (يطابق أحد ALLOWED_TOPICS تماماً)\n\nإذا لم تستطع الالتزام، أرجع:\n{ "error": "topic_violation" }\n`;
     }
 
     const { system: systemPrompt, user: userPrompt } = buildPrompts(examName, countryName, difficulty, count, contentLang);
