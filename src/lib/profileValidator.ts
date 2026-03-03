@@ -14,11 +14,13 @@ export interface ValidationResult {
   errors: ValidationError[];
   passedCount: number;
   failedCount: number;
+  topicViolationCount: number;
 }
 
 export function validateQuestionsAgainstProfile(
   profileSnapshot: any,
-  questions: any[]
+  questions: any[],
+  sectionId?: string | null
 ): ValidationResult {
   const errors: ValidationError[] = [];
   const rules = profileSnapshot?.generation_rules || {};
@@ -26,6 +28,18 @@ export function validateQuestionsAgainstProfile(
   const dna = profileSnapshot?.psychometric_dna || {};
   const sectionIds = new Set((spec.sections || []).map((s: any) => s.section_id));
   const languages = spec.languages || ['ar'];
+
+  // ── Resolve allowed topics for the target section ──
+  let allowedTopics: string[] = [];
+  let topicViolationCount = 0;
+  if (sectionId && spec.sections) {
+    const targetSection = spec.sections.find((s: any) => s.section_id === sectionId);
+    if (targetSection?.topics && Array.isArray(targetSection.topics)) {
+      allowedTopics = targetSection.topics.filter((t: string) => typeof t === 'string' && t);
+    }
+  }
+
+  const normalizedTopics = new Set(allowedTopics.map(t => t.trim().toLowerCase()));
 
   questions.forEach((q, i) => {
     // 1. Options count must be exactly 4
@@ -66,11 +80,20 @@ export function validateQuestionsAgainstProfile(
       errors.push({ questionIndex: i, field: 'difficulty', message: `مستوى صعوبة غير صالح: ${q.difficulty}` });
     }
 
-    // 7. Time fit check
-    const expectedTimes = dna.expected_time_per_question_seconds;
-    if (expectedTimes && q.difficulty) {
-      const expected = expectedTimes[q.difficulty];
-      // This is informational - we can't truly measure time at generation
+    // 7. STRICT topic_tag validation
+    if (allowedTopics.length > 0) {
+      const tag = (q.topic_tag || q.topic || '').trim().toLowerCase();
+      if (!tag) {
+        errors.push({ questionIndex: i, field: 'topic_tag', message: 'topic_tag مطلوب ولكنه مفقود' });
+        topicViolationCount++;
+      } else if (!normalizedTopics.has(tag)) {
+        errors.push({
+          questionIndex: i,
+          field: 'topic_tag',
+          message: `topic_tag "${q.topic_tag || q.topic}" غير مسموح. المسموح: ${allowedTopics.join(', ')}`,
+        });
+        topicViolationCount++;
+      }
     }
   });
 
@@ -80,5 +103,6 @@ export function validateQuestionsAgainstProfile(
     errors,
     passedCount: questions.length - failedIndices.size,
     failedCount: failedIndices.size,
+    topicViolationCount,
   };
 }

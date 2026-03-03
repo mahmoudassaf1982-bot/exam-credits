@@ -196,6 +196,90 @@ async function callGemini(
 
 // ─── Job Processors ──────────────────────────────────────────────────
 
+// ─── Topic Resolution ────────────────────────────────────────────────
+async function resolveAllowedTopics(
+  admin: any,
+  profileSnapshot: any,
+  sectionId: string | null
+): Promise<{ topics: string[]; sectionName: string | null }> {
+  if (!sectionId) return { topics: [], sectionName: null };
+
+  // 1. Try profile snapshot first
+  if (profileSnapshot?.official_spec?.sections) {
+    const section = profileSnapshot.official_spec.sections.find(
+      (s: any) => s.section_id === sectionId
+    );
+    if (section) {
+      const topics = Array.isArray(section.topics) ? section.topics.filter((t: string) => t) : [];
+      return { topics, sectionName: section.name || section.section_id };
+    }
+  }
+
+  // 2. Fallback: query exam_sections.topic_filter_json from DB
+  const { data: dbSection } = await admin
+    .from("exam_sections")
+    .select("name_ar, topic_filter_json")
+    .eq("id", sectionId)
+    .single();
+
+  if (dbSection) {
+    const raw = dbSection.topic_filter_json;
+    const topics = Array.isArray(raw) ? raw.filter((t: string) => typeof t === "string" && t) : [];
+    return { topics, sectionName: dbSection.name_ar };
+  }
+
+  return { topics: [], sectionName: null };
+}
+
+function buildTopicConstraint(allowedTopics: string[], sectionName: string | null, lang: "en" | "ar"): string {
+  if (allowedTopics.length === 0) return "";
+  const topicList = allowedTopics.map((t, i) => `${i + 1}. ${t}`).join("\n");
+
+  if (lang === "en") {
+    return `
+🚨 HARD TOPIC CONSTRAINT — STRICTLY ENFORCED 🚨
+Section: ${sectionName || "Unknown"}
+You MUST generate questions ONLY from these allowed topics:
+${topicList}
+
+- Every question MUST include "topic_tag" matching EXACTLY one of the allowed topics above.
+- Questions about topics NOT in this list will be REJECTED.
+- Do NOT generate math/numeric questions if the section is verbal/language.
+- Do NOT generate verbal/language questions if the section is math/quantitative.
+`;
+  }
+
+  return `
+🚨 قيد المواضيع الصارم — إلزامي 🚨
+القسم: ${sectionName || "غير محدد"}
+يجب توليد أسئلة فقط من المواضيع المسموحة التالية:
+${topicList}
+
+- كل سؤال يجب أن يتضمن "topic_tag" يطابق أحد المواضيع أعلاه تماماً.
+- سيتم رفض أي سؤال عن موضوع غير مدرج.
+- لا تولد أسئلة رياضية إذا كان القسم لغوياً.
+- لا تولد أسئلة لغوية إذا كان القسم كمياً/رياضياً.
+`;
+}
+
+function validateTopicTags(questions: any[], allowedTopics: string[]): { valid: any[]; violations: number } {
+  if (allowedTopics.length === 0) return { valid: questions, violations: 0 };
+
+  const normalizedTopics = new Set(allowedTopics.map(t => t.trim().toLowerCase()));
+  let violations = 0;
+
+  const valid = questions.filter(q => {
+    const tag = (q.topic_tag || q.topic || "").trim().toLowerCase();
+    if (!tag || !normalizedTopics.has(tag)) {
+      violations++;
+      return false;
+    }
+    return true;
+  });
+
+  return { valid, violations };
+}
+
 async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   const params = job.params_json;
   const profileSnapshot = job.profile_snapshot_json || null;
@@ -222,6 +306,7 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   const countryId = params.country_id;
   const examTemplateId = params.exam_template_id;
   const difficulty = params.difficulty || "medium";
+  const sectionId = params.section_id || null;
 
   const { data: countryData } = await admin.from("countries").select("name_ar").eq("id", countryId).single();
   const countryName = countryData?.name_ar || countryId;
@@ -235,12 +320,30 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   const contentLang = params.content_language || "ar";
   const model = "google/gemini-2.5-flash";
 
+  // ── Resolve allowed topics for the section ──
+  const { topics: allowedTopics, sectionName } = await resolveAllowedTopics(admin, profileSnapshot, sectionId);
+
+  // ── HARD BLOCK: if section_id is specified but no topics defined → abort ──
+  if (sectionId && allowedTopics.length === 0) {
+    console.log(`[ai-worker] ❌ ABORT: section_id=${sectionId} has no allowed_topics — marking needs_review`);
+    await admin.from("ai_jobs").update({
+      status: "failed",
+      last_error: `Section "${sectionName || sectionId}" has no allowed_topics defined. Cannot generate without topic constraints.`,
+      finished_at: new Date().toISOString(),
+      locked_by: null,
+      locked_at: null,
+    }).eq("id", job.id);
+    return;
+  }
+
+  const topicConstraint = buildTopicConstraint(allowedTopics, sectionName, contentLang as "en" | "ar");
+
   // ── E2E Test: skip AI calls ──
   if (params.e2e_test) {
     for (const item of items) {
       await admin.from("ai_job_items").update({
         status: "succeeded",
-        output_json: { questions: [{ text_ar: "سؤال اختباري", options: [{id:"a",textAr:"أ"},{id:"b",textAr:"ب"},{id:"c",textAr:"ج"},{id:"d",textAr:"د"}], correct_option_id: "a", explanation: "اختبار", difficulty: "medium", topic: "e2e_test" }] },
+        output_json: { questions: [{ text_ar: "سؤال اختباري", options: [{id:"a",textAr:"أ"},{id:"b",textAr:"ب"},{id:"c",textAr:"ج"},{id:"d",textAr:"د"}], correct_option_id: "a", explanation: "اختبار", difficulty: "medium", topic: allowedTopics[0] || "e2e_test", topic_tag: allowedTopics[0] || "e2e_test" }] },
         finished_at: new Date().toISOString(),
         attempt_count: item.attempt_count + 1,
       }).eq("id", item.id);
@@ -253,6 +356,7 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   let totalDone = job.progress_done;
   let totalFailed = job.progress_failed;
   let allGeneratedQuestions: any[] = [];
+  let totalTopicViolations = 0;
 
   // Build profile-aware prompt
   let profileContext = "";
@@ -275,6 +379,11 @@ EXAM PROFILE DNA (MUST FOLLOW):
 `;
   }
 
+  // Include topic_tag in the required JSON schema
+  const topicTagField = allowedTopics.length > 0
+    ? `"topic_tag": string (MUST be one of: ${allowedTopics.map(t => `"${t}"`).join(", ")}),`
+    : "";
+
   for (const item of items) {
     if (item.attempt_count >= MAX_ITEM_RETRIES && item.status === "failed") continue;
 
@@ -283,80 +392,126 @@ EXAM PROFILE DNA (MUST FOLLOW):
     const batchCount = item.input_json.count || 10;
 
     const systemPrompt = contentLang === "en"
-      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`
-      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`;
+      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, ${topicTagField} "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`
+      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, ${topicTagField} "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`;
 
-    const userPrompt = `Generate exactly ${batchCount} questions at difficulty "${difficulty}" for "${examName}" (${countryName}). Return JSON array ONLY.`;
+    const sectionContext = sectionName ? ` for section "${sectionName}"` : "";
+    const userPrompt = `Generate exactly ${batchCount} questions at difficulty "${difficulty}" for "${examName}" (${countryName})${sectionContext}. ${allowedTopics.length > 0 ? `ONLY from topics: ${allowedTopics.join(", ")}. Each question MUST include topic_tag.` : ""} Return JSON array ONLY.`;
 
-    const result = await callGemini(admin, apiKey, model, [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ]);
+    let batchQuestions: any[] = [];
+    let retryCount = 0;
+    const MAX_TOPIC_RETRIES = 2;
 
-    if (!result.ok) {
-      if (isRetryableError(result.status || 0) && item.attempt_count < MAX_ITEM_RETRIES) {
-        await admin.from("ai_job_items").update({ status: "pending", error: result.error }).eq("id", item.id);
-      } else {
-        await admin.from("ai_job_items").update({ status: "failed", error: result.error, finished_at: new Date().toISOString() }).eq("id", item.id);
-        totalFailed++;
+    while (retryCount <= MAX_TOPIC_RETRIES) {
+      const result = await callGemini(admin, apiKey, model, [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ]);
+
+      if (!result.ok) {
+        if (isRetryableError(result.status || 0) && item.attempt_count < MAX_ITEM_RETRIES) {
+          await admin.from("ai_job_items").update({ status: "pending", error: result.error }).eq("id", item.id);
+        } else {
+          await admin.from("ai_job_items").update({ status: "failed", error: result.error, finished_at: new Date().toISOString() }).eq("id", item.id);
+          totalFailed++;
+        }
+        await admin.from("ai_jobs").update({ progress_failed: totalFailed, last_error: result.error }).eq("id", job.id);
+        break;
       }
-      await admin.from("ai_jobs").update({ progress_failed: totalFailed, last_error: result.error }).eq("id", job.id);
-      continue;
+
+      try {
+        const rawContent = result.data?.choices?.[0]?.message?.content || "";
+        const cleaned = rawContent.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+        const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (!arrayMatch) throw new Error("No JSON array found");
+
+        const questions = JSON.parse(arrayMatch[0]);
+        const optionIds = ["a", "b", "c", "d"];
+        const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
+
+        const parsed = questions.map((q: any, i: number) => {
+          const opts = q.options;
+          const optionsArr = opts && typeof opts === "object" && !Array.isArray(opts)
+            ? [opts.A, opts.B, opts.C, opts.D]
+            : Array.isArray(opts) ? opts : [];
+          const correctIdx = letterToIndex[q.correct_answer?.toUpperCase()] ?? 0;
+          return {
+            index: allGeneratedQuestions.length + i,
+            text_ar: q.question_text || "",
+            options: optionsArr.map((text: string, idx: number) => ({ id: optionIds[idx], textAr: text || "" })),
+            correct_option_id: optionIds[correctIdx],
+            explanation: q.explanation || "",
+            difficulty: q.metadata?.difficulty || difficulty,
+            topic: q.topic_tag || q.metadata?.topic || q.metadata?.section || examName,
+            topic_tag: q.topic_tag || q.metadata?.topic || "",
+            section_id: sectionId,
+            content_language: contentLang,
+          };
+        });
+
+        // ── Topic validation ──
+        if (allowedTopics.length > 0) {
+          const { valid, violations } = validateTopicTags(parsed, allowedTopics);
+          totalTopicViolations += violations;
+
+          if (violations > 0 && retryCount < MAX_TOPIC_RETRIES) {
+            console.log(`[ai-worker] ⚠️ Topic violations: ${violations}/${parsed.length} — retry ${retryCount + 1}/${MAX_TOPIC_RETRIES}`);
+            retryCount++;
+            await sleep(1000);
+            continue;
+          }
+
+          if (valid.length === 0 && violations > 0) {
+            console.log(`[ai-worker] ❌ All questions had invalid topics after ${retryCount} retries`);
+            await admin.from("ai_job_items").update({
+              status: "failed",
+              error: `Topic validation failed: ${violations} violations, 0 valid questions. Allowed: ${allowedTopics.join(", ")}`,
+              finished_at: new Date().toISOString(),
+            }).eq("id", item.id);
+            totalFailed++;
+            break;
+          }
+
+          batchQuestions = valid;
+        } else {
+          batchQuestions = parsed;
+        }
+
+        allGeneratedQuestions = allGeneratedQuestions.concat(batchQuestions);
+
+        await admin.from("ai_job_items").update({
+          status: "succeeded",
+          output_json: { questions: batchQuestions, topic_violation_count: totalTopicViolations },
+          finished_at: new Date().toISOString(),
+        }).eq("id", item.id);
+        totalDone++;
+        break; // success, exit retry loop
+      } catch (parseError: any) {
+        await admin.from("ai_job_items").update({
+          status: "failed",
+          error: `Parse error: ${parseError.message}`,
+          finished_at: new Date().toISOString(),
+        }).eq("id", item.id);
+        totalFailed++;
+        break;
+      }
     }
 
-    // Parse AI response
-    try {
-      const rawContent = result.data?.choices?.[0]?.message?.content || "";
-      const cleaned = rawContent.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-      const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
-      if (!arrayMatch) throw new Error("No JSON array found");
-
-      const questions = JSON.parse(arrayMatch[0]);
-      const optionIds = ["a", "b", "c", "d"];
-      const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
-
-      const draftQuestions = questions.map((q: any, i: number) => {
-        const opts = q.options;
-        const optionsArr = opts && typeof opts === "object" && !Array.isArray(opts)
-          ? [opts.A, opts.B, opts.C, opts.D]
-          : Array.isArray(opts) ? opts : [];
-        const correctIdx = letterToIndex[q.correct_answer?.toUpperCase()] ?? 0;
-        return {
-          index: allGeneratedQuestions.length + i,
-          text_ar: q.question_text || "",
-          options: optionsArr.map((text: string, idx: number) => ({ id: optionIds[idx], textAr: text || "" })),
-          correct_option_id: optionIds[correctIdx],
-          explanation: q.explanation || "",
-          difficulty: q.metadata?.difficulty || difficulty,
-          topic: q.metadata?.topic || q.metadata?.section || examName,
-          section_id: params.section_id || null,
-          content_language: contentLang,
-        };
-      });
-
-      allGeneratedQuestions = allGeneratedQuestions.concat(draftQuestions);
-
-      await admin.from("ai_job_items").update({
-        status: "succeeded",
-        output_json: { questions: draftQuestions },
-        finished_at: new Date().toISOString(),
-      }).eq("id", item.id);
-      totalDone++;
-    } catch (parseError: any) {
-      await admin.from("ai_job_items").update({
-        status: "failed",
-        error: `Parse error: ${parseError.message}`,
-        finished_at: new Date().toISOString(),
-      }).eq("id", item.id);
-      totalFailed++;
-    }
-
-    await admin.from("ai_jobs").update({ progress_done: totalDone, progress_failed: totalFailed }).eq("id", job.id);
+    await admin.from("ai_jobs").update({
+      progress_done: totalDone,
+      progress_failed: totalFailed,
+      params_json: { ...params, topic_violation_count: totalTopicViolations },
+    }).eq("id", job.id);
 
     // Delay between batches
     if (items.indexOf(item) < items.length - 1) {
       await sleep(BATCH_DELAY_MS);
     }
+  }
+
+  // Log total topic violations
+  if (totalTopicViolations > 0) {
+    console.log(`[ai-worker] 📊 Total topic violations for job ${job.id}: ${totalTopicViolations}`);
   }
 
   // Finalize: collect all outputs and create/update draft
@@ -387,6 +542,17 @@ async function finalizeGenerateJob(admin: any, job: any) {
     const spec = profileSnapshot.official_spec || {};
     const sectionIds = new Set((spec.sections || []).map((s: any) => s.section_id));
 
+    // Resolve allowed topics for this job's section
+    const jobSectionId = job.params_json?.section_id || null;
+    let allowedTopics: string[] = [];
+    if (jobSectionId && spec.sections) {
+      const targetSection = spec.sections.find((s: any) => s.section_id === jobSectionId);
+      if (targetSection?.topics) {
+        allowedTopics = Array.isArray(targetSection.topics) ? targetSection.topics.filter((t: string) => t) : [];
+      }
+    }
+    const normalizedTopics = allowedTopics.length > 0 ? new Set(allowedTopics.map((t: string) => t.trim().toLowerCase())) : null;
+
     validatedQuestions = allQuestions.filter((q: any) => {
       const opts = Array.isArray(q.options) ? q.options : [];
       // Must have exactly 4 options
@@ -397,11 +563,16 @@ async function finalizeGenerateJob(admin: any, job: any) {
       if (!opts.some((o: any) => o.id === q.correct_option_id)) return false;
       // Valid difficulty
       if (!['easy', 'medium', 'hard'].includes(q.difficulty)) return false;
+      // Topic validation
+      if (normalizedTopics) {
+        const tag = (q.topic_tag || q.topic || "").trim().toLowerCase();
+        if (!tag || !normalizedTopics.has(tag)) return false;
+      }
       return true;
     });
 
     if (validatedQuestions.length < allQuestions.length) {
-      console.log(`[ai-worker] Profile validation: ${allQuestions.length - validatedQuestions.length} questions filtered out`);
+      console.log(`[ai-worker] Profile validation: ${allQuestions.length - validatedQuestions.length} questions filtered out (including topic violations)`);
     }
   }
 

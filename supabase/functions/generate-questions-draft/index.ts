@@ -172,9 +172,72 @@ serve(async (req) => {
 
     const generatorModel = "google/gemini-2.5-flash";
 
-    const { system: systemPrompt, user: userPrompt } = buildPrompts(examName, countryName, difficulty, count, contentLang);
+    // ── Resolve allowed topics for the section ──
+    let allowedTopics: string[] = [];
+    let sectionName: string | null = null;
 
-    console.log(`[generate-questions-draft] Generating ${count} questions, lang=${contentLang}, model=${generatorModel}`);
+    if (section_id) {
+      // 1. Try exam_profiles.profile_json
+      if (exam_template_id) {
+        const { data: profile } = await adminSupabase
+          .from("exam_profiles")
+          .select("profile_json")
+          .eq("exam_template_id", exam_template_id)
+          .eq("status", "approved")
+          .single();
+
+        if (profile?.profile_json?.official_spec?.sections) {
+          const sec = profile.profile_json.official_spec.sections.find(
+            (s: any) => s.section_id === section_id
+          );
+          if (sec) {
+            allowedTopics = Array.isArray(sec.topics) ? sec.topics.filter((t: string) => t) : [];
+            sectionName = sec.name || sec.section_id;
+          }
+        }
+      }
+
+      // 2. Fallback: exam_sections.topic_filter_json
+      if (allowedTopics.length === 0) {
+        const { data: dbSection } = await adminSupabase
+          .from("exam_sections")
+          .select("name_ar, topic_filter_json")
+          .eq("id", section_id)
+          .single();
+        if (dbSection) {
+          const raw = dbSection.topic_filter_json;
+          allowedTopics = Array.isArray(raw) ? raw.filter((t: string) => typeof t === "string" && t) : [];
+          sectionName = sectionName || dbSection.name_ar;
+        }
+      }
+
+      // ── HARD BLOCK: section specified but no topics ──
+      if (allowedTopics.length === 0) {
+        return jsonResponse({
+          error: `Section "${sectionName || section_id}" has no allowed_topics defined. Cannot generate without topic constraints.`,
+          error_ar: `القسم "${sectionName || section_id}" ليس له مواضيع محددة. لا يمكن التوليد بدون قيود مواضيع.`,
+        }, 400);
+      }
+    }
+
+    // Build topic constraint for prompt
+    let topicConstraint = "";
+    if (allowedTopics.length > 0) {
+      const topicList = allowedTopics.map((t, i) => `${i + 1}. ${t}`).join("\n");
+      topicConstraint = contentLang === "en"
+        ? `\n🚨 HARD TOPIC CONSTRAINT 🚨\nSection: ${sectionName}\nGenerate ONLY from these topics:\n${topicList}\nEvery question MUST include "topic_tag" matching one of the above.\n`
+        : `\n🚨 قيد المواضيع الصارم 🚨\nالقسم: ${sectionName}\nولّد فقط من هذه المواضيع:\n${topicList}\nكل سؤال يجب أن يتضمن "topic_tag" يطابق أحد المواضيع أعلاه.\n`;
+    }
+
+    const { system: systemPrompt, user: userPrompt } = buildPrompts(examName, countryName, difficulty, count, contentLang);
+    // Inject topic constraint into system prompt
+    const finalSystemPrompt = systemPrompt + topicConstraint;
+    const topicTagSchema = allowedTopics.length > 0
+      ? `\nEach question JSON MUST also include: "topic_tag": string (one of: ${allowedTopics.map(t => `"${t}"`).join(", ")})`
+      : "";
+    const finalUserPrompt = userPrompt + topicTagSchema;
+
+    console.log(`[generate-questions-draft] Generating ${count} questions, lang=${contentLang}, section=${sectionName || 'none'}, topics=${allowedTopics.length}, model=${generatorModel}`);
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -185,8 +248,8 @@ serve(async (req) => {
       body: JSON.stringify({
         model: generatorModel,
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "system", content: finalSystemPrompt },
+          { role: "user", content: finalUserPrompt },
         ],
       }),
     });
@@ -236,11 +299,41 @@ serve(async (req) => {
         correct_option_id: optionIds[correctIdx],
         explanation: q.explanation || "",
         difficulty: q.metadata?.difficulty || difficulty,
-        topic: q.metadata?.topic || q.metadata?.section || examName,
+        topic: q.topic_tag || q.metadata?.topic || q.metadata?.section || examName,
+        topic_tag: q.topic_tag || q.metadata?.topic || "",
         section_id: section_id || null,
         content_language: contentLang,
       };
     });
+
+    // ── Post-generation topic validation ──
+    let topicViolationCount = 0;
+    let finalQuestions = draftQuestions;
+    if (allowedTopics.length > 0) {
+      const normalizedTopics = new Set(allowedTopics.map(t => t.trim().toLowerCase()));
+      const validQuestions = draftQuestions.filter((q: any) => {
+        const tag = (q.topic_tag || "").trim().toLowerCase();
+        if (!tag || !normalizedTopics.has(tag)) {
+          topicViolationCount++;
+          return false;
+        }
+        return true;
+      });
+
+      if (validQuestions.length === 0) {
+        return jsonResponse({
+          error: "All generated questions violated topic constraints",
+          error_ar: "جميع الأسئلة المولدة خالفت قيود المواضيع",
+          allowed_topics: allowedTopics,
+          topic_violation_count: topicViolationCount,
+        }, 422);
+      }
+
+      finalQuestions = validQuestions;
+      if (topicViolationCount > 0) {
+        console.log(`[generate-questions-draft] ⚠️ Filtered ${topicViolationCount} off-topic questions`);
+      }
+    }
 
     const { data: draft, error: insertError } = await adminSupabase
       .from("question_drafts")
@@ -250,9 +343,9 @@ serve(async (req) => {
         exam_template_id: exam_template_id || null,
         section_id: section_id || null,
         difficulty,
-        count: draftQuestions.length,
+        count: finalQuestions.length,
         generator_model: generatorModel,
-        draft_questions_json: draftQuestions,
+        draft_questions_json: finalQuestions,
         status: "pending_review",
       })
       .select()
@@ -263,13 +356,15 @@ serve(async (req) => {
       return jsonResponse({ error: "Failed to save draft", details: insertError.message }, 500);
     }
 
-    console.log("[generate-questions-draft] ✅ Created draft:", draft.id, "with", draftQuestions.length, "questions, lang:", contentLang);
+    console.log("[generate-questions-draft] ✅ Created draft:", draft.id, "with", finalQuestions.length, "questions, lang:", contentLang, "topic_violations:", topicViolationCount);
 
     return jsonResponse({
       ok: true,
       draft_id: draft.id,
-      question_count: draftQuestions.length,
+      question_count: finalQuestions.length,
       content_language: contentLang,
+      topic_violation_count: topicViolationCount,
+      allowed_topics: allowedTopics.length > 0 ? allowedTopics : undefined,
     });
   } catch (e) {
     console.error("[generate-questions-draft] Error:", e);
