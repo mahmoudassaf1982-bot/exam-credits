@@ -243,113 +243,156 @@ serve(async (req) => {
 
     console.log(`[generate-questions-draft] Generating ${count} questions, lang=${contentLang}, section=${sectionName || 'none'}, topics=${allowedTopics.length}, model=${generatorModel}`);
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: generatorModel,
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          { role: "user", content: finalUserPrompt },
-        ],
-      }),
-    });
+    // ── 3-step retry: generate → validate topics → retry up to 2x ──
+    const MAX_TOPIC_RETRIES = 2;
+    let retryAttempt = 0;
+    let finalQuestions: any[] = [];
+    let totalTopicViolations = 0;
+    let lastViolationDetails: { index: number; givenTag: string }[] = [];
 
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("[generate-questions-draft] AI error:", aiResponse.status, errText.substring(0, 500));
-      return jsonResponse({
-        error: aiResponse.status === 429 ? "Rate limited" : aiResponse.status === 402 ? "Insufficient credits" : "AI error",
-        details: errText.substring(0, 500),
-      }, aiResponse.status === 429 || aiResponse.status === 402 ? aiResponse.status : 500);
-    }
-
-    const aiData = await aiResponse.json();
-    const rawContent = aiData.choices?.[0]?.message?.content || "";
-
-    const cleaned = rawContent.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
-    if (!arrayMatch) {
-      return jsonResponse({ error: "Failed to parse AI output", raw_excerpt: cleaned.substring(0, 500) }, 500);
-    }
-
-    let questions: any[];
-    try {
-      questions = JSON.parse(arrayMatch[0]);
-    } catch {
-      return jsonResponse({ error: "Invalid JSON from AI", raw_excerpt: arrayMatch[0].substring(0, 500) }, 500);
-    }
-
-    if (!Array.isArray(questions) || questions.length === 0) {
-      return jsonResponse({ error: "No questions generated" }, 500);
-    }
-
-    const optionIds = ["a", "b", "c", "d"];
-    const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
-    const draftQuestions = questions.map((q: any, i: number) => {
-      // Support both new schema (options as array) and legacy (options as object)
-      let optionsArr: { id: string; textAr: string }[];
-      if (Array.isArray(q.options)) {
-        optionsArr = q.options.map((o: any) => ({
-          id: (o.id || "").toLowerCase(),
-          textAr: o.text || o.textAr || "",
-        }));
-      } else if (q.options && typeof q.options === "object") {
-        optionsArr = ["A", "B", "C", "D"].map(l => ({
-          id: l.toLowerCase(),
-          textAr: q.options[l] || "",
-        }));
-      } else {
-        optionsArr = [];
-      }
-
-      const rawCorrect = (q.correct_option_id || q.correct_answer || "A").toUpperCase();
-      const correctId = rawCorrect.toLowerCase();
-
-      return {
-        index: i,
-        text_ar: q.stem || q.question_text || "",
-        options: optionsArr,
-        correct_option_id: correctId,
-        explanation: q.explanation || "",
-        difficulty: q.difficulty || difficulty,
-        topic: q.topic_tag || q.topic || examName,
-        topic_tag: q.topic_tag || "",
-        section_id: q.section_id || section_id || null,
-        content_language: contentLang,
-      };
-    });
-
-    // ── Post-generation topic validation ──
-    let topicViolationCount = 0;
-    let finalQuestions = draftQuestions;
-    if (allowedTopics.length > 0) {
-      const normalizedTopics = new Set(allowedTopics.map(t => t.trim().toLowerCase()));
-      const validQuestions = draftQuestions.filter((q: any) => {
-        const tag = (q.topic_tag || "").trim().toLowerCase();
-        if (!tag || !normalizedTopics.has(tag)) {
-          topicViolationCount++;
-          return false;
-        }
-        return true;
+    while (retryAttempt <= MAX_TOPIC_RETRIES) {
+      // Step 1: Generate
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: generatorModel,
+          messages: [
+            { role: "system", content: finalSystemPrompt },
+            { role: "user", content: finalUserPrompt },
+          ],
+        }),
       });
 
-      if (validQuestions.length === 0) {
+      if (!aiResponse.ok) {
+        const errText = await aiResponse.text();
+        console.error("[generate-questions-draft] AI error:", aiResponse.status, errText.substring(0, 500));
         return jsonResponse({
-          error: "All generated questions violated topic constraints",
-          error_ar: "جميع الأسئلة المولدة خالفت قيود المواضيع",
-          allowed_topics: allowedTopics,
-          topic_violation_count: topicViolationCount,
-        }, 422);
+          error: aiResponse.status === 429 ? "Rate limited" : aiResponse.status === 402 ? "Insufficient credits" : "AI error",
+          details: errText.substring(0, 500),
+        }, aiResponse.status === 429 || aiResponse.status === 402 ? aiResponse.status : 500);
       }
 
-      finalQuestions = validQuestions;
-      if (topicViolationCount > 0) {
-        console.log(`[generate-questions-draft] ⚠️ Filtered ${topicViolationCount} off-topic questions`);
+      const aiData = await aiResponse.json();
+      const rawContent = aiData.choices?.[0]?.message?.content || "";
+
+      const cleaned = rawContent.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+
+      // Check for AI-reported topic_violation
+      if (cleaned.includes('"topic_violation"')) {
+        console.log(`[generate-questions-draft] ⚠️ AI reported topic_violation — retry ${retryAttempt + 1}/${MAX_TOPIC_RETRIES}`);
+        totalTopicViolations++;
+        retryAttempt++;
+        if (retryAttempt <= MAX_TOPIC_RETRIES) continue;
+        break;
       }
+
+      const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (!arrayMatch) {
+        return jsonResponse({ error: "Failed to parse AI output", raw_excerpt: cleaned.substring(0, 500) }, 500);
+      }
+
+      let questions: any[];
+      try {
+        questions = JSON.parse(arrayMatch[0]);
+      } catch {
+        return jsonResponse({ error: "Invalid JSON from AI", raw_excerpt: arrayMatch[0].substring(0, 500) }, 500);
+      }
+
+      if (!Array.isArray(questions) || questions.length === 0) {
+        return jsonResponse({ error: "No questions generated" }, 500);
+      }
+
+      // Parse questions
+      const draftQuestions = questions.map((q: any, i: number) => {
+        let optionsArr: { id: string; textAr: string }[];
+        if (Array.isArray(q.options)) {
+          optionsArr = q.options.map((o: any) => ({
+            id: (o.id || "").toLowerCase(),
+            textAr: o.text || o.textAr || "",
+          }));
+        } else if (q.options && typeof q.options === "object") {
+          optionsArr = ["A", "B", "C", "D"].map(l => ({
+            id: l.toLowerCase(),
+            textAr: q.options[l] || "",
+          }));
+        } else {
+          optionsArr = [];
+        }
+
+        const rawCorrect = (q.correct_option_id || q.correct_answer || "A").toUpperCase();
+        const correctId = rawCorrect.toLowerCase();
+
+        return {
+          index: i,
+          text_ar: q.stem || q.question_text || "",
+          options: optionsArr,
+          correct_option_id: correctId,
+          explanation: q.explanation || "",
+          difficulty: q.difficulty || difficulty,
+          topic: q.topic_tag || q.topic || examName,
+          topic_tag: q.topic_tag || "",
+          section_id: q.section_id || section_id || null,
+          content_language: contentLang,
+        };
+      });
+
+      // Step 2: Validate topic_tags
+      if (allowedTopics.length > 0) {
+        const normalizedTopics = new Set(allowedTopics.map(t => t.trim().toLowerCase()));
+        const violations: { index: number; givenTag: string }[] = [];
+        const validQuestions = draftQuestions.filter((q: any, i: number) => {
+          const tag = (q.topic_tag || "").trim().toLowerCase();
+          if (!tag || !normalizedTopics.has(tag)) {
+            violations.push({ index: i, givenTag: q.topic_tag || "(empty)" });
+            return false;
+          }
+          return true;
+        });
+
+        totalTopicViolations += violations.length;
+        lastViolationDetails = violations;
+
+        if (violations.length > 0) {
+          console.log(`[generate-questions-draft] ⚠️ Topic violations: ${violations.length}/${draftQuestions.length} — attempt ${retryAttempt + 1}/${MAX_TOPIC_RETRIES + 1}`,
+            JSON.stringify(violations.slice(0, 5)));
+        }
+
+        // If all invalid and retries remain → retry
+        if (validQuestions.length === 0 && retryAttempt < MAX_TOPIC_RETRIES) {
+          retryAttempt++;
+          continue;
+        }
+
+        // Partial success or final attempt
+        finalQuestions = validQuestions;
+      } else {
+        finalQuestions = draftQuestions;
+      }
+
+      break; // success or partial — exit retry loop
+    }
+
+    // Step 3: If still no valid questions after all retries → needs_review
+    if (finalQuestions.length === 0 && allowedTopics.length > 0) {
+      const mismatchLog = `Topic enforcement FAILED after ${retryAttempt} retries. ${totalTopicViolations} total violations. Allowed: [${allowedTopics.join(", ")}]. Sample: ${JSON.stringify(lastViolationDetails.slice(0, 5))}`;
+      console.error(`[generate-questions-draft] ❌ ${mismatchLog}`);
+      return jsonResponse({
+        error: "All generated questions violated topic constraints after retries",
+        error_ar: "جميع الأسئلة المولدة خالفت قيود المواضيع بعد المحاولات",
+        status: "needs_review",
+        allowed_topics: allowedTopics,
+        topic_violation_count: totalTopicViolations,
+        topic_violation_details: lastViolationDetails.slice(0, 10),
+        retries_exhausted: retryAttempt,
+      }, 422);
+    }
+
+    if (totalTopicViolations > 0) {
+      console.log(`[generate-questions-draft] ⚠️ Final: ${finalQuestions.length} valid questions, ${totalTopicViolations} total violations filtered across ${retryAttempt + 1} attempts`);
     }
 
     const { data: draft, error: insertError } = await adminSupabase
@@ -373,14 +416,15 @@ serve(async (req) => {
       return jsonResponse({ error: "Failed to save draft", details: insertError.message }, 500);
     }
 
-    console.log("[generate-questions-draft] ✅ Created draft:", draft.id, "with", finalQuestions.length, "questions, lang:", contentLang, "topic_violations:", topicViolationCount);
+    console.log("[generate-questions-draft] ✅ Created draft:", draft.id, "with", finalQuestions.length, "questions, lang:", contentLang, "topic_violations:", totalTopicViolations);
 
     return jsonResponse({
       ok: true,
       draft_id: draft.id,
       question_count: finalQuestions.length,
       content_language: contentLang,
-      topic_violation_count: topicViolationCount,
+      topic_violation_count: totalTopicViolations,
+      retries_used: retryAttempt,
       allowed_topics: allowedTopics.length > 0 ? allowedTopics : undefined,
     });
   } catch (e) {

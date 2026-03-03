@@ -276,22 +276,30 @@ ALLOWED_TOPICS: ${topicsJson}
 `;
 }
 
-function validateTopicTags(questions: any[], allowedTopics: string[]): { valid: any[]; violations: number } {
-  if (allowedTopics.length === 0) return { valid: questions, violations: 0 };
+interface TopicValidationResult {
+  valid: any[];
+  violations: number;
+  violationDetails: { index: number; givenTag: string; allowedTopics: string[] }[];
+}
+
+function validateTopicTags(questions: any[], allowedTopics: string[]): TopicValidationResult {
+  if (allowedTopics.length === 0) return { valid: questions, violations: 0, violationDetails: [] };
 
   const normalizedTopics = new Set(allowedTopics.map(t => t.trim().toLowerCase()));
   let violations = 0;
+  const violationDetails: { index: number; givenTag: string; allowedTopics: string[] }[] = [];
 
-  const valid = questions.filter(q => {
-    const tag = (q.topic_tag || q.topic || "").trim().toLowerCase();
+  const valid = questions.filter((q, i) => {
+    const tag = (q.topic_tag || "").trim().toLowerCase();
     if (!tag || !normalizedTopics.has(tag)) {
       violations++;
+      violationDetails.push({ index: i, givenTag: q.topic_tag || q.topic || "(empty)", allowedTopics });
       return false;
     }
     return true;
   });
 
-  return { valid, violations };
+  return { valid, violations, violationDetails };
 }
 
 async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
@@ -492,27 +500,48 @@ EXAM PROFILE DNA (MUST FOLLOW):
           };
         });
 
-        // ── Topic validation ──
+        // ── STRICT Topic validation (3-step: generate → validate → retry up to 2x → needs_review) ──
         if (allowedTopics.length > 0) {
-          const { valid, violations } = validateTopicTags(parsed, allowedTopics);
+          const { valid, violations, violationDetails } = validateTopicTags(parsed, allowedTopics);
           totalTopicViolations += violations;
 
+          if (violations > 0) {
+            console.log(`[ai-worker] ⚠️ Topic violations: ${violations}/${parsed.length} — retry ${retryCount + 1}/${MAX_TOPIC_RETRIES}`, 
+              JSON.stringify(violationDetails.slice(0, 5)));
+          }
+
+          // Step 2: If violations exist and retries remain, regenerate
           if (violations > 0 && retryCount < MAX_TOPIC_RETRIES) {
-            console.log(`[ai-worker] ⚠️ Topic violations: ${violations}/${parsed.length} — retry ${retryCount + 1}/${MAX_TOPIC_RETRIES}`);
             retryCount++;
-            await sleep(1000);
+            await sleep(1500);
             continue;
           }
 
+          // Step 3: All retries exhausted — if still no valid questions, mark needs_review
           if (valid.length === 0 && violations > 0) {
-            console.log(`[ai-worker] ❌ All questions had invalid topics after ${retryCount} retries`);
+            const mismatchLog = `Topic enforcement FAILED after ${retryCount} retries. ${violations} violations, 0 valid. Allowed: [${allowedTopics.join(", ")}]. Sample violations: ${JSON.stringify(violationDetails.slice(0, 3))}`;
+            console.log(`[ai-worker] ❌ ${mismatchLog}`);
+
             await admin.from("ai_job_items").update({
               status: "failed",
-              error: `Topic validation failed: ${violations} violations, 0 valid questions. Allowed: ${allowedTopics.join(", ")}`,
+              error: mismatchLog,
               finished_at: new Date().toISOString(),
             }).eq("id", item.id);
             totalFailed++;
-            break;
+
+            // Set job to needs_review so admin can investigate
+            await admin.from("ai_jobs").update({
+              status: "needs_review",
+              last_error: mismatchLog,
+              params_json: { ...params, topic_violation_count: totalTopicViolations, topic_violation_details: violationDetails.slice(0, 10) },
+            }).eq("id", job.id);
+            console.log(`[ai-worker] 🔍 Job ${job.id} → needs_review due to unresolvable topic violations`);
+            return; // abort entire job
+          }
+
+          // Partial success: some valid questions survived
+          if (violations > 0) {
+            console.log(`[ai-worker] ⚠️ Partial topic compliance: ${valid.length}/${parsed.length} passed after ${retryCount} retries`);
           }
 
           batchQuestions = valid;
@@ -651,12 +680,23 @@ async function finalizeGenerateJob(admin: any, job: any) {
   }
 
   // Determine final status
-  const { data: finalItems } = await admin.from("ai_job_items").select("status").eq("job_id", job.id);
+  const { data: finalItems } = await admin.from("ai_job_items").select("status, error").eq("job_id", job.id);
   const pending = finalItems?.filter((i: any) => i.status === "pending" || i.status === "running").length || 0;
   const failed = finalItems?.filter((i: any) => i.status === "failed").length || 0;
+  const topicFailures = finalItems?.filter((i: any) => i.status === "failed" && i.error?.includes("Topic")).length || 0;
 
   if (pending > 0) {
     await admin.from("ai_jobs").update({ status: "partial", locked_by: null, locked_at: null }).eq("id", job.id);
+  } else if (topicFailures > 0 && validatedQuestions.length === 0) {
+    // All items failed due to topic violations — needs admin review
+    await admin.from("ai_jobs").update({
+      status: "needs_review",
+      last_error: `All items failed topic validation. ${topicFailures} topic-related failures.`,
+      finished_at: new Date().toISOString(),
+      locked_by: null,
+      locked_at: null,
+    }).eq("id", job.id);
+    console.log(`[ai-worker] 🔍 Job ${job.id} → needs_review (finalization: all topic failures)`);
   } else if (failed === finalItems?.length) {
     await releaseJob(admin, job.id, "failed", "All items failed");
   } else {
