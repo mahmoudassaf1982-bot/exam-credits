@@ -393,10 +393,12 @@ EXAM PROFILE DNA (MUST FOLLOW):
 `;
   }
 
-  // Include topic_tag in the required JSON schema
-  const topicTagField = allowedTopics.length > 0
-    ? `"topic_tag": string (MUST be one of: ${allowedTopics.map(t => `"${t}"`).join(", ")}),`
-    : "";
+  // Build the required JSON schema for AI output (new standardized format)
+  const topicFields = allowedTopics.length > 0
+    ? `"section_id": "${sectionId}", "topic_tag": string (MUST be one of: ${allowedTopics.map(t => `"${t}"`).join(", ")}),`
+    : `"section_id": string,`;
+
+  const outputSchema = `{ ${topicFields} "stem": string, "options": [{"id":"A","text":string},{"id":"B","text":string},{"id":"C","text":string},{"id":"D","text":string}], "correct_option_id": "A"|"B"|"C"|"D", "explanation": string, "difficulty": "${difficulty}" }`;
 
   for (const item of items) {
     if (item.attempt_count >= MAX_ITEM_RETRIES && item.status === "failed") continue;
@@ -406,11 +408,11 @@ EXAM PROFILE DNA (MUST FOLLOW):
     const batchCount = item.input_json.count || 10;
 
     const systemPrompt = contentLang === "en"
-      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, ${topicTagField} "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`
-      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: { "question_text": string, "options": {"A":string,"B":string,"C":string,"D":string}, "correct_answer": "A"|"B"|"C"|"D", "explanation": string, ${topicTagField} "metadata": {"section":string,"difficulty":"${difficulty}","topic":string} }`;
+      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: ${outputSchema}`
+      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: ${outputSchema}`;
 
     const sectionContext = sectionName ? ` for section "${sectionName}"` : "";
-    const userPrompt = `Generate exactly ${batchCount} questions at difficulty "${difficulty}" for "${examName}" (${countryName})${sectionContext}. ${allowedTopics.length > 0 ? `ONLY from topics: ${allowedTopics.join(", ")}. Each question MUST include topic_tag.` : ""} Return JSON array ONLY.`;
+    const userPrompt = `Generate exactly ${batchCount} questions at difficulty "${difficulty}" for "${examName}" (${countryName})${sectionContext}. ${allowedTopics.length > 0 ? `ONLY from topics: ${allowedTopics.join(", ")}. Each question MUST include section_id and topic_tag.` : ""} Return JSON array ONLY.`;
 
     let batchQuestions: any[] = [];
     let retryCount = 0;
@@ -455,25 +457,37 @@ EXAM PROFILE DNA (MUST FOLLOW):
         if (!arrayMatch) throw new Error("No JSON array found");
 
         const questions = JSON.parse(arrayMatch[0]);
-        const optionIds = ["a", "b", "c", "d"];
-        const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
 
+        // Parse with backward-compatible support for both old and new schemas
         const parsed = questions.map((q: any, i: number) => {
-          const opts = q.options;
-          const optionsArr = opts && typeof opts === "object" && !Array.isArray(opts)
-            ? [opts.A, opts.B, opts.C, opts.D]
-            : Array.isArray(opts) ? opts : [];
-          const correctIdx = letterToIndex[q.correct_answer?.toUpperCase()] ?? 0;
+          let optionsArr: { id: string; textAr: string }[];
+          if (Array.isArray(q.options)) {
+            optionsArr = q.options.map((o: any) => ({
+              id: (o.id || "").toLowerCase(),
+              textAr: o.text || o.textAr || "",
+            }));
+          } else if (q.options && typeof q.options === "object") {
+            optionsArr = ["A", "B", "C", "D"].map(l => ({
+              id: l.toLowerCase(),
+              textAr: q.options[l] || "",
+            }));
+          } else {
+            optionsArr = [];
+          }
+
+          const rawCorrect = (q.correct_option_id || q.correct_answer || "A").toUpperCase();
+          const correctId = rawCorrect.toLowerCase();
+
           return {
             index: allGeneratedQuestions.length + i,
-            text_ar: q.question_text || "",
-            options: optionsArr.map((text: string, idx: number) => ({ id: optionIds[idx], textAr: text || "" })),
-            correct_option_id: optionIds[correctIdx],
+            text_ar: q.stem || q.question_text || "",
+            options: optionsArr,
+            correct_option_id: correctId,
             explanation: q.explanation || "",
-            difficulty: q.metadata?.difficulty || difficulty,
-            topic: q.topic_tag || q.metadata?.topic || q.metadata?.section || examName,
-            topic_tag: q.topic_tag || q.metadata?.topic || "",
-            section_id: sectionId,
+            difficulty: q.difficulty || difficulty,
+            topic: q.topic_tag || q.topic || examName,
+            topic_tag: q.topic_tag || "",
+            section_id: q.section_id || sectionId,
             content_language: contentLang,
           };
         });

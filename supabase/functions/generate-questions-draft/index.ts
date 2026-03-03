@@ -70,11 +70,13 @@ CRITICAL: Every single character of output must be English. Zero Arabic allowed.
 
 Return JSON array with this schema per item:
 {
-  "question_text": string (ENGLISH ONLY),
-  "options": { "A": string, "B": string, "C": string, "D": string },
-  "correct_answer": "A" | "B" | "C" | "D",
+  "section_id": string,
+  "topic_tag": string,
+  "stem": string (ENGLISH ONLY),
+  "options": [{"id":"A","text":string},{"id":"B","text":string},{"id":"C","text":string},{"id":"D","text":string}],
+  "correct_option_id": "A" | "B" | "C" | "D",
   "explanation": string (ENGLISH ONLY),
-  "metadata": { "section": string, "difficulty": "${difficulty}", "topic": string (ENGLISH ONLY) }
+  "difficulty": "${difficulty}"
 }
 ⚠️ Return JSON array ONLY.`;
 
@@ -110,11 +112,13 @@ Context: ${examName} - ${countryName}`;
   const user = `Generate exactly ${count} questions at difficulty "${diffAr}" for "${examName}" (${countryName}).
 Return JSON array with this schema per item:
 {
-  "question_text": string (Arabic),
-  "options": { "A": string, "B": string, "C": string, "D": string },
-  "correct_answer": "A" | "B" | "C" | "D",
+  "section_id": string,
+  "topic_tag": string,
+  "stem": string (Arabic),
+  "options": [{"id":"A","text":string},{"id":"B","text":string},{"id":"C","text":string},{"id":"D","text":string}],
+  "correct_option_id": "A" | "B" | "C" | "D",
   "explanation": string,
-  "metadata": { "section": string, "difficulty": "${difficulty}", "topic": string }
+  "difficulty": "${difficulty}"
 }
 ⚠️ Return JSON array ONLY.`;
 
@@ -286,22 +290,35 @@ serve(async (req) => {
     const optionIds = ["a", "b", "c", "d"];
     const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
     const draftQuestions = questions.map((q: any, i: number) => {
-      const opts = q.options;
-      const optionsArr = opts && typeof opts === "object" && !Array.isArray(opts)
-        ? [opts.A, opts.B, opts.C, opts.D]
-        : Array.isArray(opts) ? opts : [];
+      // Support both new schema (options as array) and legacy (options as object)
+      let optionsArr: { id: string; textAr: string }[];
+      if (Array.isArray(q.options)) {
+        optionsArr = q.options.map((o: any) => ({
+          id: (o.id || "").toLowerCase(),
+          textAr: o.text || o.textAr || "",
+        }));
+      } else if (q.options && typeof q.options === "object") {
+        optionsArr = ["A", "B", "C", "D"].map(l => ({
+          id: l.toLowerCase(),
+          textAr: q.options[l] || "",
+        }));
+      } else {
+        optionsArr = [];
+      }
 
-      const correctIdx = letterToIndex[q.correct_answer?.toUpperCase()] ?? 0;
+      const rawCorrect = (q.correct_option_id || q.correct_answer || "A").toUpperCase();
+      const correctId = rawCorrect.toLowerCase();
+
       return {
         index: i,
-        text_ar: q.question_text || "",
-        options: optionsArr.map((text: string, idx: number) => ({ id: optionIds[idx], textAr: text || "" })),
-        correct_option_id: optionIds[correctIdx],
+        text_ar: q.stem || q.question_text || "",
+        options: optionsArr,
+        correct_option_id: correctId,
         explanation: q.explanation || "",
-        difficulty: q.metadata?.difficulty || difficulty,
-        topic: q.topic_tag || q.metadata?.topic || q.metadata?.section || examName,
-        topic_tag: q.topic_tag || q.metadata?.topic || "",
-        section_id: section_id || null,
+        difficulty: q.difficulty || difficulty,
+        topic: q.topic_tag || q.topic || examName,
+        topic_tag: q.topic_tag || "",
+        section_id: q.section_id || section_id || null,
         content_language: contentLang,
       };
     });
