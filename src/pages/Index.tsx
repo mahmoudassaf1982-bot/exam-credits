@@ -1,9 +1,16 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, BookOpen, Brain, BarChart3, Sparkles, Users, Coins, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Index() {
+  const { isAuthenticated, loading } = useAuth();
+
+  // Redirect authenticated users to app (fixes Google OAuth landing on "/" issue)
+  if (!loading && isAuthenticated) {
+    return <Navigate to="/app" replace />;
+  }
   return (
     <div className="min-h-screen bg-background">
       {/* Nav */}

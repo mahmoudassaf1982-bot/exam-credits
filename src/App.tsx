@@ -37,6 +37,8 @@ import AdminAIReviewQueue from "./pages/admin/AdminAIReviewQueue";
 import AdminBankHealth from "./pages/admin/AdminBankHealth";
 import AdminJobs from "./pages/admin/AdminJobs";
 import AdminExamProfiles from "./pages/admin/AdminExamProfiles";
+import ChooseCountry from "./pages/ChooseCountry";
+import Welcome from "./pages/Welcome";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -63,6 +65,8 @@ const App = () => (
             <Route path="/auth/login" element={<Auth />} />
             <Route path="/auth/register" element={<Auth />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/choose-country" element={<ChooseCountry />} />
+            <Route path="/welcome" element={<Welcome />} />
 
             {/* App routes - protected */}
             <Route path="/app" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />

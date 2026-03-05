@@ -49,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isDiamond: profileRes.data.is_diamond,
         referralCode: profileRes.data.referral_code || '',
         isAdmin: roles.includes('admin'),
+        welcomeSeen: (profileRes.data as any).welcome_seen ?? true,
         createdAt: profileRes.data.created_at,
       });
     }
