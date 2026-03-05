@@ -8,6 +8,7 @@ export interface User {
   diamondExpiresAt?: string;
   referralCode: string;
   isAdmin: boolean;
+  welcomeSeen: boolean;
   createdAt: string;
 }
 

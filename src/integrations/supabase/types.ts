@@ -725,6 +725,7 @@ export type Database = {
           is_diamond: boolean
           name: string
           referral_code: string | null
+          welcome_seen: boolean
         }
         Insert: {
           country_id?: string
@@ -735,6 +736,7 @@ export type Database = {
           is_diamond?: boolean
           name?: string
           referral_code?: string | null
+          welcome_seen?: boolean
         }
         Update: {
           country_id?: string
@@ -745,6 +747,7 @@ export type Database = {
           is_diamond?: boolean
           name?: string
           referral_code?: string | null
+          welcome_seen?: boolean
         }
         Relationships: []
       }

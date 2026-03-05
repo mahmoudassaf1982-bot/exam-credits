@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { useEffect } from 'react';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading, session } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
   const navigate = useNavigate();
 
   // Redirect to login immediately when session becomes null (after logout)
@@ -24,6 +24,15 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/auth/login" replace />;
+  }
+
+  // Onboarding guards: country selection → welcome page
+  if (user && (!user.countryId || user.countryId.length === 0)) {
+    return <Navigate to="/choose-country" replace />;
+  }
+
+  if (user && !user.welcomeSeen) {
+    return <Navigate to="/welcome" replace />;
   }
 
   return <>{children}</>;
