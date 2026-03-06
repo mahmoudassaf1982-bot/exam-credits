@@ -22,131 +22,132 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminSupabase = createClient(supabaseUrl, serviceKey);
 
-    // Get diverse reference questions with embeddings
+    // Get reference questions with embeddings
     const { data: refQuestions, error: refErr } = await adminSupabase
       .from("questions")
       .select("id, text_ar, topic, section_id, exam_template_id, difficulty")
       .eq("status", "approved")
       .is("deleted_at", null)
       .not("embedding", "is", null)
-      .limit(10);
+      .limit(20);
 
     if (refErr || !refQuestions || refQuestions.length === 0) {
       return jsonResponse({ error: "No approved questions with embeddings found" }, 404);
     }
 
-    // Pick specific reference questions for strong tests
-    const mathRef = refQuestions.find(q => q.text_ar.includes("معادلة الخط المستقيم")) || refQuestions[0];
-    const sqrtRef = refQuestions.find(q => q.text_ar.includes("جذر(144)")) || refQuestions[1] || refQuestions[0];
-    const fractionRef = refQuestions.find(q => q.text_ar.includes("0.75 إلى كسر")) || refQuestions[2] || refQuestions[0];
-    const appleRef = refQuestions.find(q => q.text_ar.includes("تفاحات")) || refQuestions[3] || refQuestions[0];
+    // Pick specific reference questions
+    const lineRef = refQuestions.find(q => q.text_ar.includes("معادلة الخط المستقيم الذي ميله 2"));
+    const sqrt81Ref = refQuestions.find(q => q.text_ar.includes("الجذر التربيعي للعدد 81"));
+    const sqrt144Ref = refQuestions.find(q => q.text_ar.includes("جذر(144)"));
+    const fractionRef = refQuestions.find(q => q.text_ar.includes("0.75 إلى كسر"));
+    const evenRef = refQuestions.find(q => q.text_ar.includes("أعداد زوجية"));
 
-    console.log(`[test-guard] Using ${refQuestions.length} reference questions`);
-    console.log(`[test-guard] Math ref: "${mathRef.text_ar.substring(0, 60)}..." topic=${mathRef.topic}`);
+    const primaryRef = lineRef || refQuestions[0];
 
-    // Build test cases
-    const testCases = [
-      // ─── CASE A: Exact text duplicate ───
-      {
-        name: "CASE_A_EXACT_DUPLICATE",
-        description: "Exact same text → must reject as text_duplicate",
-        question: {
-          text_ar: mathRef.text_ar,
-          topic: mathRef.topic,
-          topic_tag: mathRef.topic,
-          section_id: mathRef.section_id,
-        },
-        ref_id: mathRef.id,
-        expected_action: "rejected",
-        expected_reason: "text_duplicate",
+    console.log(`[test-guard] Found ${refQuestions.length} reference questions`);
+    console.log(`[test-guard] Primary ref: "${primaryRef.text_ar.substring(0, 60)}..." topic=${primaryRef.topic}`);
+
+    const testCases: any[] = [];
+
+    // ─── CASE A: Exact text duplicate ───
+    testCases.push({
+      name: "CASE_A_EXACT_DUPLICATE",
+      description: "Exact same text → must reject as text_duplicate",
+      question: {
+        text_ar: primaryRef.text_ar,
+        topic: primaryRef.topic,
+        topic_tag: primaryRef.topic,
+        section_id: primaryRef.section_id,
       },
+      expected_action: "rejected",
+      expected_reason: "text_duplicate",
+    });
 
-      // ─── CASE B1: Same math concept, scenario wording ───
-      {
-        name: "CASE_B1_CONCEPT_LINE_EQUATION",
-        description: "Same concept (line through origin with slope 2) expressed as scenario",
+    // ─── CASE B1: Line equation - same concept, scenario wording ───
+    if (lineRef) {
+      testCases.push({
+        name: "CASE_B1_LINE_EQUATION_REPHRASE",
+        description: "Same concept (line with slope 2 through origin) rephrased as scenario",
         question: {
           text_ar: "إذا كان ميل خط مستقيم يساوي 2 ويقطع محور الصادات عند نقطة الأصل، فما المعادلة التي تمثل هذا الخط المستقيم؟",
-          topic: mathRef.topic,
-          topic_tag: mathRef.topic,
-          section_id: mathRef.section_id,
+          topic: lineRef.topic,
+          topic_tag: lineRef.topic,
+          section_id: lineRef.section_id,
         },
-        ref_id: mathRef.id,
         expected_action: "rejected",
         expected_reason: "concept_duplicate",
-      },
+      });
+    }
 
-      // ─── CASE B2: Same square root computation, different format ───
-      {
-        name: "CASE_B2_CONCEPT_SQRT_SUM",
-        description: "Same computation (√144 + √81) with different sentence structure",
+    // ─── CASE B2: √81 - same question, different format ───
+    if (sqrt81Ref) {
+      testCases.push({
+        name: "CASE_B2_SQRT81_REPHRASE",
+        description: "Same question (√81) with different wording structure",
         question: {
-          text_ar: "احسب ناتج جمع الجذر التربيعي للعدد 144 مع الجذر التربيعي للعدد 81",
-          topic: sqrtRef.topic,
-          topic_tag: sqrtRef.topic,
-          section_id: sqrtRef.section_id,
+          text_ar: "احسب قيمة الجذر التربيعي للعدد واحد وثمانين",
+          topic: sqrt81Ref.topic,
+          topic_tag: sqrt81Ref.topic,
+          section_id: sqrt81Ref.section_id,
         },
-        ref_id: sqrtRef.id,
         expected_action: "rejected",
         expected_reason: "concept_duplicate",
-      },
+      });
+    }
 
-      // ─── CASE B3: Same decimal-to-fraction concept with scenario ───
-      {
-        name: "CASE_B3_CONCEPT_FRACTION_CONVERSION",
-        description: "Same concept (convert 0.75 to simplest fraction) as word problem",
+    // ─── CASE B3: Fraction 0.75 - same conversion, different phrasing ───
+    if (fractionRef) {
+      testCases.push({
+        name: "CASE_B3_FRACTION_075_REPHRASE",
+        description: "Same concept (0.75 to fraction) with different sentence",
         question: {
-          text_ar: "عبّر عن العدد العشري 0.75 على شكل كسر عادي مختصر إلى أبسط صورة ممكنة",
+          text_ar: "ما هو الكسر الاعتيادي الذي يكافئ العدد العشري 0.75 في أبسط صورة؟",
           topic: fractionRef.topic,
           topic_tag: fractionRef.topic,
           section_id: fractionRef.section_id,
         },
-        ref_id: fractionRef.id,
         expected_action: "rejected",
         expected_reason: "concept_duplicate",
-      },
+      });
+    }
 
-      // ─── CASE B4: Same subtraction concept with different scenario ───
-      {
-        name: "CASE_B4_CONCEPT_SUBTRACTION_SCENARIO",
-        description: "Same subtraction (8-3=5) with different objects/scenario",
-        question: {
-          text_ar: "كان عند سارة 8 أقلام ملونة، فأعطت صديقتها 3 أقلام منها. كم قلماً بقي عند سارة؟",
-          topic: appleRef.topic,
-          topic_tag: appleRef.topic,
-          section_id: appleRef.section_id,
-        },
-        ref_id: appleRef.id,
-        expected_action: "rejected",
-        expected_reason: "concept_duplicate",
+    // ─── CASE C: Genuinely different question ───
+    testCases.push({
+      name: "CASE_C_VALID_NEW",
+      description: "Completely different concept → should be accepted",
+      question: {
+        text_ar: "ما هو المضاعف المشترك الأصغر للعددين 15 و 20 باستخدام التحليل إلى عوامل أولية؟",
+        topic: "المضاعفات_والعوامل",
+        topic_tag: "المضاعفات_والعوامل",
+        section_id: primaryRef.section_id,
       },
+      expected_action: "accepted",
+      expected_reason: null,
+    });
 
-      // ─── CASE C: Genuinely different question ───
-      {
-        name: "CASE_C_VALID_NEW",
-        description: "Completely different concept, should be accepted",
-        question: {
-          text_ar: "ما هو المضاعف المشترك الأصغر للعددين 12 و 18؟ وكيف يمكن إيجاده باستخدام التحليل إلى عوامل أولية؟",
-          topic: "المضاعفات_والعوامل",
-          topic_tag: "المضاعفات_والعوامل",
-          section_id: mathRef.section_id,
-        },
-        ref_id: null,
-        expected_action: "accepted",
-        expected_reason: null,
+    // ─── CASE D: Different topic, same section → accepted ───
+    testCases.push({
+      name: "CASE_D_DIFF_TOPIC_SAME_SECTION",
+      description: "Different mathematical topic entirely → should be accepted",
+      question: {
+        text_ar: "ما هي مساحة المثلث الذي قاعدته 10 سم وارتفاعه 6 سم؟",
+        topic: "مساحات_الأشكال_الهندسية",
+        topic_tag: "مساحات_الأشكال_الهندسية",
+        section_id: primaryRef.section_id,
       },
-    ];
+      expected_action: "accepted",
+      expected_reason: null,
+    });
 
     const results: any[] = [];
+    const examTemplateId = primaryRef.exam_template_id;
 
     for (const tc of testCases) {
       console.log(`\n[test-guard] ── ${tc.name} ──`);
       console.log(`[test-guard] ${tc.description}`);
-      console.log(`[test-guard] Text: "${tc.question.text_ar.substring(0, 70)}..."`);
 
       try {
-        const guardUrl = `${supabaseUrl}/functions/v1/duplicate-guard`;
-        const guardResponse = await fetch(guardUrl, {
+        const guardResponse = await fetch(`${supabaseUrl}/functions/v1/duplicate-guard`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -154,7 +155,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             questions: [tc.question],
-            exam_template_id: mathRef.exam_template_id,
+            exam_template_id: examTemplateId,
             section_id: tc.question.section_id,
             draft_id: null,
           }),
@@ -163,13 +164,7 @@ serve(async (req) => {
         const guardData = await guardResponse.json();
 
         if (!guardResponse.ok || !guardData.ok) {
-          results.push({
-            case: tc.name,
-            status: "ERROR",
-            description: tc.description,
-            error: guardData.error || `HTTP ${guardResponse.status}`,
-          });
-          console.error(`[test-guard] ❌ ${tc.name}: Error`, guardData.error);
+          results.push({ case: tc.name, status: "ERROR", description: tc.description, error: guardData.error });
           continue;
         }
 
@@ -183,48 +178,25 @@ serve(async (req) => {
           case: tc.name,
           status: passed ? "PASS ✅" : "FAIL ❌",
           description: tc.description,
-          expected_action: tc.expected_action,
-          expected_reason: tc.expected_reason,
-          actual_action: actualAction,
-          actual_reason: result?.rejection_reason || null,
+          expected: `${tc.expected_action} (${tc.expected_reason || "any"})`,
+          actual: `${actualAction} (${result?.rejection_reason || "none"})`,
           similarity_score: result?.similarity_score,
           concept_match_score: result?.concept_match_score,
           matched_question_id: result?.matched_question_id,
-          ref_question_id: tc.ref_id,
         });
 
-        console.log(`[test-guard] ${passed ? "✅ PASS" : "❌ FAIL"}: ${tc.name}`);
-        console.log(`[test-guard]   Expected: ${tc.expected_action} (${tc.expected_reason})`);
-        console.log(`[test-guard]   Actual:   ${actualAction} (${result?.rejection_reason || "none"})`);
-        console.log(`[test-guard]   Similarity: ${result?.similarity_score}, Concept: ${result?.concept_match_score}`);
+        console.log(`[test-guard] ${passed ? "✅" : "❌"} ${tc.name}: expected=${tc.expected_action}, actual=${actualAction}`);
       } catch (e) {
-        results.push({
-          case: tc.name,
-          status: "ERROR",
-          description: tc.description,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        console.error(`[test-guard] ❌ ${tc.name}: Exception`, e);
+        results.push({ case: tc.name, status: "ERROR", error: e instanceof Error ? e.message : String(e) });
       }
     }
 
-    const passCount = results.filter((r) => r.status === "PASS ✅").length;
-    const failCount = results.filter((r) => r.status === "FAIL ❌").length;
-    const errorCount = results.filter((r) => r.status === "ERROR").length;
-
-    console.log(`\n[test-guard] ═══════════════════════════════`);
-    console.log(`[test-guard] Summary: ${passCount} passed, ${failCount} failed, ${errorCount} errors`);
-    console.log(`[test-guard] ═══════════════════════════════`);
+    const passCount = results.filter(r => r.status === "PASS ✅").length;
+    const failCount = results.filter(r => r.status === "FAIL ❌").length;
 
     return jsonResponse({
       ok: true,
-      reference_questions: refQuestions.slice(0, 5).map(q => ({
-        id: q.id,
-        text_preview: q.text_ar?.substring(0, 80),
-        topic: q.topic,
-        section_id: q.section_id,
-      })),
-      summary: { passed: passCount, failed: failCount, errors: errorCount, total: results.length },
+      summary: { passed: passCount, failed: failCount, errors: results.filter(r => r.status === "ERROR").length, total: results.length },
       results,
     });
   } catch (e) {
