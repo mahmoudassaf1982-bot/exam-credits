@@ -22,67 +22,116 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminSupabase = createClient(supabaseUrl, serviceKey);
 
-    // Step 1: Get a real question from the bank to use as reference
+    // Get diverse reference questions with embeddings
     const { data: refQuestions, error: refErr } = await adminSupabase
       .from("questions")
       .select("id, text_ar, topic, section_id, exam_template_id, difficulty")
       .eq("status", "approved")
-      .not("deleted_at", "is", null)
       .is("deleted_at", null)
-      .limit(1);
+      .not("embedding", "is", null)
+      .limit(10);
 
     if (refErr || !refQuestions || refQuestions.length === 0) {
-      // Try without status filter
-      const { data: anyQ, error: anyErr } = await adminSupabase
-        .from("questions")
-        .select("id, text_ar, topic, section_id, exam_template_id, difficulty")
-        .is("deleted_at", null)
-        .limit(1);
-
-      if (anyErr || !anyQ || anyQ.length === 0) {
-        return jsonResponse({ error: "No questions found in the bank to test against" }, 404);
-      }
-      refQuestions!.push(...anyQ);
+      return jsonResponse({ error: "No approved questions with embeddings found" }, 404);
     }
 
-    const ref = refQuestions![0];
-    console.log(`[test-guard] Reference question: "${ref.text_ar?.substring(0, 80)}..." (id=${ref.id})`);
+    // Pick specific reference questions for strong tests
+    const mathRef = refQuestions.find(q => q.text_ar.includes("معادلة الخط المستقيم")) || refQuestions[0];
+    const sqrtRef = refQuestions.find(q => q.text_ar.includes("جذر(144)")) || refQuestions[1] || refQuestions[0];
+    const fractionRef = refQuestions.find(q => q.text_ar.includes("0.75 إلى كسر")) || refQuestions[2] || refQuestions[0];
+    const appleRef = refQuestions.find(q => q.text_ar.includes("تفاحات")) || refQuestions[3] || refQuestions[0];
+
+    console.log(`[test-guard] Using ${refQuestions.length} reference questions`);
+    console.log(`[test-guard] Math ref: "${mathRef.text_ar.substring(0, 60)}..." topic=${mathRef.topic}`);
 
     // Build test cases
     const testCases = [
+      // ─── CASE A: Exact text duplicate ───
       {
         name: "CASE_A_EXACT_DUPLICATE",
-        description: "Exact same text as existing question",
+        description: "Exact same text → must reject as text_duplicate",
         question: {
-          text_ar: ref.text_ar,
-          topic: ref.topic,
-          topic_tag: ref.topic,
-          section_id: ref.section_id,
+          text_ar: mathRef.text_ar,
+          topic: mathRef.topic,
+          topic_tag: mathRef.topic,
+          section_id: mathRef.section_id,
         },
+        ref_id: mathRef.id,
         expected_action: "rejected",
         expected_reason: "text_duplicate",
       },
+
+      // ─── CASE B1: Same math concept, scenario wording ───
       {
-        name: "CASE_B_CONCEPT_DUPLICATE",
-        description: "Same concept, different wording",
+        name: "CASE_B1_CONCEPT_LINE_EQUATION",
+        description: "Same concept (line through origin with slope 2) expressed as scenario",
         question: {
-          text_ar: rewordQuestion(ref.text_ar),
-          topic: ref.topic,
-          topic_tag: ref.topic,
-          section_id: ref.section_id,
+          text_ar: "إذا كان ميل خط مستقيم يساوي 2 ويقطع محور الصادات عند نقطة الأصل، فما المعادلة التي تمثل هذا الخط المستقيم؟",
+          topic: mathRef.topic,
+          topic_tag: mathRef.topic,
+          section_id: mathRef.section_id,
         },
+        ref_id: mathRef.id,
         expected_action: "rejected",
         expected_reason: "concept_duplicate",
       },
+
+      // ─── CASE B2: Same square root computation, different format ───
+      {
+        name: "CASE_B2_CONCEPT_SQRT_SUM",
+        description: "Same computation (√144 + √81) with different sentence structure",
+        question: {
+          text_ar: "احسب ناتج جمع الجذر التربيعي للعدد 144 مع الجذر التربيعي للعدد 81",
+          topic: sqrtRef.topic,
+          topic_tag: sqrtRef.topic,
+          section_id: sqrtRef.section_id,
+        },
+        ref_id: sqrtRef.id,
+        expected_action: "rejected",
+        expected_reason: "concept_duplicate",
+      },
+
+      // ─── CASE B3: Same decimal-to-fraction concept with scenario ───
+      {
+        name: "CASE_B3_CONCEPT_FRACTION_CONVERSION",
+        description: "Same concept (convert 0.75 to simplest fraction) as word problem",
+        question: {
+          text_ar: "عبّر عن العدد العشري 0.75 على شكل كسر عادي مختصر إلى أبسط صورة ممكنة",
+          topic: fractionRef.topic,
+          topic_tag: fractionRef.topic,
+          section_id: fractionRef.section_id,
+        },
+        ref_id: fractionRef.id,
+        expected_action: "rejected",
+        expected_reason: "concept_duplicate",
+      },
+
+      // ─── CASE B4: Same subtraction concept with different scenario ───
+      {
+        name: "CASE_B4_CONCEPT_SUBTRACTION_SCENARIO",
+        description: "Same subtraction (8-3=5) with different objects/scenario",
+        question: {
+          text_ar: "كان عند سارة 8 أقلام ملونة، فأعطت صديقتها 3 أقلام منها. كم قلماً بقي عند سارة؟",
+          topic: appleRef.topic,
+          topic_tag: appleRef.topic,
+          section_id: appleRef.section_id,
+        },
+        ref_id: appleRef.id,
+        expected_action: "rejected",
+        expected_reason: "concept_duplicate",
+      },
+
+      // ─── CASE C: Genuinely different question ───
       {
         name: "CASE_C_VALID_NEW",
-        description: "Completely different question, same section",
+        description: "Completely different concept, should be accepted",
         question: {
-          text_ar: "ما هو الفرق بين المتغير المستقل والمتغير التابع في التجربة العلمية؟ وكيف يمكن التمييز بينهما في سياق البحث التجريبي المنهجي؟",
-          topic: "منهجية_البحث_العلمي_التجريبي",
-          topic_tag: "منهجية_البحث_العلمي_التجريبي",
-          section_id: ref.section_id,
+          text_ar: "ما هو المضاعف المشترك الأصغر للعددين 12 و 18؟ وكيف يمكن إيجاده باستخدام التحليل إلى عوامل أولية؟",
+          topic: "المضاعفات_والعوامل",
+          topic_tag: "المضاعفات_والعوامل",
+          section_id: mathRef.section_id,
         },
+        ref_id: null,
         expected_action: "accepted",
         expected_reason: null,
       },
@@ -91,9 +140,9 @@ serve(async (req) => {
     const results: any[] = [];
 
     for (const tc of testCases) {
-      console.log(`\n[test-guard] ── Running: ${tc.name} ──`);
-      console.log(`[test-guard] Description: ${tc.description}`);
-      console.log(`[test-guard] Text: "${tc.question.text_ar.substring(0, 80)}..."`);
+      console.log(`\n[test-guard] ── ${tc.name} ──`);
+      console.log(`[test-guard] ${tc.description}`);
+      console.log(`[test-guard] Text: "${tc.question.text_ar.substring(0, 70)}..."`);
 
       try {
         const guardUrl = `${supabaseUrl}/functions/v1/duplicate-guard`;
@@ -105,8 +154,8 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             questions: [tc.question],
-            exam_template_id: ref.exam_template_id,
-            section_id: ref.section_id,
+            exam_template_id: mathRef.exam_template_id,
+            section_id: tc.question.section_id,
             draft_id: null,
           }),
         });
@@ -119,9 +168,8 @@ serve(async (req) => {
             status: "ERROR",
             description: tc.description,
             error: guardData.error || `HTTP ${guardResponse.status}`,
-            expected_action: tc.expected_action,
           });
-          console.error(`[test-guard] ❌ ${tc.name}: Guard returned error`, guardData.error);
+          console.error(`[test-guard] ❌ ${tc.name}: Error`, guardData.error);
           continue;
         }
 
@@ -142,6 +190,7 @@ serve(async (req) => {
           similarity_score: result?.similarity_score,
           concept_match_score: result?.concept_match_score,
           matched_question_id: result?.matched_question_id,
+          ref_question_id: tc.ref_id,
         });
 
         console.log(`[test-guard] ${passed ? "✅ PASS" : "❌ FAIL"}: ${tc.name}`);
@@ -169,13 +218,12 @@ serve(async (req) => {
 
     return jsonResponse({
       ok: true,
-      reference_question: {
-        id: ref.id,
-        text_preview: ref.text_ar?.substring(0, 100),
-        topic: ref.topic,
-        exam_template_id: ref.exam_template_id,
-        section_id: ref.section_id,
-      },
+      reference_questions: refQuestions.slice(0, 5).map(q => ({
+        id: q.id,
+        text_preview: q.text_ar?.substring(0, 80),
+        topic: q.topic,
+        section_id: q.section_id,
+      })),
       summary: { passed: passCount, failed: failCount, errors: errorCount, total: results.length },
       results,
     });
@@ -184,32 +232,3 @@ serve(async (req) => {
     return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
   }
 });
-
-/** Simple rewording: adds prefixes/suffixes and shuffles phrasing */
-function rewordQuestion(original: string): string {
-  // Add Arabic rephrasing markers
-  let reworded = original;
-
-  // Common rewording patterns
-  const replacements: [RegExp, string][] = [
-    [/^ما هو /u, "ما المقصود بـ "],
-    [/^ما هي /u, "ما التي تُعرف بأنها "],
-    [/^أي /u, "أي واحد من التالي يُعتبر "],
-    [/^كم /u, "ما مقدار "],
-    [/\?|؟$/u, "؟ اختر الإجابة الأنسب."],
-  ];
-
-  for (const [pattern, replacement] of replacements) {
-    if (pattern.test(reworded)) {
-      reworded = reworded.replace(pattern, replacement);
-      break;
-    }
-  }
-
-  // If no pattern matched, add a prefix
-  if (reworded === original) {
-    reworded = "بناءً على ما درسته، " + original;
-  }
-
-  return reworded;
-}
