@@ -281,7 +281,7 @@ difficulty_mix_default percentages must sum to 100. cognitive_mix percentages mu
             method: "POST",
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              model: "google/gemini-2.5-flash",
+              model: "openai/gpt-5.2",
               messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: contextInfo },
