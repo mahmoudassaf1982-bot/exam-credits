@@ -241,7 +241,9 @@ serve(async (req) => {
             `boosts=[${boostReasons.join(",")}], text="${(match.text_ar || "").substring(0, 50)}..."`
           );
 
-          if (conceptScore >= CONCEPT_FINAL_THRESHOLD && conceptScore > bestConceptScore) {
+          // Require at least topic match for concept duplicate (prevents false positives)
+          const hasTopicMatch = boostReasons.includes("same_topic");
+          if (conceptScore >= CONCEPT_FINAL_THRESHOLD && conceptScore > bestConceptScore && hasTopicMatch) {
             bestConceptScore = conceptScore;
             if (!rejectionReason) {
               bestMatchId = match.id;
