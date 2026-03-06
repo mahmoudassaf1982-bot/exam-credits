@@ -39,7 +39,7 @@ async function generateEmbedding(
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("[duplicate-guard] Embedding API error:", response.status, errText.substring(0, 300));
+      console.error("[duplicate-guard] OpenAI API error:", response.status, errText.substring(0, 300));
       return null;
     }
 
@@ -70,10 +70,10 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    if (!LOVABLE_API_KEY) {
-      return jsonResponse({ error: "LOVABLE_API_KEY not configured" }, 500);
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OPENAI_API_KEY not configured" }, 500);
     }
 
     const adminSupabase = createClient(supabaseUrl, serviceKey);
