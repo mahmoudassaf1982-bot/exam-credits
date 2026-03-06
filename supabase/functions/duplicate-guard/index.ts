@@ -231,8 +231,8 @@ serve(async (req) => {
           // Boost 3: Pattern overlap (numbers, operations)
           const matchPatterns = extractMathPatterns(match.text_ar || "");
           const patternScore = patternOverlapScore(incomingPatterns, matchPatterns);
-          if (patternScore >= 0.5) {
-            conceptScore += patternScore * 0.04; // Up to 0.04 boost
+          if (patternScore >= 0.3) {
+            conceptScore += patternScore * CONCEPT_PATTERN_BOOST_MAX;
             boostReasons.push(`pattern_overlap=${patternScore.toFixed(2)}`);
           }
 
