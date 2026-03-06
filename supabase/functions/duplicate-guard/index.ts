@@ -165,7 +165,7 @@ serve(async (req) => {
           query_embedding: embeddingStr,
           p_exam_template_id: exam_template_id,
           p_section_id: null, // Search across all sections for better recall
-          match_threshold: CONCEPT_SIMILARITY_THRESHOLD,
+          match_threshold: 0.50, // Low threshold to catch candidates; filtering done in code
           match_count: 10,
         }
       );
