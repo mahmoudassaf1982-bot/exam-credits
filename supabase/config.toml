@@ -68,3 +68,9 @@ verify_jwt = false
 
 [functions.duplicate-guard]
 verify_jwt = false
+
+[functions.test-duplicate-guard]
+verify_jwt = false
+
+[functions.backfill-embeddings]
+verify_jwt = false
