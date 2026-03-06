@@ -112,7 +112,7 @@ serve(async (req) => {
       });
 
       // Step 1: Generate embedding
-      const embedding = await generateEmbedding(embeddingText, LOVABLE_API_KEY);
+      const embedding = await generateEmbedding(embeddingText, OPENAI_API_KEY);
 
       if (!embedding) {
         // If embedding fails, accept the question but without dedup
