@@ -616,6 +616,39 @@ export type Database = {
           },
         ]
       }
+      generation_guardian_logs: {
+        Row: {
+          context_json: Json | null
+          created_at: string
+          exam_template_id: string
+          id: string
+          reason_if_blocked: string | null
+          status: string
+          triggered_by: string
+          validation_results: Json
+        }
+        Insert: {
+          context_json?: Json | null
+          created_at?: string
+          exam_template_id: string
+          id?: string
+          reason_if_blocked?: string | null
+          status?: string
+          triggered_by?: string
+          validation_results?: Json
+        }
+        Update: {
+          context_json?: Json | null
+          created_at?: string
+          exam_template_id?: string
+          id?: string
+          reason_if_blocked?: string | null
+          status?: string
+          triggered_by?: string
+          validation_results?: Json
+        }
+        Relationships: []
+      }
       payment_orders: {
         Row: {
           created_at: string
