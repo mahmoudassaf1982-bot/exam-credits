@@ -1,6 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -16,28 +13,29 @@ function jsonResponse(body: unknown, status = 200) {
 
 const BATCH_SIZE = 50;
 const DELAY_BETWEEN_BATCHES_MS = 1500;
-const EMBEDDING_MODEL = "openai/text-embedding-3-small";
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
 
-serve(async (req) => {
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    if (!LOVABLE_API_KEY) {
-      return jsonResponse({ error: "LOVABLE_API_KEY not configured" }, 500);
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OPENAI_API_KEY not configured" }, 500);
     }
 
     const adminSupabase = createClient(supabaseUrl, serviceKey);
 
-    // Parse optional params
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-    const maxQuestions = body.max_questions || 500; // safety limit per invocation
+    const maxQuestions = body.max_questions || 500;
     const batchSize = Math.min(body.batch_size || BATCH_SIZE, 100);
 
-    // Count total questions needing embeddings
     const { count: totalMissing } = await adminSupabase
       .from("questions")
       .select("id", { count: "exact", head: true })
@@ -45,7 +43,7 @@ serve(async (req) => {
       .is("deleted_at", null);
 
     console.log(`[backfill] Total questions missing embeddings: ${totalMissing}`);
-    console.log(`[backfill] Will process up to ${maxQuestions} in this run, batch size: ${batchSize}`);
+    console.log(`[backfill] Will process up to ${maxQuestions}, batch size: ${batchSize}`);
 
     let processed = 0;
     let succeeded = 0;
@@ -55,7 +53,6 @@ serve(async (req) => {
     while (processed < maxQuestions) {
       batchNum++;
 
-      // Fetch next batch
       const { data: questions, error: fetchErr } = await adminSupabase
         .from("questions")
         .select("id, text_ar, topic, section_id")
@@ -75,7 +72,6 @@ serve(async (req) => {
 
       console.log(`[backfill] Batch ${batchNum}: processing ${questions.length} questions`);
 
-      // Build texts for embedding
       const texts = questions.map((q) => {
         const parts = [q.text_ar];
         if (q.topic) parts.push(`[topic: ${q.topic}]`);
@@ -83,12 +79,11 @@ serve(async (req) => {
         return parts.join(" ");
       });
 
-      // Call embeddings API (batch)
       try {
-        const embResponse = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+        const embResponse = await fetch(OPENAI_EMBEDDINGS_URL, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -99,12 +94,12 @@ serve(async (req) => {
 
         if (!embResponse.ok) {
           const errText = await embResponse.text();
-          console.error(`[backfill] Embedding API error (batch ${batchNum}): ${embResponse.status}`, errText.substring(0, 300));
+          console.error(`[backfill] OpenAI API error (batch ${batchNum}): ${embResponse.status}`, errText.substring(0, 300));
 
           if (embResponse.status === 429) {
-            console.log(`[backfill] Rate limited. Waiting 10s before retry...`);
+            console.log(`[backfill] Rate limited. Waiting 10s...`);
             await sleep(10000);
-            continue; // retry same batch
+            continue;
           }
           failed += questions.length;
           processed += questions.length;
@@ -121,7 +116,6 @@ serve(async (req) => {
           continue;
         }
 
-        // Update each question with its embedding
         for (let i = 0; i < questions.length; i++) {
           const embedding = embeddings[i]?.embedding;
           if (!embedding) {
@@ -145,14 +139,13 @@ serve(async (req) => {
           processed++;
         }
 
-        console.log(`[backfill] Batch ${batchNum} complete: ${succeeded} succeeded, ${failed} failed so far (${processed} total)`);
+        console.log(`[backfill] Batch ${batchNum} done: ${succeeded} ok, ${failed} failed (${processed} total)`);
       } catch (apiErr) {
         console.error(`[backfill] API exception in batch ${batchNum}:`, apiErr);
         failed += questions.length;
         processed += questions.length;
       }
 
-      // Delay between batches
       if (processed < maxQuestions) {
         await sleep(DELAY_BETWEEN_BATCHES_MS);
       }
