@@ -22,82 +22,132 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminSupabase = createClient(supabaseUrl, serviceKey);
 
-    // Step 1: Get a real question from the bank to use as reference
+    // Get reference questions with embeddings
     const { data: refQuestions, error: refErr } = await adminSupabase
       .from("questions")
       .select("id, text_ar, topic, section_id, exam_template_id, difficulty")
       .eq("status", "approved")
-      .not("deleted_at", "is", null)
       .is("deleted_at", null)
-      .limit(1);
+      .not("embedding", "is", null)
+      .limit(20);
 
     if (refErr || !refQuestions || refQuestions.length === 0) {
-      // Try without status filter
-      const { data: anyQ, error: anyErr } = await adminSupabase
-        .from("questions")
-        .select("id, text_ar, topic, section_id, exam_template_id, difficulty")
-        .is("deleted_at", null)
-        .limit(1);
-
-      if (anyErr || !anyQ || anyQ.length === 0) {
-        return jsonResponse({ error: "No questions found in the bank to test against" }, 404);
-      }
-      refQuestions!.push(...anyQ);
+      return jsonResponse({ error: "No approved questions with embeddings found" }, 404);
     }
 
-    const ref = refQuestions![0];
-    console.log(`[test-guard] Reference question: "${ref.text_ar?.substring(0, 80)}..." (id=${ref.id})`);
+    // Pick specific reference questions
+    const lineRef = refQuestions.find(q => q.text_ar.includes("معادلة الخط المستقيم الذي ميله 2"));
+    const sqrt81Ref = refQuestions.find(q => q.text_ar.includes("الجذر التربيعي للعدد 81"));
+    const sqrt144Ref = refQuestions.find(q => q.text_ar.includes("جذر(144)"));
+    const fractionRef = refQuestions.find(q => q.text_ar.includes("0.75 إلى كسر"));
+    const evenRef = refQuestions.find(q => q.text_ar.includes("أعداد زوجية"));
 
-    // Build test cases
-    const testCases = [
-      {
-        name: "CASE_A_EXACT_DUPLICATE",
-        description: "Exact same text as existing question",
-        question: {
-          text_ar: ref.text_ar,
-          topic: ref.topic,
-          topic_tag: ref.topic,
-          section_id: ref.section_id,
-        },
-        expected_action: "rejected",
-        expected_reason: "text_duplicate",
+    const primaryRef = lineRef || refQuestions[0];
+
+    console.log(`[test-guard] Found ${refQuestions.length} reference questions`);
+    console.log(`[test-guard] Primary ref: "${primaryRef.text_ar.substring(0, 60)}..." topic=${primaryRef.topic}`);
+
+    const testCases: any[] = [];
+
+    // ─── CASE A: Exact text duplicate ───
+    testCases.push({
+      name: "CASE_A_EXACT_DUPLICATE",
+      description: "Exact same text → must reject as text_duplicate",
+      question: {
+        text_ar: primaryRef.text_ar,
+        topic: primaryRef.topic,
+        topic_tag: primaryRef.topic,
+        section_id: primaryRef.section_id,
       },
-      {
-        name: "CASE_B_CONCEPT_DUPLICATE",
-        description: "Same concept, different wording",
+      expected_action: "rejected",
+      expected_reason: "text_duplicate",
+    });
+
+    // ─── CASE B1: Line equation - same concept, scenario wording ───
+    if (lineRef) {
+      testCases.push({
+        name: "CASE_B1_LINE_EQUATION_REPHRASE",
+        description: "Same concept (line with slope 2 through origin) rephrased as scenario",
         question: {
-          text_ar: rewordQuestion(ref.text_ar),
-          topic: ref.topic,
-          topic_tag: ref.topic,
-          section_id: ref.section_id,
+          text_ar: "إذا كان ميل خط مستقيم يساوي 2 ويقطع محور الصادات عند نقطة الأصل، فما المعادلة التي تمثل هذا الخط المستقيم؟",
+          topic: lineRef.topic,
+          topic_tag: lineRef.topic,
+          section_id: lineRef.section_id,
         },
         expected_action: "rejected",
         expected_reason: "concept_duplicate",
-      },
-      {
-        name: "CASE_C_VALID_NEW",
-        description: "Completely different question, same section",
+      });
+    }
+
+    // ─── CASE B2: √81 - same question, different format ───
+    if (sqrt81Ref) {
+      testCases.push({
+        name: "CASE_B2_SQRT81_REPHRASE",
+        description: "Same question (√81) with different wording structure",
         question: {
-          text_ar: "ما هو الفرق بين المتغير المستقل والمتغير التابع في التجربة العلمية؟ وكيف يمكن التمييز بينهما في سياق البحث التجريبي المنهجي؟",
-          topic: "منهجية_البحث_العلمي_التجريبي",
-          topic_tag: "منهجية_البحث_العلمي_التجريبي",
-          section_id: ref.section_id,
+          text_ar: "احسب قيمة الجذر التربيعي للعدد واحد وثمانين",
+          topic: sqrt81Ref.topic,
+          topic_tag: sqrt81Ref.topic,
+          section_id: sqrt81Ref.section_id,
         },
-        expected_action: "accepted",
-        expected_reason: null,
+        expected_action: "rejected",
+        expected_reason: "concept_duplicate",
+      });
+    }
+
+    // ─── CASE B3: Fraction 0.75 - closer rephrase ───
+    if (fractionRef) {
+      testCases.push({
+        name: "CASE_B3_FRACTION_075_REPHRASE",
+        description: "Same concept (convert 0.75 to simplest fraction) with minimal rewording",
+        question: {
+          text_ar: "حوّل العدد العشري 0.75 إلى كسر اعتيادي واختصره إلى أبسط صورة",
+          topic: fractionRef.topic,
+          topic_tag: fractionRef.topic,
+          section_id: fractionRef.section_id,
+        },
+        expected_action: "rejected",
+        expected_reason: "concept_duplicate",
+      });
+    }
+
+    // ─── CASE C: Genuinely different question ───
+    testCases.push({
+      name: "CASE_C_VALID_NEW",
+      description: "Completely different concept → should be accepted",
+      question: {
+        text_ar: "ما هو المضاعف المشترك الأصغر للعددين 15 و 20 باستخدام التحليل إلى عوامل أولية؟",
+        topic: "المضاعفات_والعوامل",
+        topic_tag: "المضاعفات_والعوامل",
+        section_id: primaryRef.section_id,
       },
-    ];
+      expected_action: "accepted",
+      expected_reason: null,
+    });
+
+    // ─── CASE D: Different topic, same section → accepted ───
+    testCases.push({
+      name: "CASE_D_DIFF_TOPIC_SAME_SECTION",
+      description: "Different mathematical topic entirely → should be accepted",
+      question: {
+        text_ar: "ما هي مساحة المثلث الذي قاعدته 10 سم وارتفاعه 6 سم؟",
+        topic: "مساحات_الأشكال_الهندسية",
+        topic_tag: "مساحات_الأشكال_الهندسية",
+        section_id: primaryRef.section_id,
+      },
+      expected_action: "accepted",
+      expected_reason: null,
+    });
 
     const results: any[] = [];
+    const examTemplateId = primaryRef.exam_template_id;
 
     for (const tc of testCases) {
-      console.log(`\n[test-guard] ── Running: ${tc.name} ──`);
-      console.log(`[test-guard] Description: ${tc.description}`);
-      console.log(`[test-guard] Text: "${tc.question.text_ar.substring(0, 80)}..."`);
+      console.log(`\n[test-guard] ── ${tc.name} ──`);
+      console.log(`[test-guard] ${tc.description}`);
 
       try {
-        const guardUrl = `${supabaseUrl}/functions/v1/duplicate-guard`;
-        const guardResponse = await fetch(guardUrl, {
+        const guardResponse = await fetch(`${supabaseUrl}/functions/v1/duplicate-guard`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -105,8 +155,8 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             questions: [tc.question],
-            exam_template_id: ref.exam_template_id,
-            section_id: ref.section_id,
+            exam_template_id: examTemplateId,
+            section_id: tc.question.section_id,
             draft_id: null,
           }),
         });
@@ -114,14 +164,7 @@ serve(async (req) => {
         const guardData = await guardResponse.json();
 
         if (!guardResponse.ok || !guardData.ok) {
-          results.push({
-            case: tc.name,
-            status: "ERROR",
-            description: tc.description,
-            error: guardData.error || `HTTP ${guardResponse.status}`,
-            expected_action: tc.expected_action,
-          });
-          console.error(`[test-guard] ❌ ${tc.name}: Guard returned error`, guardData.error);
+          results.push({ case: tc.name, status: "ERROR", description: tc.description, error: guardData.error });
           continue;
         }
 
@@ -135,48 +178,25 @@ serve(async (req) => {
           case: tc.name,
           status: passed ? "PASS ✅" : "FAIL ❌",
           description: tc.description,
-          expected_action: tc.expected_action,
-          expected_reason: tc.expected_reason,
-          actual_action: actualAction,
-          actual_reason: result?.rejection_reason || null,
+          expected: `${tc.expected_action} (${tc.expected_reason || "any"})`,
+          actual: `${actualAction} (${result?.rejection_reason || "none"})`,
           similarity_score: result?.similarity_score,
           concept_match_score: result?.concept_match_score,
           matched_question_id: result?.matched_question_id,
         });
 
-        console.log(`[test-guard] ${passed ? "✅ PASS" : "❌ FAIL"}: ${tc.name}`);
-        console.log(`[test-guard]   Expected: ${tc.expected_action} (${tc.expected_reason})`);
-        console.log(`[test-guard]   Actual:   ${actualAction} (${result?.rejection_reason || "none"})`);
-        console.log(`[test-guard]   Similarity: ${result?.similarity_score}, Concept: ${result?.concept_match_score}`);
+        console.log(`[test-guard] ${passed ? "✅" : "❌"} ${tc.name}: expected=${tc.expected_action}, actual=${actualAction}`);
       } catch (e) {
-        results.push({
-          case: tc.name,
-          status: "ERROR",
-          description: tc.description,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        console.error(`[test-guard] ❌ ${tc.name}: Exception`, e);
+        results.push({ case: tc.name, status: "ERROR", error: e instanceof Error ? e.message : String(e) });
       }
     }
 
-    const passCount = results.filter((r) => r.status === "PASS ✅").length;
-    const failCount = results.filter((r) => r.status === "FAIL ❌").length;
-    const errorCount = results.filter((r) => r.status === "ERROR").length;
-
-    console.log(`\n[test-guard] ═══════════════════════════════`);
-    console.log(`[test-guard] Summary: ${passCount} passed, ${failCount} failed, ${errorCount} errors`);
-    console.log(`[test-guard] ═══════════════════════════════`);
+    const passCount = results.filter(r => r.status === "PASS ✅").length;
+    const failCount = results.filter(r => r.status === "FAIL ❌").length;
 
     return jsonResponse({
       ok: true,
-      reference_question: {
-        id: ref.id,
-        text_preview: ref.text_ar?.substring(0, 100),
-        topic: ref.topic,
-        exam_template_id: ref.exam_template_id,
-        section_id: ref.section_id,
-      },
-      summary: { passed: passCount, failed: failCount, errors: errorCount, total: results.length },
+      summary: { passed: passCount, failed: failCount, errors: results.filter(r => r.status === "ERROR").length, total: results.length },
       results,
     });
   } catch (e) {
@@ -184,32 +204,3 @@ serve(async (req) => {
     return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
   }
 });
-
-/** Simple rewording: adds prefixes/suffixes and shuffles phrasing */
-function rewordQuestion(original: string): string {
-  // Add Arabic rephrasing markers
-  let reworded = original;
-
-  // Common rewording patterns
-  const replacements: [RegExp, string][] = [
-    [/^ما هو /u, "ما المقصود بـ "],
-    [/^ما هي /u, "ما التي تُعرف بأنها "],
-    [/^أي /u, "أي واحد من التالي يُعتبر "],
-    [/^كم /u, "ما مقدار "],
-    [/\?|؟$/u, "؟ اختر الإجابة الأنسب."],
-  ];
-
-  for (const [pattern, replacement] of replacements) {
-    if (pattern.test(reworded)) {
-      reworded = reworded.replace(pattern, replacement);
-      break;
-    }
-  }
-
-  // If no pattern matched, add a prefix
-  if (reworded === original) {
-    reworded = "بناءً على ما درسته، " + original;
-  }
-
-  return reworded;
-}
