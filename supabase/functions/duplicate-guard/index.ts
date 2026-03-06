@@ -16,33 +16,30 @@ function jsonResponse(body: unknown, status = 200) {
 
 const TEXT_SIMILARITY_THRESHOLD = 0.85;
 const CONCEPT_SIMILARITY_THRESHOLD = 0.78;
-const EMBEDDING_MODEL = "openai/gpt-5-nano"; // lightweight model for embeddings
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
 
-// ─── Generate embedding via Lovable AI gateway ───────────────────────
+// ─── Generate embedding via OpenAI API ───────────────────────────────
 async function generateEmbedding(
   text: string,
   apiKey: string
 ): Promise<number[] | null> {
   try {
-    // Use chat completion to generate a normalized vector representation
-    const response = await fetch(
-      "https://ai.gateway.lovable.dev/v1/embeddings",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "openai/text-embedding-3-small",
-          input: text,
-        }),
-      }
-    );
+    const response = await fetch(OPENAI_EMBEDDINGS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: EMBEDDING_MODEL,
+        input: text,
+      }),
+    });
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("[duplicate-guard] Embedding API error:", response.status, errText.substring(0, 300));
+      console.error("[duplicate-guard] OpenAI API error:", response.status, errText.substring(0, 300));
       return null;
     }
 
@@ -73,10 +70,10 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    if (!LOVABLE_API_KEY) {
-      return jsonResponse({ error: "LOVABLE_API_KEY not configured" }, 500);
+    if (!OPENAI_API_KEY) {
+      return jsonResponse({ error: "OPENAI_API_KEY not configured" }, 500);
     }
 
     const adminSupabase = createClient(supabaseUrl, serviceKey);
@@ -115,7 +112,7 @@ serve(async (req) => {
       });
 
       // Step 1: Generate embedding
-      const embedding = await generateEmbedding(embeddingText, LOVABLE_API_KEY);
+      const embedding = await generateEmbedding(embeddingText, OPENAI_API_KEY);
 
       if (!embedding) {
         // If embedding fails, accept the question but without dedup
