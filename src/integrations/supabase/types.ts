@@ -286,6 +286,51 @@ export type Database = {
         }
         Relationships: []
       }
+      duplicate_guard_logs: {
+        Row: {
+          action: string
+          concept_match_score: number | null
+          created_at: string
+          exam_template_id: string | null
+          id: string
+          matched_question_id: string | null
+          matched_question_text: string | null
+          question_draft_id: string | null
+          question_text: string | null
+          rejection_reason: string | null
+          section_id: string | null
+          similarity_score: number | null
+        }
+        Insert: {
+          action?: string
+          concept_match_score?: number | null
+          created_at?: string
+          exam_template_id?: string | null
+          id?: string
+          matched_question_id?: string | null
+          matched_question_text?: string | null
+          question_draft_id?: string | null
+          question_text?: string | null
+          rejection_reason?: string | null
+          section_id?: string | null
+          similarity_score?: number | null
+        }
+        Update: {
+          action?: string
+          concept_match_score?: number | null
+          created_at?: string
+          exam_template_id?: string | null
+          id?: string
+          matched_question_id?: string | null
+          matched_question_text?: string | null
+          question_draft_id?: string | null
+          question_text?: string | null
+          rejection_reason?: string | null
+          section_id?: string | null
+          similarity_score?: number | null
+        }
+        Relationships: []
+      }
       exam_answer_keys: {
         Row: {
           answers_key_json: Json
@@ -856,6 +901,7 @@ export type Database = {
           difficulty: string
           difficulty_source: string
           draft_id: string | null
+          embedding: string | null
           exam_template_id: string | null
           explanation: string | null
           id: string
@@ -881,6 +927,7 @@ export type Database = {
           difficulty?: string
           difficulty_source?: string
           draft_id?: string | null
+          embedding?: string | null
           exam_template_id?: string | null
           explanation?: string | null
           id?: string
@@ -906,6 +953,7 @@ export type Database = {
           difficulty?: string
           difficulty_source?: string
           draft_id?: string | null
+          embedding?: string | null
           exam_template_id?: string | null
           explanation?: string | null
           id?: string
@@ -1517,6 +1565,23 @@ export type Database = {
       lock_profile_job: {
         Args: { p_job_id: string; p_worker_id: string }
         Returns: boolean
+      }
+      match_similar_questions: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          p_exam_template_id: string
+          p_section_id?: string
+          query_embedding: string
+        }
+        Returns: {
+          difficulty: string
+          id: string
+          section_id: string
+          similarity: number
+          text_ar: string
+          topic: string
+        }[]
       }
     }
     Enums: {
