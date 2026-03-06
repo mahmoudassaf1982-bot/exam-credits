@@ -348,7 +348,15 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   // ── HARD BLOCK: if section_id is specified but no topics defined → needs_review ──
   if (sectionId && (!allowedTopics || allowedTopics.length === 0)) {
     const reason = `No topics configured for section "${sectionName || sectionId}". Cannot generate without topic constraints.`;
-    console.log(`[ai-worker] ❌ ABORT: ${reason}`);
+    console.error(`[ai-worker] ❌ TOPIC HARD BLOCK`, JSON.stringify({
+      job_id: job.id,
+      section_id: sectionId,
+      section_name: sectionName,
+      exam_template_id: examTemplateId,
+      country_id: countryId,
+      missing_topic_filter: true,
+      has_profile_snapshot: !!profileSnapshot,
+    }));
     await admin.from("ai_jobs").update({
       status: "needs_review",
       last_error: reason,
@@ -356,7 +364,6 @@ async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
       locked_by: null,
       locked_at: null,
     }).eq("id", job.id);
-    console.log(`[ai-worker] 🔍 Job ${job.id} → needs_review (no topics for section)`);
     return;
   }
 
