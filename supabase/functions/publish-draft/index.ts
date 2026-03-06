@@ -63,23 +63,104 @@ serve(async (req) => {
       return jsonResponse({ error: "No questions selected for publishing" }, 400);
     }
 
+    // ── Duplicate Guard ──────────────────────────────────────────────
+    let guardedQuestions = toPublish;
+    let duplicateRejectedCount = 0;
+    let guardEmbeddings: Record<number, number[]> = {};
+
+    try {
+      const guardPayload = {
+        questions: toPublish.map((q: any) => ({
+          text_ar: q.text_ar,
+          topic: q.topic || q.topic_tag,
+          topic_tag: q.topic_tag || q.topic,
+          section_id: q.section_id || draft.section_id,
+        })),
+        exam_template_id: draft.exam_template_id,
+        section_id: draft.section_id,
+        draft_id: draft.id,
+      };
+
+      const guardUrl = `${supabaseUrl}/functions/v1/duplicate-guard`;
+      const guardResponse = await fetch(guardUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify(guardPayload),
+      });
+
+      if (guardResponse.ok) {
+        const guardData = await guardResponse.json();
+        if (guardData.ok && Array.isArray(guardData.results)) {
+          const acceptedIndices = new Set<number>();
+          for (const r of guardData.results) {
+            if (r.action === "accepted") {
+              acceptedIndices.add(r.index);
+              if (r.embedding) {
+                guardEmbeddings[r.index] = r.embedding;
+              }
+            }
+          }
+          guardedQuestions = toPublish.filter((_: any, i: number) => acceptedIndices.has(i));
+          duplicateRejectedCount = toPublish.length - guardedQuestions.length;
+
+          if (duplicateRejectedCount > 0) {
+            console.log(`[publish-draft] Duplicate Guard rejected ${duplicateRejectedCount}/${toPublish.length} questions`);
+          }
+        }
+      } else {
+        console.warn("[publish-draft] Duplicate Guard returned non-ok, proceeding without dedup:", guardResponse.status);
+      }
+    } catch (guardErr) {
+      console.warn("[publish-draft] Duplicate Guard call failed, proceeding without dedup:", guardErr);
+    }
+
+    if (guardedQuestions.length === 0) {
+      // All questions were duplicates
+      await adminSupabase
+        .from("question_drafts")
+        .update({ status: "duplicate_rejected", notes: `All ${toPublish.length} questions rejected as duplicates` })
+        .eq("id", draft_id);
+
+      return jsonResponse({
+        ok: false,
+        draft_id,
+        error: "All questions were detected as duplicates",
+        error_ar: "جميع الأسئلة مكررة ولم يتم نشرها",
+        duplicate_rejected_count: duplicateRejectedCount,
+        published_count: 0,
+      });
+    }
+
     // Build rows for questions table
-    const dbRows = toPublish.map((q: any) => ({
-      country_id: draft.country_id,
-      exam_template_id: draft.exam_template_id || null,
-      section_id: q.section_id || draft.section_id || null,
-      topic: q.topic || "عام",
-      difficulty: q.difficulty || draft.difficulty || "medium",
-      text_ar: q.text_ar,
-      options: q.options,
-      correct_option_id: q.correct_option_id,
-      explanation: q.explanation || null,
-      is_approved: true,
-      status: "approved",
-      source: "ai",
-      draft_id: draft.id,
-      language: q.content_language || "ar",
-    }));
+    const dbRows = guardedQuestions.map((q: any, idx: number) => {
+      const row: any = {
+        country_id: draft.country_id,
+        exam_template_id: draft.exam_template_id || null,
+        section_id: q.section_id || draft.section_id || null,
+        topic: q.topic || "عام",
+        difficulty: q.difficulty || draft.difficulty || "medium",
+        text_ar: q.text_ar,
+        options: q.options,
+        correct_option_id: q.correct_option_id,
+        explanation: q.explanation || null,
+        is_approved: true,
+        status: "approved",
+        source: "ai",
+        draft_id: draft.id,
+        language: q.content_language || "ar",
+      };
+
+      // Find the original index to attach embedding
+      const origIdx = toPublish.indexOf(q);
+      if (origIdx >= 0 && guardEmbeddings[origIdx]) {
+        row.embedding = `[${guardEmbeddings[origIdx].join(",")}]`;
+      }
+
+      return row;
+    });
 
     const { data: inserted, error: insertError } = await adminSupabase
       .from("questions")
@@ -98,6 +179,9 @@ serve(async (req) => {
         status: "approved",
         approved_by: userId,
         approved_at: new Date().toISOString(),
+        notes: duplicateRejectedCount > 0
+          ? `${duplicateRejectedCount} duplicate(s) filtered, ${guardedQuestions.length} published`
+          : null,
       })
       .eq("id", draft_id);
 
@@ -106,12 +190,14 @@ serve(async (req) => {
     }
 
     const publishedCount = inserted?.length || 0;
-    console.log("[publish-draft] ✅ Published", publishedCount, "questions from draft:", draft_id);
+    console.log("[publish-draft] ✅ Published", publishedCount, "questions from draft:", draft_id,
+      duplicateRejectedCount > 0 ? `(${duplicateRejectedCount} duplicates filtered)` : "");
 
     return jsonResponse({
       ok: true,
       draft_id,
       published_count: publishedCount,
+      duplicate_rejected_count: duplicateRejectedCount,
       published_ids: inserted?.map((q: any) => q.id) || [],
     });
   } catch (e) {
