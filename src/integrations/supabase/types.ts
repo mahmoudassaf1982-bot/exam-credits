@@ -1566,6 +1566,23 @@ export type Database = {
         Args: { p_job_id: string; p_worker_id: string }
         Returns: boolean
       }
+      match_similar_questions: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          p_exam_template_id: string
+          p_section_id?: string
+          query_embedding: string
+        }
+        Returns: {
+          difficulty: string
+          id: string
+          section_id: string
+          similarity: number
+          text_ar: string
+          topic: string
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
