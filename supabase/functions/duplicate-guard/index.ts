@@ -60,8 +60,11 @@ function buildEmbeddingText(question: {
   topic?: string;
   section_id?: string;
 }): string {
-  // Focus embedding on the question content itself for better semantic matching
-  return question.text_ar;
+  // Must match the format used by backfill-embeddings for consistent similarity
+  const parts = [question.text_ar];
+  if (question.topic) parts.push(`[topic: ${question.topic}]`);
+  if (question.section_id) parts.push(`[section: ${question.section_id}]`);
+  return parts.join(" ");
 }
 
 // ─── Extract numeric/operation patterns from Arabic math text ────────
