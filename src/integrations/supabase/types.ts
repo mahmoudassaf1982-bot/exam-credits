@@ -352,6 +352,53 @@ export type Database = {
         }
         Relationships: []
       }
+      exam_profile_sources: {
+        Row: {
+          created_at: string
+          exam_template_id: string
+          extracted_text: string | null
+          file_name: string
+          file_path: string
+          file_size_bytes: number | null
+          file_type: string
+          id: string
+          notes: string | null
+          uploaded_by: string
+        }
+        Insert: {
+          created_at?: string
+          exam_template_id: string
+          extracted_text?: string | null
+          file_name: string
+          file_path: string
+          file_size_bytes?: number | null
+          file_type?: string
+          id?: string
+          notes?: string | null
+          uploaded_by: string
+        }
+        Update: {
+          created_at?: string
+          exam_template_id?: string
+          extracted_text?: string | null
+          file_name?: string
+          file_path?: string
+          file_size_bytes?: number | null
+          file_type?: string
+          id?: string
+          notes?: string | null
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_profile_sources_exam_template_id_fkey"
+            columns: ["exam_template_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exam_profiles: {
         Row: {
           approved_at: string | null
