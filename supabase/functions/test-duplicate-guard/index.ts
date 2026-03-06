@@ -95,13 +95,13 @@ serve(async (req) => {
       });
     }
 
-    // ─── CASE B3: Fraction 0.75 - same conversion, different phrasing ───
+    // ─── CASE B3: Fraction 0.75 - closer rephrase ───
     if (fractionRef) {
       testCases.push({
         name: "CASE_B3_FRACTION_075_REPHRASE",
-        description: "Same concept (0.75 to fraction) with different sentence",
+        description: "Same concept (convert 0.75 to simplest fraction) with minimal rewording",
         question: {
-          text_ar: "ما هو الكسر الاعتيادي الذي يكافئ العدد العشري 0.75 في أبسط صورة؟",
+          text_ar: "حوّل العدد العشري 0.75 إلى كسر اعتيادي واختصره إلى أبسط صورة",
           topic: fractionRef.topic,
           topic_tag: fractionRef.topic,
           section_id: fractionRef.section_id,
