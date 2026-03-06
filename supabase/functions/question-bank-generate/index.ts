@@ -76,6 +76,33 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const admin = createClient(supabaseUrl, serviceKey);
 
+    // ─── GENERATION GUARDIAN GATE ─────────────────────────────────
+    const guardianRes = await fetch(`${supabaseUrl}/functions/v1/generation-guardian`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'x-saris-key': req.headers.get('x-saris-key') || '',
+      },
+      body: JSON.stringify({ exam_template_id, section_id, difficulty, count }),
+    });
+
+    const guardianData = await guardianRes.json();
+
+    if (!guardianRes.ok || guardianData.guardian_status === 'blocked') {
+      console.warn('[question-bank-generate] Guardian BLOCKED:', guardianData.reason);
+      return new Response(JSON.stringify({
+        error: `Guardian blocked generation: ${guardianData.reason}`,
+        error_ar: 'الحارس منع التوليد: التحقق فشل',
+        guardian_checks: guardianData.checks,
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('[question-bank-generate] Guardian ALLOWED, proceeding...');
+
     // Verify exam template exists
     const { data: tmpl } = await admin
       .from('exam_templates')
@@ -90,24 +117,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ─── EXAM PROFILE GUARD (HARD BLOCK) ─────────────────────────────
+    // Profile already validated by Guardian – fetch snapshot
     const { data: examProfile } = await admin
       .from('exam_profiles')
-      .select('profile_json, status')
+      .select('profile_json')
       .eq('exam_template_id', exam_template_id)
       .single();
 
-    if (!examProfile || examProfile.status !== 'approved') {
-      return new Response(JSON.stringify({
-        error: 'Exam Profile is not approved. Admin must build & approve profile first.',
-        error_ar: 'ملف الاختبار غير معتمد. يجب على المسؤول بناء واعتماد الملف أولاً.',
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const profileSnapshot = examProfile.profile_json;
+    const profileSnapshot = examProfile?.profile_json;
 
     // Get a system admin user for created_by
     const { data: adminRole } = await admin

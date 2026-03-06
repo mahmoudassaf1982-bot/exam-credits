@@ -50,47 +50,55 @@ serve(async (req) => {
       return jsonResponse({ error: `Invalid type. Must be one of: ${validTypes.join(", ")}` }, 400);
     }
 
-    // ─── EXAM PROFILE GUARD (HARD BLOCK) ─────────────────────────────
+    // ─── GENERATION GUARDIAN GATE ─────────────────────────────────
     const examTemplateId = params?.exam_template_id;
     let profileSnapshot: any = null;
 
-    if (examTemplateId) {
+    if (examTemplateId && (type === "generate_draft" || type === "generate_questions_draft")) {
+      const guardianRes = await fetch(`${supabaseUrl}/functions/v1/generation-guardian`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          exam_template_id: examTemplateId,
+          section_id: params?.section_id,
+          difficulty: params?.difficulty,
+          count: params?.count,
+        }),
+      });
+
+      const guardianData = await guardianRes.json();
+
+      if (!guardianRes.ok || guardianData.guardian_status === "blocked") {
+        console.warn("[ai-enqueue] Guardian BLOCKED:", guardianData.reason);
+        return jsonResponse({
+          error: `Guardian blocked: ${guardianData.reason}`,
+          error_ar: "الحارس منع التوليد: التحقق فشل",
+          guardian_checks: guardianData.checks,
+        }, 400);
+      }
+
+      // Fetch profile snapshot (already validated by Guardian)
+      const { data: profile } = await admin
+        .from("exam_profiles")
+        .select("profile_json")
+        .eq("exam_template_id", examTemplateId)
+        .single();
+
+      profileSnapshot = profile?.profile_json;
+    } else if (examTemplateId) {
+      // Non-generation jobs: just fetch profile if exists
       const { data: profile } = await admin
         .from("exam_profiles")
         .select("profile_json, status")
         .eq("exam_template_id", examTemplateId)
         .single();
 
-      if (!profile || profile.status !== "approved") {
-        return jsonResponse({
-          error: "Exam Profile is not approved. Admin must build & approve profile first.",
-          error_ar: "ملف الاختبار غير معتمد. يجب على المسؤول بناء واعتماد الملف أولاً.",
-        }, 400);
+      if (profile?.status === "approved") {
+        profileSnapshot = profile.profile_json;
       }
-
-      // Validate required fields
-      const p = profile.profile_json;
-      const requiredChecks = [
-        p?.official_spec?.total_questions > 0,
-        p?.official_spec?.duration_minutes > 0,
-        Array.isArray(p?.official_spec?.sections) && p.official_spec.sections.length > 0,
-        Array.isArray(p?.official_spec?.languages) && p.official_spec.languages.length > 0,
-        ['direct', 'reasoning', 'mixed'].includes(p?.psychometric_dna?.thinking_style),
-        ['low', 'medium', 'high'].includes(p?.psychometric_dna?.time_pressure_level),
-        ['low', 'medium', 'high'].includes(p?.psychometric_dna?.trap_density),
-        p?.psychometric_dna?.reasoning_depth_level >= 1 && p?.psychometric_dna?.reasoning_depth_level <= 5,
-        p?.generation_rules?.options_count === 4,
-        p?.generation_rules?.single_correct_answer === true,
-      ];
-
-      if (requiredChecks.some(c => !c)) {
-        return jsonResponse({
-          error: "Exam Profile validation failed. Required fields are missing or invalid.",
-          error_ar: "فشل التحقق من ملف الاختبار. حقول مطلوبة مفقودة أو غير صالحة.",
-        }, 400);
-      }
-
-      profileSnapshot = profile.profile_json;
     }
 
     // Build canonical params for idempotency
