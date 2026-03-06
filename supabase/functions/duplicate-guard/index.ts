@@ -16,29 +16,26 @@ function jsonResponse(body: unknown, status = 200) {
 
 const TEXT_SIMILARITY_THRESHOLD = 0.85;
 const CONCEPT_SIMILARITY_THRESHOLD = 0.78;
-const EMBEDDING_MODEL = "openai/gpt-5-nano"; // lightweight model for embeddings
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
 
-// ─── Generate embedding via Lovable AI gateway ───────────────────────
+// ─── Generate embedding via OpenAI API ───────────────────────────────
 async function generateEmbedding(
   text: string,
   apiKey: string
 ): Promise<number[] | null> {
   try {
-    // Use chat completion to generate a normalized vector representation
-    const response = await fetch(
-      "https://ai.gateway.lovable.dev/v1/embeddings",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "openai/text-embedding-3-small",
-          input: text,
-        }),
-      }
-    );
+    const response = await fetch(OPENAI_EMBEDDINGS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: EMBEDDING_MODEL,
+        input: text,
+      }),
+    });
 
     if (!response.ok) {
       const errText = await response.text();
