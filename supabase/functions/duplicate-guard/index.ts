@@ -15,10 +15,11 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 const TEXT_SIMILARITY_THRESHOLD = 0.85;
-const CONCEPT_SIMILARITY_THRESHOLD = 0.72; // Lowered from 0.78 for better concept detection
-const CONCEPT_SAME_TOPIC_BOOST = 0.06;     // Boost when topic matches
-const CONCEPT_SAME_SECTION_BOOST = 0.02;   // Boost when section matches
-const CONCEPT_FINAL_THRESHOLD = 0.78;      // Effective threshold after boosts
+const CONCEPT_SIMILARITY_THRESHOLD = 0.50; // Low DB threshold — filtering done in code
+const CONCEPT_SAME_TOPIC_BOOST = 0.10;     // Boost when topic matches
+const CONCEPT_SAME_SECTION_BOOST = 0.03;   // Boost when section matches
+const CONCEPT_PATTERN_BOOST_MAX = 0.06;    // Max boost for math pattern overlap
+const CONCEPT_FINAL_THRESHOLD = 0.75;      // Effective threshold after boosts
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
 
