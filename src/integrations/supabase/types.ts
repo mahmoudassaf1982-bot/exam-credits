@@ -399,6 +399,50 @@ export type Database = {
           },
         ]
       }
+      exam_profile_versions: {
+        Row: {
+          change_summary: string | null
+          created_at: string
+          created_by: string
+          exam_template_id: string
+          id: string
+          profile_json: Json
+          source_pdfs: Json | null
+          status: string
+          version_number: number
+        }
+        Insert: {
+          change_summary?: string | null
+          created_at?: string
+          created_by: string
+          exam_template_id: string
+          id?: string
+          profile_json?: Json
+          source_pdfs?: Json | null
+          status?: string
+          version_number?: number
+        }
+        Update: {
+          change_summary?: string | null
+          created_at?: string
+          created_by?: string
+          exam_template_id?: string
+          id?: string
+          profile_json?: Json
+          source_pdfs?: Json | null
+          status?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exam_profile_versions_exam_template_id_fkey"
+            columns: ["exam_template_id"]
+            isOneToOne: false
+            referencedRelation: "exam_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exam_profiles: {
         Row: {
           approved_at: string | null
