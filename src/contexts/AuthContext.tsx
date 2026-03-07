@@ -60,6 +60,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let initialSessionHandled = false;
+
     // Set up auth listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
@@ -69,7 +71,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
             const valid = await validateSessionUser(newSession.user.id);
             if (!valid) {
-              // UUID mismatch — force hard logout
               await supabase.auth.signOut({ scope: 'global' });
               setUser(null);
               setWallet(null);
@@ -78,21 +79,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return;
             }
           }
-          // Use setTimeout to avoid potential deadlocks with Supabase client
-          setTimeout(() => fetchUserData(newSession.user.id), 0);
+          // Await fetchUserData BEFORE setting loading=false
+          // Use setTimeout to avoid Supabase client deadlocks, but track completion
+          setTimeout(async () => {
+            await fetchUserData(newSession.user.id);
+            setLoading(false);
+          }, 0);
         } else {
           setUser(null);
           setWallet(null);
+          setLoading(false);
         }
-        setLoading(false);
+        // Mark that onAuthStateChange handled the initial session
+        initialSessionHandled = true;
       }
     );
 
-    // THEN check existing session
-    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+    // Fallback: check existing session (only set loading=false if onAuthStateChange hasn't fired yet)
+    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
+      if (initialSessionHandled) return; // onAuthStateChange already handled it
       setSession(existingSession);
       if (existingSession?.user) {
-        fetchUserData(existingSession.user.id);
+        await fetchUserData(existingSession.user.id);
       }
       setLoading(false);
     });

@@ -26,12 +26,21 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/auth/login" replace />;
   }
 
+  // Wait for user profile to load before checking onboarding guards
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   // Onboarding guards: country selection → welcome page
-  if (user && (!user.countryId || user.countryId.length === 0)) {
+  if (!user.countryId || user.countryId.length === 0) {
     return <Navigate to="/choose-country" replace />;
   }
 
-  if (user && !user.welcomeSeen) {
+  if (!user.welcomeSeen) {
     return <Navigate to="/welcome" replace />;
   }
 
