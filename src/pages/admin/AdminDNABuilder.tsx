@@ -11,13 +11,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import {
-  Dna, Upload, FileText, Brain, ShieldCheck, Shield, ShieldAlert,
-  Loader2, CheckCircle2, AlertTriangle, Trash2, Download, Eye,
-  ChevronRight, RefreshCw, Plus, X, Sparkles, FileSearch
+  Dna, Upload, FileText, Brain, ShieldCheck, Shield,
+  Loader2, CheckCircle2, AlertTriangle, Trash2,
+  ChevronRight, Plus, Sparkles, FileSearch, History, GitCompare, Eye, X
 } from 'lucide-react';
+
+// ─── Types ───────────────────────────────────────────────────────
 
 interface ExamTemplate {
   id: string;
@@ -49,6 +52,20 @@ interface SourceFile {
   notes: string | null;
   created_at: string;
 }
+
+interface ProfileVersion {
+  id: string;
+  exam_template_id: string;
+  profile_json: any;
+  version_number: number;
+  status: string;
+  source_pdfs: any;
+  change_summary: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+// ─── Validation ──────────────────────────────────────────────────
 
 const REQUIRED_FIELDS_CHECKS = [
   { path: 'official_spec.total_questions', label: 'عدد الأسئلة الإجمالي', check: (v: any) => v > 0 },
@@ -98,7 +115,43 @@ function validateProfile(profile: any): { valid: boolean; errors: string[] } {
   return { valid: errors.length === 0, errors };
 }
 
-// ─── Step Components ─────────────────────────────────────────────
+// ─── Diff Utilities ──────────────────────────────────────────────
+
+function flattenObject(obj: any, prefix = ''): Record<string, any> {
+  const result: Record<string, any> = {};
+  if (!obj || typeof obj !== 'object') return result;
+  for (const key of Object.keys(obj)) {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    if (obj[key] !== null && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+      Object.assign(result, flattenObject(obj[key], fullKey));
+    } else {
+      result[fullKey] = obj[key];
+    }
+  }
+  return result;
+}
+
+function computeDiff(oldJson: any, newJson: any): Array<{ key: string; old: any; new: any; type: 'added' | 'removed' | 'changed' }> {
+  const oldFlat = flattenObject(oldJson);
+  const newFlat = flattenObject(newJson);
+  const allKeys = new Set([...Object.keys(oldFlat), ...Object.keys(newFlat)]);
+  const diffs: Array<{ key: string; old: any; new: any; type: 'added' | 'removed' | 'changed' }> = [];
+
+  for (const key of allKeys) {
+    const oldVal = oldFlat[key];
+    const newVal = newFlat[key];
+    if (oldVal === undefined) {
+      diffs.push({ key, old: undefined, new: newVal, type: 'added' });
+    } else if (newVal === undefined) {
+      diffs.push({ key, old: oldVal, new: undefined, type: 'removed' });
+    } else if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+      diffs.push({ key, old: oldVal, new: newVal, type: 'changed' });
+    }
+  }
+  return diffs;
+}
+
+// ─── Sub-Components ──────────────────────────────────────────────
 
 function StepIndicator({ step, currentStep, label }: { step: number; currentStep: number; label: string }) {
   const isActive = step === currentStep;
@@ -116,6 +169,215 @@ function StepIndicator({ step, currentStep, label }: { step: number; currentStep
   );
 }
 
+function VersionCompareDialog({
+  open,
+  onClose,
+  versionA,
+  versionB,
+}: {
+  open: boolean;
+  onClose: () => void;
+  versionA: ProfileVersion | null;
+  versionB: ProfileVersion | null;
+}) {
+  if (!versionA || !versionB) return null;
+  const diffs = computeDiff(versionA.profile_json, versionB.profile_json);
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[85vh]" dir="rtl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <GitCompare className="h-5 w-5" />
+            مقارنة الإصدارات: v{versionA.version_number} ← v{versionB.version_number}
+          </DialogTitle>
+        </DialogHeader>
+        <ScrollArea className="max-h-[65vh]">
+          {diffs.length === 0 ? (
+            <p className="text-center text-muted-foreground p-8">لا توجد اختلافات بين الإصدارين</p>
+          ) : (
+            <div className="space-y-1 p-1">
+              <div className="grid grid-cols-[1fr,1fr,1fr] gap-2 text-xs font-semibold text-muted-foreground border-b pb-2 mb-2">
+                <span>الحقل</span>
+                <span>v{versionA.version_number} (القديم)</span>
+                <span>v{versionB.version_number} (الجديد)</span>
+              </div>
+              {diffs.map((d, i) => (
+                <div key={i} className={`grid grid-cols-[1fr,1fr,1fr] gap-2 text-xs p-2 rounded ${
+                  d.type === 'added' ? 'bg-green-500/10' : d.type === 'removed' ? 'bg-red-500/10' : 'bg-yellow-500/10'
+                }`}>
+                  <span className="font-mono text-muted-foreground break-all" dir="ltr">{d.key}</span>
+                  <span className={`break-all ${d.type === 'removed' ? 'text-destructive line-through' : ''}`} dir="ltr">
+                    {d.old !== undefined ? JSON.stringify(d.old) : '—'}
+                  </span>
+                  <span className={`break-all ${d.type === 'added' ? 'text-green-600 font-semibold' : ''}`} dir="ltr">
+                    {d.new !== undefined ? JSON.stringify(d.new) : '—'}
+                  </span>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground mt-3 pt-2 border-t">
+                إجمالي التغييرات: {diffs.length} ({diffs.filter(d => d.type === 'changed').length} تعديل، {diffs.filter(d => d.type === 'added').length} إضافة، {diffs.filter(d => d.type === 'removed').length} حذف)
+              </p>
+            </div>
+          )}
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VersionViewDialog({
+  open,
+  onClose,
+  version,
+}: {
+  open: boolean;
+  onClose: () => void;
+  version: ProfileVersion | null;
+}) {
+  if (!version) return null;
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[85vh]" dir="rtl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Eye className="h-5 w-5" />
+            إصدار v{version.version_number}
+            <Badge variant="outline" className={version.status === 'approved' ? 'bg-green-500/10 text-green-600' : ''}>
+              {version.status === 'approved' ? 'معتمد' : 'مسودة'}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+        <ScrollArea className="max-h-[65vh]">
+          <div className="space-y-3 p-1">
+            <div className="text-xs text-muted-foreground">
+              <p>تاريخ الإنشاء: {new Date(version.created_at).toLocaleString('ar')}</p>
+              {version.change_summary && <p className="mt-1">الملخص: {version.change_summary}</p>}
+            </div>
+            <Separator />
+            <pre className="text-xs font-mono bg-muted p-4 rounded-lg overflow-auto whitespace-pre-wrap" dir="ltr">
+              {JSON.stringify(version.profile_json, null, 2)}
+            </pre>
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VersionHistoryPanel({
+  versions,
+  loading,
+  onRestore,
+}: {
+  versions: ProfileVersion[];
+  loading: boolean;
+  onRestore: (v: ProfileVersion) => void;
+}) {
+  const [viewVersion, setViewVersion] = useState<ProfileVersion | null>(null);
+  const [compareA, setCompareA] = useState<ProfileVersion | null>(null);
+  const [compareB, setCompareB] = useState<ProfileVersion | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
+
+  const handleCompare = (v: ProfileVersion) => {
+    if (!compareA) {
+      setCompareA(v);
+      toast.info('اختر الإصدار الثاني للمقارنة');
+    } else if (compareA.id === v.id) {
+      setCompareA(null);
+      toast.info('تم إلغاء التحديد');
+    } else {
+      // Ensure A is older than B
+      const [older, newer] = compareA.version_number < v.version_number
+        ? [compareA, v] : [v, compareA];
+      setCompareA(older);
+      setCompareB(newer);
+      setShowCompare(true);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (versions.length === 0) {
+    return (
+      <div className="text-center p-8 text-muted-foreground">
+        <History className="h-8 w-8 mx-auto mb-2 opacity-40" />
+        <p className="text-sm">لا توجد إصدارات سابقة</p>
+        <p className="text-xs mt-1">سيتم حفظ إصدار جديد عند كل حفظ أو اعتماد</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {compareA && !showCompare && (
+        <div className="flex items-center gap-2 p-2 bg-primary/5 rounded-lg text-sm">
+          <GitCompare className="h-4 w-4 text-primary" />
+          <span>تم تحديد v{compareA.version_number} — اختر إصداراً آخر للمقارنة</span>
+          <Button size="sm" variant="ghost" className="mr-auto h-6" onClick={() => setCompareA(null)}>
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+
+      {versions.map((v) => (
+        <div key={v.id} className={`border rounded-lg p-3 transition-colors ${
+          compareA?.id === v.id ? 'border-primary bg-primary/5' : 'bg-card'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
+                v.status === 'approved' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+              }`}>
+                {v.version_number}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">v{v.version_number}</span>
+                  <Badge variant="outline" className={`text-[10px] h-5 ${
+                    v.status === 'approved' ? 'bg-green-500/10 text-green-600 border-green-500/20' : ''
+                  }`}>
+                    {v.status === 'approved' ? 'معتمد' : 'مسودة'}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(v.created_at).toLocaleString('ar')}
+                  {v.change_summary && ` · ${v.change_summary}`}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setViewVersion(v)} title="عرض">
+                <Eye className="h-3.5 w-3.5" />
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleCompare(v)} title="مقارنة">
+                <GitCompare className={`h-3.5 w-3.5 ${compareA?.id === v.id ? 'text-primary' : ''}`} />
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={() => onRestore(v)}>
+                استعادة
+              </Button>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <VersionViewDialog open={!!viewVersion} onClose={() => setViewVersion(null)} version={viewVersion} />
+      <VersionCompareDialog
+        open={showCompare}
+        onClose={() => { setShowCompare(false); setCompareA(null); setCompareB(null); }}
+        versionA={compareA}
+        versionB={compareB}
+      />
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────
 
 export default function AdminDNABuilder() {
@@ -124,6 +386,8 @@ export default function AdminDNABuilder() {
   const [profile, setProfile] = useState<ExamProfile | null>(null);
   const [dnaData, setDnaData] = useState<any>(null);
   const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
+  const [versions, setVersions] = useState<ProfileVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState(1);
 
@@ -139,7 +403,6 @@ export default function AdminDNABuilder() {
   const [adminNotes, setAdminNotes] = useState('');
 
   // JSON editor
-  const [showJsonEditor, setShowJsonEditor] = useState(false);
   const [jsonText, setJsonText] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -174,15 +437,48 @@ export default function AdminDNABuilder() {
     }
   }, []);
 
+  const loadVersions = useCallback(async (templateId: string) => {
+    setVersionsLoading(true);
+    const { data } = await (supabase.from('exam_profile_versions' as any) as any)
+      .select('*')
+      .eq('exam_template_id', templateId)
+      .order('version_number', { ascending: false });
+    setVersions((data as unknown as ProfileVersion[]) || []);
+    setVersionsLoading(false);
+  }, []);
+
   useEffect(() => {
     if (selectedTemplateId) {
       loadProfileAndSources(selectedTemplateId);
+      loadVersions(selectedTemplateId);
     } else {
       setProfile(null);
       setDnaData(null);
       setSourceFiles([]);
+      setVersions([]);
     }
-  }, [selectedTemplateId, loadProfileAndSources]);
+  }, [selectedTemplateId, loadProfileAndSources, loadVersions]);
+
+  // ─── Save Version Snapshot ──────────────────────────────────
+  const saveVersion = async (profileJson: any, status: string, changeSummary: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !selectedTemplateId) return;
+
+    const nextVersion = (versions.length > 0 ? versions[0].version_number : 0) + 1;
+    const sourcePdfs = sourceFiles.map(s => ({ file_name: s.file_name, file_path: s.file_path }));
+
+    await (supabase.from('exam_profile_versions' as any) as any).insert({
+      exam_template_id: selectedTemplateId,
+      profile_json: profileJson,
+      version_number: nextVersion,
+      status,
+      source_pdfs: sourcePdfs,
+      change_summary: changeSummary,
+      created_by: user.id,
+    });
+
+    await loadVersions(selectedTemplateId);
+  };
 
   // ─── Step 1: Select Exam ─────────────────────────────────────
   const handleSelectExam = (id: string) => {
@@ -215,7 +511,6 @@ export default function AdminDNABuilder() {
         continue;
       }
 
-      // Track in DB
       await (supabase.from('exam_profile_sources' as any) as any).insert({
         exam_template_id: selectedTemplateId,
         file_name: file.name,
@@ -284,7 +579,6 @@ export default function AdminDNABuilder() {
     if (!selectedTemplateId) return;
     setGenerating(true);
     try {
-      // Combine all extracted texts + manual text
       const extractedTexts = sourceFiles
         .filter(s => s.extracted_text)
         .map(s => s.extracted_text)
@@ -307,6 +601,8 @@ export default function AdminDNABuilder() {
         if (data?.profile) {
           setDnaData(data.profile);
           setJsonText(JSON.stringify(data.profile, null, 2));
+          // Auto-save version
+          await saveVersion(data.profile, 'draft', 'توليد DNA بالذكاء الاصطناعي');
         }
         setStep(4);
       } else {
@@ -328,13 +624,11 @@ export default function AdminDNABuilder() {
   const updateDifficultyMix = (key: string, val: number) => {
     const mix = { ...dnaData?.psychometric_dna?.difficulty_mix_default };
     mix[key] = val;
-    // Auto-adjust to sum = 100
     const others = Object.keys(mix).filter(k => k !== key);
     const remaining = 100 - val;
     const otherSum = others.reduce((s, k) => s + (mix[k] || 0), 0);
     if (otherSum > 0) {
       others.forEach(k => { mix[k] = Math.round((mix[k] / otherSum) * remaining); });
-      // Fix rounding
       const newSum: number = Object.values(mix as Record<string, number>).reduce((s, v) => s + v, 0);
       if (newSum !== 100) mix[others[0]] += 100 - newSum;
     }
@@ -345,12 +639,13 @@ export default function AdminDNABuilder() {
     if (!selectedTemplateId) return;
     setSaving(true);
     try {
-      const dataToSave = showJsonEditor ? JSON.parse(jsonText) : dnaData;
+      const dataToSave = jsonText ? (() => { try { return JSON.parse(jsonText); } catch { return dnaData; } })() : dnaData;
       if (profile) {
         await (supabase.from('exam_profiles' as any) as any).update({ profile_json: dataToSave, status: 'draft' }).eq('id', profile.id);
       } else {
         await (supabase.from('exam_profiles' as any) as any).insert({ exam_template_id: selectedTemplateId, profile_json: dataToSave, status: 'draft' });
       }
+      await saveVersion(dataToSave, 'draft', 'حفظ مسودة يدوي');
       toast.success('تم حفظ المسودة');
       await loadProfileAndSources(selectedTemplateId);
     } catch (e: any) {
@@ -385,12 +680,19 @@ export default function AdminDNABuilder() {
           approved_at: new Date().toISOString(),
         });
       }
+      await saveVersion(dnaData, 'approved', 'اعتماد DNA');
       toast.success('✅ تم اعتماد DNA بنجاح');
       await loadProfileAndSources(selectedTemplateId);
     } catch (e: any) {
       toast.error('خطأ: ' + e.message);
     }
     setSaving(false);
+  };
+
+  const restoreVersion = async (v: ProfileVersion) => {
+    setDnaData(v.profile_json);
+    setJsonText(JSON.stringify(v.profile_json, null, 2));
+    toast.success(`تم تحميل إصدار v${v.version_number} — احفظ أو اعتمد لتثبيت التغييرات`);
   };
 
   // ─── Validation Status ──────────────────────────────────────
@@ -438,26 +740,23 @@ export default function AdminDNABuilder() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {templates.map(tmpl => {
-                const hasProfile = false; // Will be checked via profiles
-                return (
-                  <Card
-                    key={tmpl.id}
-                    className="cursor-pointer hover:border-primary/50 transition-colors"
-                    onClick={() => handleSelectExam(tmpl.id)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-semibold text-sm">{tmpl.name_ar}</h3>
-                          <p className="text-xs text-muted-foreground mt-1">{tmpl.country_id} · {tmpl.default_question_count} سؤال</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              {templates.map(tmpl => (
+                <Card
+                  key={tmpl.id}
+                  className="cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => handleSelectExam(tmpl.id)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-sm">{tmpl.name_ar}</h3>
+                        <p className="text-xs text-muted-foreground mt-1">{tmpl.country_id} · {tmpl.default_question_count} سؤال</p>
                       </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -583,7 +882,6 @@ export default function AdminDNABuilder() {
               <CardDescription>سيقوم الذكاء الاصطناعي بتحليل المصادر وبناء بصمة الاختبار</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Summary */}
               <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
                 <div className="border rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-primary">{sourceFiles.length}</p>
@@ -603,7 +901,6 @@ export default function AdminDNABuilder() {
                 </div>
               </div>
 
-              {/* Warnings */}
               {sourceFiles.length > 0 && sourceFiles.some(s => !s.extracted_text) && (
                 <div className="flex items-center gap-2 p-3 bg-yellow-500/10 text-yellow-700 rounded-lg text-sm">
                   <AlertTriangle className="h-4 w-4" />
@@ -655,6 +952,7 @@ export default function AdminDNABuilder() {
                 <p className="text-xs text-muted-foreground">
                   {profile?.status === 'approved' ? 'معتمد' : 'مسودة'}
                   {profile?.updated_at && ` · آخر تحديث: ${new Date(profile.updated_at).toLocaleDateString('ar')}`}
+                  {versions.length > 0 && ` · ${versions.length} إصدار`}
                 </p>
               </div>
             </div>
@@ -666,7 +964,7 @@ export default function AdminDNABuilder() {
             </div>
           </div>
 
-          {/* Validation */}
+          {/* Validation errors */}
           {validationResult && !validationResult.valid && (
             <div className="border border-destructive/30 rounded-lg p-3 bg-destructive/5">
               <p className="text-sm font-medium text-destructive mb-2">حقول مفقودة ({validationResult.errors.length}):</p>
@@ -681,6 +979,10 @@ export default function AdminDNABuilder() {
               <TabsTrigger value="form">النموذج المهيكل</TabsTrigger>
               <TabsTrigger value="json">محرر JSON</TabsTrigger>
               <TabsTrigger value="validation">التحقق ({validationResult?.errors.length || 0})</TabsTrigger>
+              <TabsTrigger value="versions" className="flex items-center gap-1">
+                <History className="h-3.5 w-3.5" />
+                الإصدارات ({versions.length})
+              </TabsTrigger>
             </TabsList>
 
             {/* Structured Form */}
@@ -926,6 +1228,15 @@ export default function AdminDNABuilder() {
                   );
                 })}
               </div>
+            </TabsContent>
+
+            {/* Version History */}
+            <TabsContent value="versions">
+              <VersionHistoryPanel
+                versions={versions}
+                loading={versionsLoading}
+                onRestore={restoreVersion}
+              />
             </TabsContent>
           </Tabs>
 
