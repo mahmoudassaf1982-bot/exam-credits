@@ -7,6 +7,45 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+interface TavilyResult {
+  title: string;
+  url: string;
+  content: string;
+  score: number;
+}
+
+interface SourceEvidence {
+  url: string;
+  title: string;
+  snippet: string;
+  relevance_score: number;
+}
+
+async function searchTavily(query: string, apiKey: string): Promise<TavilyResult[]> {
+  console.log(`[tavily] Searching: "${query}"`);
+  const res = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query,
+      search_depth: "advanced",
+      max_results: 5,
+      include_answer: false,
+      include_raw_content: false,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`[tavily] Error ${res.status}: ${errText}`);
+    if (res.status === 401 || res.status === 403) throw new Error("مفتاح Tavily غير صالح");
+    if (res.status === 429) throw new Error("تم تجاوز حد طلبات Tavily، حاول لاحقاً");
+    throw new Error(`Tavily error: ${res.status}`);
+  }
+  const data = await res.json();
+  return (data.results || []) as TavilyResult[];
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -31,7 +70,7 @@ serve(async (req) => {
       performedBy = user?.id || null;
     }
 
-    // ACTION: save — apply reviewed sections
+    // ─── ACTION: save — apply reviewed sections ───
     if (action === "save") {
       if (!submittedSections || !Array.isArray(submittedSections) || submittedSections.length === 0) {
         throw new Error("يجب تقديم أقسام للحفظ");
@@ -92,7 +131,7 @@ serve(async (req) => {
       );
     }
 
-    // ACTION: fetch (default) — AI research, return proposals without saving
+    // ─── ACTION: fetch (default) — Tavily research + AI parsing ───
     const { data: exam, error: examErr } = await supabase
       .from("exam_templates")
       .select("*, countries:country_id(name_ar, name)")
@@ -105,11 +144,72 @@ serve(async (req) => {
     const countryNameEn = (exam as any).countries?.name || "";
     const examName = exam.name_ar;
 
-    console.log(`[ai-sync-exam] Fetching proposals for: ${examName} (${countryName})`);
+    // Fetch current stored standards for conflict detection
+    const { data: currentSections } = await supabase
+      .from("exam_sections")
+      .select("*")
+      .eq("exam_template_id", examTemplateId)
+      .order("order");
+
+    const storedStandards = {
+      total_questions: exam.default_question_count,
+      total_time_sec: exam.default_time_limit_sec,
+      sections: (currentSections || []).map((s: any) => ({
+        name_ar: s.name_ar,
+        question_count: s.question_count,
+        time_limit_sec: s.time_limit_sec,
+      })),
+    };
+
+    console.log(`[ai-sync-exam] Researching: ${examName} (${countryName})`);
+
+    // ─── Step 1: Tavily web search ───
+    const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
+    let tavilyResults: TavilyResult[] = [];
+    let tavilyUsed = false;
+
+    if (TAVILY_API_KEY) {
+      try {
+        // Build multiple targeted search queries
+        const queries = [
+          `${examName} ${countryNameEn || countryName} exam structure sections total questions duration official`,
+          `${examName} ${countryNameEn || countryName} official exam format number of questions time limit`,
+        ];
+
+        const allResults: TavilyResult[] = [];
+        for (const q of queries) {
+          const results = await searchTavily(q, TAVILY_API_KEY);
+          allResults.push(...results);
+        }
+
+        // Deduplicate by URL
+        const seen = new Set<string>();
+        tavilyResults = allResults.filter(r => {
+          if (seen.has(r.url)) return false;
+          seen.add(r.url);
+          return true;
+        });
+
+        tavilyUsed = tavilyResults.length > 0;
+        console.log(`[ai-sync-exam] Tavily returned ${tavilyResults.length} unique results`);
+      } catch (err) {
+        console.error("[ai-sync-exam] Tavily search failed, falling back to AI-only:", err);
+      }
+    } else {
+      console.warn("[ai-sync-exam] TAVILY_API_KEY not set, using AI-only mode");
+    }
+
+    // ─── Step 2: AI structured parsing ───
+    const tavilyContext = tavilyUsed
+      ? `\n\nفيما يلي نتائج بحث حقيقية من الإنترنت عن هذا الاختبار. استخدمها كمصدر رئيسي للمعلومات:\n\n${tavilyResults.map((r, i) => `--- مصدر ${i + 1} ---\nالعنوان: ${r.title}\nالرابط: ${r.url}\nالمحتوى:\n${r.content}\n`).join("\n")}`
+      : "";
 
     const prompt = `أنت خبير في أنظمة الاختبارات الأكاديمية في الدول العربية.
 
 أحتاج منك معلومات دقيقة ومحدثة عن هيكل اختبار "${examName}" في ${countryName}${countryNameEn ? ` (${countryNameEn})` : ""}.
+${tavilyContext}
+
+${tavilyUsed ? "استند فقط إلى المصادر المقدمة أعلاه. لا تخترع معلومات من عندك." : "استخدم معرفتك الداخلية لتقديم أفضل تقدير."}
 
 أريد المعلومات التالية:
 1. الأقسام الرسمية للاختبار
@@ -117,14 +217,14 @@ serve(async (req) => {
 3. الوقت المخصص لكل قسم بالدقائق
 4. توزيع الصعوبة المقترح لكل قسم (سهل، متوسط، صعب) كنسب مئوية
 5. المواضيع الرئيسية لكل قسم
-6. المصادر الرسمية
+6. المصادر الرسمية (${tavilyUsed ? "من المصادر المقدمة فقط — اذكر الرابط والعنوان ومقتطف قصير كدليل" : "من معرفتك"})
 
 أرجع النتيجة كـ JSON:
 {
   "total_questions": 100,
   "total_time_minutes": 120,
   "sources": [
-    { "name": "اسم المصدر", "url": "رابط", "description": "وصف" }
+    { "name": "اسم المصدر", "url": "رابط", "description": "وصف", "evidence_snippet": "مقتطف نصي قصير يثبت المعلومة" }
   ],
   "sections": [
     {
@@ -157,12 +257,8 @@ serve(async (req) => {
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
       console.error("[ai-sync-exam] AI error:", aiResponse.status, errText);
-      if (aiResponse.status === 429) {
-        throw new Error("تم تجاوز حد الطلبات، حاول لاحقاً");
-      }
-      if (aiResponse.status === 402) {
-        throw new Error("يرجى إضافة رصيد للذكاء الاصطناعي");
-      }
+      if (aiResponse.status === 429) throw new Error("تم تجاوز حد الطلبات، حاول لاحقاً");
+      if (aiResponse.status === 402) throw new Error("يرجى إضافة رصيد للذكاء الاصطناعي");
       throw new Error(`AI gateway error: ${aiResponse.status}`);
     }
 
@@ -185,9 +281,23 @@ serve(async (req) => {
       throw new Error("لم يتم العثور على أقسام للاختبار");
     }
 
-    // Save trusted sources (these are informational, safe to save immediately)
+    // ─── Save trusted sources with evidence ───
+    const sourcesWithEvidence: SourceEvidence[] = [];
     if (result.sources && Array.isArray(result.sources)) {
       for (const src of result.sources) {
+        const evidence: SourceEvidence = {
+          url: src.url || "",
+          title: src.name || "",
+          snippet: src.evidence_snippet || src.description || "",
+          relevance_score: 0,
+        };
+        // Match with Tavily scores
+        if (tavilyUsed) {
+          const match = tavilyResults.find(t => t.url === src.url);
+          if (match) evidence.relevance_score = match.score;
+        }
+        sourcesWithEvidence.push(evidence);
+
         await supabase
           .from("trusted_sources")
           .upsert({
@@ -200,7 +310,7 @@ serve(async (req) => {
       }
     }
 
-    // Return proposals WITHOUT saving sections
+    // ─── Build proposals ───
     const proposals = result.sections.map((s: any, i: number) => ({
       name_ar: s.name_ar,
       question_count: s.question_count || 20,
@@ -210,12 +320,29 @@ serve(async (req) => {
       topic_filter_json: s.topics || [],
     }));
 
+    // ─── Audit log for research ───
+    await supabase.from("sync_audit_log").insert({
+      exam_template_id: examTemplateId,
+      action: "ai_sync_research",
+      details: {
+        tavily_used: tavilyUsed,
+        tavily_results_count: tavilyResults.length,
+        proposals_count: proposals.length,
+        suggested_total_questions: result.total_questions,
+        suggested_total_time_minutes: result.total_time_minutes,
+      },
+      performed_by: performedBy,
+    });
+
     return new Response(
       JSON.stringify({
         success: true,
         proposals,
         totalQuestions: result.total_questions,
         totalTimeMinutes: result.total_time_minutes,
+        tavilyUsed,
+        sources: sourcesWithEvidence,
+        storedStandards,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
