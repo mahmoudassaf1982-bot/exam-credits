@@ -70,8 +70,17 @@ async function searchTavily(query: string, apiKey: string): Promise<TavilyResult
 
 function detectTruncation(text: string): boolean {
   const trimmed = text.trim();
-  if (!trimmed.endsWith("}") && !trimmed.endsWith("]")) return true;
-  try { JSON.parse(trimmed); return false; } catch { return true; }
+  // Check raw JSON
+  if (trimmed.endsWith("}") || trimmed.endsWith("]")) {
+    try { JSON.parse(trimmed); return false; } catch { /* continue */ }
+  }
+  // Check if it contains a code block with valid JSON
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    try { JSON.parse(codeBlockMatch[1].trim()); return false; } catch { /* continue */ }
+  }
+  // If no valid JSON found at all, it's likely truncated or malformed
+  return !trimmed.includes('"parsing_status"');
 }
 
 function extractJsonFromResponse(raw: string): any {
