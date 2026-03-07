@@ -165,10 +165,10 @@ export default function AdminDNABuilder() {
       supabase.from('exam_profiles' as any).select('*').eq('exam_template_id', templateId).single(),
       supabase.from('exam_profile_sources' as any).select('*').eq('exam_template_id', templateId).order('created_at', { ascending: false }),
     ]);
-    const p = pData as ExamProfile | null;
+    const p = pData as unknown as ExamProfile | null;
     setProfile(p);
     setDnaData(p?.profile_json || null);
-    setSourceFiles((sData as SourceFile[]) || []);
+    setSourceFiles((sData as unknown as SourceFile[]) || []);
     if (p?.profile_json) {
       setJsonText(JSON.stringify(p.profile_json, null, 2));
     }
@@ -335,7 +335,7 @@ export default function AdminDNABuilder() {
     if (otherSum > 0) {
       others.forEach(k => { mix[k] = Math.round((mix[k] / otherSum) * remaining); });
       // Fix rounding
-      const newSum = Object.values(mix).reduce((s: number, v: any) => s + v, 0);
+      const newSum = Object.values(mix).reduce((s: number, v: unknown) => s + (typeof v === 'number' ? v : 0), 0);
       if (newSum !== 100) mix[others[0]] += 100 - newSum;
     }
     updateDnaField('psychometric_dna.difficulty_mix_default', mix);
