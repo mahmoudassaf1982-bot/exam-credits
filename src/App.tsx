@@ -37,6 +37,7 @@ import AdminAIReviewQueue from "./pages/admin/AdminAIReviewQueue";
 import AdminBankHealth from "./pages/admin/AdminBankHealth";
 import AdminJobs from "./pages/admin/AdminJobs";
 import AdminExamProfiles from "./pages/admin/AdminExamProfiles";
+import AdminDNABuilder from "./pages/admin/AdminDNABuilder";
 import ChooseCountry from "./pages/ChooseCountry";
 import Welcome from "./pages/Welcome";
 import NotFound from "./pages/NotFound";
@@ -99,6 +100,7 @@ const App = () => (
             <Route path="/app/admin/bank-health" element={<ProtectedRoute><AdminAppLayout><AdminBankHealth /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/jobs" element={<ProtectedRoute><AdminAppLayout><AdminJobs /></AdminAppLayout></ProtectedRoute>} />
             <Route path="/app/admin/exam-profiles" element={<ProtectedRoute><AdminAppLayout><AdminExamProfiles /></AdminAppLayout></ProtectedRoute>} />
+            <Route path="/app/admin/dna-builder" element={<ProtectedRoute><AdminAppLayout><AdminDNABuilder /></AdminAppLayout></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
