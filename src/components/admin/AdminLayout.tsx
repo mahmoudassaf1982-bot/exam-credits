@@ -39,6 +39,7 @@ const adminNavItems = [
   { path: '/app/admin/bank-health', label: 'صحة البنك', icon: Activity },
   { path: '/app/admin/jobs', label: 'مهام AI', icon: Cog },
   { path: '/app/admin/exam-profiles', label: 'ملفات الاختبارات', icon: Shield },
+  { path: '/app/admin/dna-builder', label: 'بناء DNA', icon: Sparkles },
   { path: '/app/admin/users', label: 'إدارة المستخدمين', icon: Users },
 ];
 
