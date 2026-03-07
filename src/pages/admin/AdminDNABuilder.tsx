@@ -335,7 +335,7 @@ export default function AdminDNABuilder() {
     if (otherSum > 0) {
       others.forEach(k => { mix[k] = Math.round((mix[k] / otherSum) * remaining); });
       // Fix rounding
-      const newSum = Object.values(mix).reduce((s: number, v: unknown) => s + (typeof v === 'number' ? v : 0), 0);
+      const newSum: number = Object.values(mix as Record<string, number>).reduce((s, v) => s + v, 0);
       if (newSum !== 100) mix[others[0]] += 100 - newSum;
     }
     updateDnaField('psychometric_dna.difficulty_mix_default', mix);
