@@ -7,8 +7,19 @@ import { useAuth } from '@/contexts/AuthContext';
 export default function Index() {
   const { isAuthenticated, loading } = useAuth();
 
-  // Redirect authenticated users to app (fixes Google OAuth landing on "/" issue)
-  if (!loading && isAuthenticated) {
+  // While auth is resolving, show loading spinner instead of flashing public page
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-gold text-gold-foreground font-black text-lg shadow-gold animate-pulse">
+          S
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect authenticated users to app (ProtectedRoute handles onboarding guards)
+  if (isAuthenticated) {
     return <Navigate to="/app" replace />;
   }
   return (
