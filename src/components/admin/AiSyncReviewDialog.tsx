@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Save, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Save, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Globe, Info } from 'lucide-react';
 import { toast } from 'sonner';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export interface ProposedSection {
   name_ar: string;
@@ -16,15 +17,31 @@ export interface ProposedSection {
   topic_filter_json: any;
 }
 
+export interface SourceEvidence {
+  url: string;
+  title: string;
+  snippet: string;
+  relevance_score: number;
+}
+
+export interface StoredStandards {
+  total_questions: number;
+  total_time_sec: number;
+  sections: { name_ar: string; question_count: number; time_limit_sec: number | null }[];
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   proposals: ProposedSection[];
   examName: string;
   onSave: (sections: ProposedSection[]) => Promise<void>;
+  tavilyUsed?: boolean;
+  sources?: SourceEvidence[];
+  storedStandards?: StoredStandards | null;
 }
 
-export default function AiSyncReviewDialog({ open, onOpenChange, proposals, examName, onSave }: Props) {
+export default function AiSyncReviewDialog({ open, onOpenChange, proposals, examName, onSave, tavilyUsed, sources, storedStandards }: Props) {
   const [sections, setSections] = useState<ProposedSection[]>(proposals);
   const [saving, setSaving] = useState(false);
 
@@ -36,6 +53,10 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
   const totalQuestions = useMemo(() => sections.reduce((s, sec) => s + sec.question_count, 0), [sections]);
   const totalTimeSec = useMemo(() => sections.reduce((s, sec) => s + (sec.time_limit_sec || 0), 0), [sections]);
   const totalTimeMin = Math.round(totalTimeSec / 60);
+
+  const hasStoredStandards = storedStandards && storedStandards.sections.length > 0;
+  const questionsConflict = hasStoredStandards && storedStandards.total_questions !== totalQuestions;
+  const timeConflict = hasStoredStandards && storedStandards.total_time_sec !== totalTimeSec;
 
   const updateSection = (idx: number, field: string, value: any) => {
     setSections(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
@@ -94,6 +115,44 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
           </DialogTitle>
         </DialogHeader>
 
+        {/* Research method badge */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {tavilyUsed ? (
+            <Badge variant="default" className="gap-1.5 text-xs px-2.5 py-1 bg-green-600">
+              <Globe className="h-3 w-3" />
+              بحث ويب حقيقي (Tavily)
+            </Badge>
+          ) : (
+            <Badge variant="secondary" className="gap-1.5 text-xs px-2.5 py-1">
+              <Info className="h-3 w-3" />
+              معرفة النموذج الداخلية فقط
+            </Badge>
+          )}
+        </div>
+
+        {/* Conflict warnings */}
+        {hasStoredStandards && (questionsConflict || timeConflict) && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-1.5">
+            <p className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              تعارض مع المعايير المخزنة الحالية
+            </p>
+            {questionsConflict && (
+              <p className="text-xs text-amber-600 dark:text-amber-300">
+                الأسئلة: المخزن = <strong>{storedStandards.total_questions}</strong> | المقترح = <strong>{totalQuestions}</strong>
+              </p>
+            )}
+            {timeConflict && (
+              <p className="text-xs text-amber-600 dark:text-amber-300">
+                المدة: المخزن = <strong>{Math.round(storedStandards.total_time_sec / 60)} دقيقة</strong> | المقترح = <strong>{totalTimeMin} دقيقة</strong>
+              </p>
+            )}
+            <p className="text-[10px] text-amber-500">
+              سيتم تحديث المعايير المخزنة فقط عند الضغط على "حفظ"
+            </p>
+          </div>
+        )}
+
         {/* Summary badges */}
         <div className="flex items-center gap-3 flex-wrap">
           <Badge variant="outline" className="gap-1.5 text-sm px-3 py-1">
@@ -113,6 +172,44 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
             )
           )}
         </div>
+
+        {/* Sources section */}
+        {sources && sources.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">المصادر المستخدمة:</p>
+            <div className="space-y-1">
+              {sources.map((src, i) => (
+                <TooltipProvider key={i}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-start gap-2 text-xs p-2 rounded-md bg-muted/40 border cursor-default">
+                        <ExternalLink className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{src.title || 'مصدر'}</p>
+                          {src.url && (
+                            <a href={src.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block text-[10px]">
+                              {src.url}
+                            </a>
+                          )}
+                        </div>
+                        {src.relevance_score > 0 && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                            {Math.round(src.relevance_score * 100)}%
+                          </Badge>
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    {src.snippet && (
+                      <TooltipContent side="bottom" className="max-w-sm text-right" dir="rtl">
+                        <p className="text-xs">{src.snippet}</p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Sections list */}
         <div className="space-y-3 mt-2">
