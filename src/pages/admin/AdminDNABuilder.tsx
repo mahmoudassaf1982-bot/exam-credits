@@ -1128,32 +1128,40 @@ export default function AdminDNABuilder() {
 
                   <Separator />
 
-                  {/* Difficulty Mix */}
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold">توزيع الصعوبة</Label>
+                  {/* Difficulty Mix — READ-ONLY from stored standards */}
+                  <div className="space-y-3 p-3 rounded-lg border border-primary/20 bg-primary/5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-semibold flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                        توزيع الصعوبة
+                      </Label>
+                      <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                        من معايير الاختبار المعتمدة
+                      </Badge>
+                    </div>
                     <div className="grid gap-4 md:grid-cols-3">
                       <div className="space-y-2">
-                        <Label className="text-xs">سهل: {dnaData?.psychometric_dna?.difficulty_mix_default?.easy || 0}%</Label>
+                        <Label className="text-xs text-muted-foreground">سهل: {dnaData?.psychometric_dna?.difficulty_mix_default?.easy || 0}%</Label>
                         <Slider
                           min={0} max={100} step={5}
                           value={[dnaData?.psychometric_dna?.difficulty_mix_default?.easy || 30]}
-                          onValueChange={([v]) => updateDifficultyMix('easy', v)}
+                          disabled
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-xs">متوسط: {dnaData?.psychometric_dna?.difficulty_mix_default?.medium || 0}%</Label>
+                        <Label className="text-xs text-muted-foreground">متوسط: {dnaData?.psychometric_dna?.difficulty_mix_default?.medium || 0}%</Label>
                         <Slider
                           min={0} max={100} step={5}
                           value={[dnaData?.psychometric_dna?.difficulty_mix_default?.medium || 50]}
-                          onValueChange={([v]) => updateDifficultyMix('medium', v)}
+                          disabled
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-xs">صعب: {dnaData?.psychometric_dna?.difficulty_mix_default?.hard || 0}%</Label>
+                        <Label className="text-xs text-muted-foreground">صعب: {dnaData?.psychometric_dna?.difficulty_mix_default?.hard || 0}%</Label>
                         <Slider
                           min={0} max={100} step={5}
                           value={[dnaData?.psychometric_dna?.difficulty_mix_default?.hard || 20]}
-                          onValueChange={([v]) => updateDifficultyMix('hard', v)}
+                          disabled
                         />
                       </div>
                     </div>
@@ -1161,6 +1169,7 @@ export default function AdminDNABuilder() {
                       المجموع: {(dnaData?.psychometric_dna?.difficulty_mix_default?.easy || 0) +
                         (dnaData?.psychometric_dna?.difficulty_mix_default?.medium || 0) +
                         (dnaData?.psychometric_dna?.difficulty_mix_default?.hard || 0)}%
+                      {' '}— لتعديل النسب، عدّل إعدادات قالب الاختبار
                     </p>
                   </div>
                 </CardContent>
