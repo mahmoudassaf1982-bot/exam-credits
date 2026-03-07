@@ -11,7 +11,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { ArrowRight, Save, Plus, Coins, Clock, HelpCircle, Layers, BookOpen, Loader2, Trash2, Sparkles, ExternalLink, History, Shield } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import AiSyncReviewDialog, { type ProposedSection, type SourceEvidence, type StoredStandards } from '@/components/admin/AiSyncReviewDialog';
+import AiSyncReviewDialog, { type ProposedSection, type SourceEvidence, type StoredStandards, type ConfidenceData } from '@/components/admin/AiSyncReviewDialog';
 
 interface ExamTemplate {
   id: string; country_id: string; slug: string; name_ar: string; description_ar: string;
@@ -54,6 +54,9 @@ export default function AdminExamDetail() {
   const [aiTavilyUsed, setAiTavilyUsed] = useState(false);
   const [aiSources, setAiSources] = useState<SourceEvidence[]>([]);
   const [aiStoredStandards, setAiStoredStandards] = useState<StoredStandards | null>(null);
+  const [aiConfidence, setAiConfidence] = useState<ConfidenceData | null>(null);
+  const [aiParsingStatus, setAiParsingStatus] = useState<string>('complete');
+  const [aiInconsistencyNotes, setAiInconsistencyNotes] = useState<string[]>([]);
 
   const handleAiSync = async () => {
     if (!template) return;
@@ -69,11 +72,14 @@ export default function AdminExamDetail() {
         toast.error('لم يتم العثور على أقسام مقترحة');
         return;
       }
-      console.log('[handleAiSync] Proposals count:', data.proposals.length, data.proposals);
+      console.log('[handleAiSync] Proposals count:', data.proposals.length, 'parsingStatus:', data.parsingStatus, data.proposals);
       setAiProposals(data.proposals);
       setAiTavilyUsed(!!data.tavilyUsed);
       setAiSources(data.sources || []);
       setAiStoredStandards(data.storedStandards || null);
+      setAiConfidence(data.confidence || null);
+      setAiParsingStatus(data.parsingStatus || 'complete');
+      setAiInconsistencyNotes(data.inconsistencyNotes || []);
       setShowReviewDialog(true);
       const method = data.tavilyUsed ? '🌐 بحث ويب حقيقي' : '🤖 معرفة داخلية';
       toast.success(`تم اكتشاف ${data.proposals.length} أقسام مقترحة (${method}) — راجعها قبل الحفظ`);
@@ -474,6 +480,9 @@ export default function AdminExamDetail() {
         tavilyUsed={aiTavilyUsed}
         sources={aiSources}
         storedStandards={aiStoredStandards}
+        confidence={aiConfidence}
+        parsingStatus={aiParsingStatus}
+        inconsistencyNotes={aiInconsistencyNotes}
       />
     </div>
   );
