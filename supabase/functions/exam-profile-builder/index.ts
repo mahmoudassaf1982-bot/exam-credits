@@ -240,7 +240,9 @@ serve(async (req) => {
 
       const systemPrompt = `You are a psychometric exam analysis expert. Analyze the exam information and return a JSON object with the psychometric DNA profile. Return ONLY valid JSON, no markdown.
 
-Return this exact structure:
+IMPORTANT: Do NOT include official exam structure fields like total_questions, duration, sections, or difficulty_mix_default — those come from stored approved standards and must not be overridden.
+
+Return this exact structure (psychometric enrichment only):
 {
   "thinking_style": "direct" | "reasoning" | "mixed",
   "time_pressure_level": "low" | "medium" | "high",
@@ -250,13 +252,12 @@ Return this exact structure:
   "distractor_style": { "type": "plausible" | "common_mistakes" | "partial_answers", "notes": "string" },
   "wording_complexity": "low" | "medium" | "high",
   "calculation_load": "low" | "medium" | "high",
-  "difficulty_mix_default": { "easy": number, "medium": number, "hard": number },
   "expected_time_per_question_seconds": { "easy": number, "medium": number, "hard": number },
   "cognitive_mix": [{ "type": "recall" | "comprehension" | "application" | "analysis", "pct": number }],
   "quality_gate_thresholds": { "min_confidence": 0.85, "min_clarity": 0.8, "min_language_quality": 0.8 }
 }
 
-difficulty_mix_default percentages must sum to 100. cognitive_mix percentages must sum to 100.`;
+cognitive_mix percentages must sum to 100.`;
 
       // ─── RETRY LOOP (max 3 attempts with exponential backoff + jitter) ───
       const MAX_ATTEMPTS = 3;
@@ -325,8 +326,31 @@ difficulty_mix_default percentages must sum to 100. cognitive_mix percentages mu
 
       // ─── RESULT HANDLING ─────────────────────────────────────────────
       if (dna) {
-        // SUCCESS: Update profile first, then job
-        profile.psychometric_dna = { ...profile.psychometric_dna, ...dna };
+        // SUCCESS: Merge AI-inferred DNA but PROTECT stored official standards
+        // Remove fields that belong to official_spec (stored standards are the single source of truth)
+        const { difficulty_mix_default: _ignoredMix, ...enrichmentOnly } = dna;
+        profile.psychometric_dna = { ...profile.psychometric_dna, ...enrichmentOnly };
+
+        // Re-enforce official spec from stored data (never let AI override)
+        profile.official_spec = {
+          total_questions: tmpl.default_question_count,
+          duration_minutes: Math.round(tmpl.default_time_limit_sec / 60),
+          languages: Array.isArray(tmpl.available_languages) ? tmpl.available_languages : ["ar"],
+          sections: (sections || []).map((s: any) => ({
+            section_id: s.id,
+            name_ar: s.name_ar,
+            question_count: s.question_count,
+            topics: s.topic_filter_json || [],
+            difficulty_mix: s.difficulty_mix_json || { easy: tmpl.target_easy_pct, medium: tmpl.target_medium_pct, hard: tmpl.target_hard_pct },
+          })),
+        };
+        // Re-enforce difficulty_mix_default from stored template percentages
+        profile.psychometric_dna.difficulty_mix_default = {
+          easy: tmpl.target_easy_pct,
+          medium: tmpl.target_medium_pct,
+          hard: tmpl.target_hard_pct,
+        };
+        profile.exam_identity = { exam_template_id: tmpl.id, exam_name: tmpl.name_ar, country_id: tmpl.country_id, schema_version: "dna_v1" };
 
         // 1. Persist to exam_profiles FIRST
         if (existingProfile) {

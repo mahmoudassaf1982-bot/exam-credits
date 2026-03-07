@@ -987,33 +987,50 @@ export default function AdminDNABuilder() {
 
             {/* Structured Form */}
             <TabsContent value="form" className="space-y-4">
-              {/* Official Spec */}
-              <Card>
+              {/* Official Spec — READ-ONLY from stored standards */}
+              <Card className="border-primary/20 bg-primary/5">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">المواصفات الرسمية</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-primary" />
+                      المواصفات الرسمية
+                    </CardTitle>
+                    <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                      مصدر الحقيقة — للقراءة فقط
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs">
+                    هذه القيم مأخوذة من الهيكل المعتمد (أقسام ومعايير الاختبار) ولا يمكن تعديلها من هنا. لتعديلها، انتقل إلى إعدادات قالب الاختبار.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">عدد الأسئلة</Label>
+                    <Label className="text-xs text-muted-foreground">عدد الأسئلة</Label>
                     <Input
                       type="number"
                       value={dnaData?.official_spec?.total_questions || ''}
-                      onChange={e => updateDnaField('official_spec.total_questions', parseInt(e.target.value) || 0)}
+                      readOnly
+                      disabled
+                      className="bg-muted/50"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">المدة (دقائق)</Label>
+                    <Label className="text-xs text-muted-foreground">المدة (دقائق)</Label>
                     <Input
                       type="number"
                       value={dnaData?.official_spec?.duration_minutes || ''}
-                      onChange={e => updateDnaField('official_spec.duration_minutes', parseInt(e.target.value) || 0)}
+                      readOnly
+                      disabled
+                      className="bg-muted/50"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">اللغات</Label>
+                    <Label className="text-xs text-muted-foreground">اللغات</Label>
                     <Input
                       value={(dnaData?.official_spec?.languages || []).join(', ')}
-                      onChange={e => updateDnaField('official_spec.languages', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
+                      readOnly
+                      disabled
+                      className="bg-muted/50"
                     />
                   </div>
                 </CardContent>
