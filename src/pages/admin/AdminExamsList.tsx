@@ -107,7 +107,8 @@ export default function AdminExamsList() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast.success(`${data.message} — أقسام جديدة: ${data.newSectionsAdded}`);
+      const method = data.tavilyUsed ? '🌐 بحث ويب' : '🤖 معرفة داخلية';
+      toast.success(`تم اكتشاف ${data.proposals?.length || 0} أقسام (${method}) — افتح التفاصيل للمراجعة`);
       fetchData();
     } catch (e: any) {
       toast.error(e.message || 'فشل تحديث المعايير');
