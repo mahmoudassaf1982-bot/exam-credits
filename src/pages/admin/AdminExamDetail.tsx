@@ -11,7 +11,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { ArrowRight, Save, Plus, Coins, Clock, HelpCircle, Layers, BookOpen, Loader2, Trash2, Sparkles, ExternalLink, History, Shield } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import AiSyncReviewDialog, { type ProposedSection } from '@/components/admin/AiSyncReviewDialog';
+import AiSyncReviewDialog, { type ProposedSection, type SourceEvidence, type StoredStandards } from '@/components/admin/AiSyncReviewDialog';
 
 interface ExamTemplate {
   id: string; country_id: string; slug: string; name_ar: string; description_ar: string;
@@ -51,6 +51,9 @@ export default function AdminExamDetail() {
   const [syncing, setSyncing] = useState(false);
   const [aiProposals, setAiProposals] = useState<ProposedSection[]>([]);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [aiTavilyUsed, setAiTavilyUsed] = useState(false);
+  const [aiSources, setAiSources] = useState<SourceEvidence[]>([]);
+  const [aiStoredStandards, setAiStoredStandards] = useState<StoredStandards | null>(null);
 
   const handleAiSync = async () => {
     if (!template) return;
@@ -68,8 +71,12 @@ export default function AdminExamDetail() {
       }
       console.log('[handleAiSync] Proposals count:', data.proposals.length, data.proposals);
       setAiProposals(data.proposals);
+      setAiTavilyUsed(!!data.tavilyUsed);
+      setAiSources(data.sources || []);
+      setAiStoredStandards(data.storedStandards || null);
       setShowReviewDialog(true);
-      toast.success(`تم اكتشاف ${data.proposals.length} أقسام مقترحة — راجعها قبل الحفظ`);
+      const method = data.tavilyUsed ? '🌐 بحث ويب حقيقي' : '🤖 معرفة داخلية';
+      toast.success(`تم اكتشاف ${data.proposals.length} أقسام مقترحة (${method}) — راجعها قبل الحفظ`);
     } catch (err: any) {
       console.error('AI Sync error:', err);
       toast.error(err.message || 'فشل في البحث عن المعايير');
@@ -464,6 +471,9 @@ export default function AdminExamDetail() {
         proposals={aiProposals}
         examName={template.name_ar}
         onSave={handleSaveProposals}
+        tavilyUsed={aiTavilyUsed}
+        sources={aiSources}
+        storedStandards={aiStoredStandards}
       />
     </div>
   );
