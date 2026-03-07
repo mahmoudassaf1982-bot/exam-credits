@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Save, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Globe, Info } from 'lucide-react';
+import { Plus, Trash2, Save, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Globe, Info, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -30,6 +30,12 @@ export interface StoredStandards {
   sections: { name_ar: string; question_count: number; time_limit_sec: number | null }[];
 }
 
+export interface ConfidenceData {
+  total_questions: number;
+  total_time: number;
+  sections: { name: string; name_confidence: number; count_confidence: number }[];
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -39,9 +45,18 @@ interface Props {
   tavilyUsed?: boolean;
   sources?: SourceEvidence[];
   storedStandards?: StoredStandards | null;
+  confidence?: ConfidenceData | null;
+  parsingStatus?: string;
+  inconsistencyNotes?: string[];
 }
 
-export default function AiSyncReviewDialog({ open, onOpenChange, proposals, examName, onSave, tavilyUsed, sources, storedStandards }: Props) {
+function ConfidenceBadge({ score }: { score: number }) {
+  if (score >= 0.8) return <Badge variant="default" className="text-[10px] px-1.5 py-0 bg-green-600">ثقة عالية {Math.round(score * 100)}%</Badge>;
+  if (score >= 0.5) return <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-amber-500 text-white">ثقة متوسطة {Math.round(score * 100)}%</Badge>;
+  return <Badge variant="destructive" className="text-[10px] px-1.5 py-0">ثقة منخفضة {Math.round(score * 100)}%</Badge>;
+}
+
+export default function AiSyncReviewDialog({ open, onOpenChange, proposals, examName, onSave, tavilyUsed, sources, storedStandards, confidence, parsingStatus, inconsistencyNotes }: Props) {
   const [sections, setSections] = useState<ProposedSection[]>(proposals);
   const [saving, setSaving] = useState(false);
 
@@ -57,6 +72,8 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
   const hasStoredStandards = storedStandards && storedStandards.sections.length > 0;
   const questionsConflict = hasStoredStandards && storedStandards.total_questions !== totalQuestions;
   const timeConflict = hasStoredStandards && storedStandards.total_time_sec !== totalTimeSec;
+
+  const isIncomplete = parsingStatus === "incomplete_structure" || parsingStatus === "inconsistent_data";
 
   const updateSection = (idx: number, field: string, value: any) => {
     setSections(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
@@ -130,6 +147,38 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
           )}
         </div>
 
+        {/* Parsing status warning */}
+        {isIncomplete && (
+          <div className="rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/30 p-3 space-y-1.5">
+            <p className="text-xs font-bold text-red-700 dark:text-red-400 flex items-center gap-1.5">
+              <ShieldAlert className="h-3.5 w-3.5" />
+              {parsingStatus === "incomplete_structure" ? "هيكل غير مكتمل — يرجى التعديل يدوياً" : "بيانات غير متسقة — يرجى المراجعة"}
+            </p>
+            {inconsistencyNotes && inconsistencyNotes.length > 0 && (
+              <ul className="text-xs text-red-600 dark:text-red-300 space-y-0.5 list-disc list-inside">
+                {inconsistencyNotes.map((note, i) => (
+                  <li key={i}>{note}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Confidence indicators */}
+        {confidence && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] text-muted-foreground">الثقة:</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px]">الأسئلة</span>
+              <ConfidenceBadge score={confidence.total_questions} />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px]">المدة</span>
+              <ConfidenceBadge score={confidence.total_time} />
+            </div>
+          </div>
+        )}
+
         {/* Conflict warnings */}
         {hasStoredStandards && (questionsConflict || timeConflict) && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-1.5">
@@ -164,13 +213,6 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
           <Badge variant={totalTimeSec > 0 ? 'default' : 'destructive'} className="gap-1.5 text-sm px-3 py-1">
             المدة: {totalTimeMin} دقيقة
           </Badge>
-          {totalTimeSec > 0 && (
-            totalTimeSec === 3600 ? (
-              <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" />60 دقيقة ✓</span>
-            ) : (
-              <span className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />المدة ≠ 60 دقيقة</span>
-            )
-          )}
         </div>
 
         {/* Sources section */}
@@ -213,50 +255,58 @@ export default function AiSyncReviewDialog({ open, onOpenChange, proposals, exam
 
         {/* Sections list */}
         <div className="space-y-3 mt-2">
-          {sections.map((sec, idx) => (
-            <div key={idx} className="rounded-xl border bg-muted/30 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-xs font-mono text-muted-foreground">#{idx + 1}</span>
-                  <Input
-                    value={sec.name_ar}
-                    onChange={(e) => updateSection(idx, 'name_ar', e.target.value)}
-                    className="font-bold h-9 flex-1"
-                    placeholder="اسم القسم"
-                  />
+          {sections.map((sec, idx) => {
+            const sectionConf = confidence?.sections?.find(s => s.name === sec.name_ar);
+            return (
+              <div key={idx} className="rounded-xl border bg-muted/30 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-1">
+                    <span className="text-xs font-mono text-muted-foreground">#{idx + 1}</span>
+                    <Input
+                      value={sec.name_ar}
+                      onChange={(e) => updateSection(idx, 'name_ar', e.target.value)}
+                      className="font-bold h-9 flex-1"
+                      placeholder="اسم القسم"
+                    />
+                  </div>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive shrink-0" onClick={() => removeSection(idx)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive shrink-0" onClick={() => removeSection(idx)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {sectionConf && (
+                  <div className="flex gap-2 flex-wrap">
+                    <ConfidenceBadge score={sectionConf.count_confidence} />
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">عدد الأسئلة</Label>
+                    <Input
+                      type="number"
+                      value={sec.question_count}
+                      onChange={(e) => updateSection(idx, 'question_count', Math.max(1, Number(e.target.value)))}
+                      className="h-8 text-center"
+                      dir="ltr"
+                      min={1}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">المدة (ثانية)</Label>
+                    <Input
+                      type="number"
+                      value={sec.time_limit_sec || ''}
+                      onChange={(e) => updateSection(idx, 'time_limit_sec', e.target.value ? Number(e.target.value) : null)}
+                      className="h-8 text-center"
+                      dir="ltr"
+                    />
+                    {sec.time_limit_sec && (
+                      <p className="text-[10px] text-muted-foreground text-center">{formatTime(sec.time_limit_sec)}</p>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">عدد الأسئلة</Label>
-                  <Input
-                    type="number"
-                    value={sec.question_count}
-                    onChange={(e) => updateSection(idx, 'question_count', Math.max(1, Number(e.target.value)))}
-                    className="h-8 text-center"
-                    dir="ltr"
-                    min={1}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">المدة (ثانية)</Label>
-                  <Input
-                    type="number"
-                    value={sec.time_limit_sec || ''}
-                    onChange={(e) => updateSection(idx, 'time_limit_sec', e.target.value ? Number(e.target.value) : null)}
-                    className="h-8 text-center"
-                    dir="ltr"
-                  />
-                  {sec.time_limit_sec && (
-                    <p className="text-[10px] text-muted-foreground text-center">{formatTime(sec.time_limit_sec)}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <Button variant="outline" size="sm" onClick={addSection} className="gap-1.5 text-xs w-full mt-1">
