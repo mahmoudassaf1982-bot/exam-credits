@@ -16,6 +16,7 @@ import Wallet from "./pages/Wallet";
 import Referral from "./pages/Referral";
 import Exams from "./pages/Exams";
 import ExamSession from "./pages/ExamSession";
+import AdaptiveTrainingSession from "./pages/AdaptiveTrainingSession";
 import ExamHistory from "./pages/ExamHistory";
 import PerformanceProfile from "./pages/PerformanceProfile";
 import TopUp from "./pages/TopUp";
@@ -73,6 +74,7 @@ const App = () => (
             <Route path="/app" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
             <Route path="/app/exams" element={<ProtectedRoute><AppLayout><Exams /></AppLayout></ProtectedRoute>} />
             <Route path="/app/exam-session/:sessionId" element={<ProtectedRoute><ExamSession /></ProtectedRoute>} />
+            <Route path="/app/adaptive-training/:sessionId" element={<ProtectedRoute><AdaptiveTrainingSession /></ProtectedRoute>} />
             <Route path="/app/history" element={<ProtectedRoute><AppLayout><ExamHistory /></AppLayout></ProtectedRoute>} />
             <Route path="/app/performance" element={<ProtectedRoute><AppLayout><PerformanceProfile /></AppLayout></ProtectedRoute>} />
             <Route path="/app/wallet" element={<ProtectedRoute><AppLayout><Wallet /></AppLayout></ProtectedRoute>} />

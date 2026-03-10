@@ -4,7 +4,6 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import {
   TrendingUp,
-  TrendingDown,
   Zap,
   Target,
   Clock,
@@ -23,13 +22,11 @@ import {
 } from '@/services/catAdaptiveEngine';
 
 interface Props {
-  /** Pre-loaded pool of questions with difficulty labels */
   questionPool: CATQuestion[];
-  /** Max questions per adaptive session */
+  /** Answer keys: questionId → correct_option_id */
+  answerKeys: Record<string, { correct_option_id: string; explanation?: string }>;
   maxQuestions?: number;
-  /** Called when session completes */
-  onComplete: (summary: ReturnType<typeof generateCATSummary>, answers: Record<string, string>) => void;
-  /** Called when user exits early */
+  onComplete: (summary: ReturnType<typeof generateCATSummary>, answers: Record<string, string>, catState: CATSessionState) => void;
   onExit: () => void;
 }
 
@@ -39,12 +36,9 @@ const difficultyLabels: Record<string, { label: string; color: string }> = {
   hard: { label: 'صعب', color: 'text-destructive' },
 };
 
-/**
- * Adaptive question UI that wraps the CAT engine.
- * Shows one question at a time with real-time difficulty adjustment.
- */
 export default function AdaptiveQuestionFlow({
   questionPool,
+  answerKeys,
   maxQuestions = 20,
   onComplete,
   onExit,
@@ -55,13 +49,9 @@ export default function AdaptiveQuestionFlow({
   );
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [isCorrect, setIsCorrect] = useState(false);
+  const [feedbackCorrect, setFeedbackCorrect] = useState(false);
   const questionStartRef = useRef<number>(Date.now());
   const answersMapRef = useRef<Record<string, string>>({});
-
-  // We need correct_option_id for feedback — it's not in pool during exam
-  // For adaptive training, questions come with correct answers (post-assembly)
-  // This component is used for training mode where answers are available
 
   const handleSelectOption = useCallback((optionId: string) => {
     if (showFeedback) return;
@@ -72,38 +62,36 @@ export default function AdaptiveQuestionFlow({
     if (!selectedOption || !currentQuestion || showFeedback) return;
 
     const timeSpent = Date.now() - questionStartRef.current;
-    // In adaptive training, we check correctness client-side
-    // The correct_option_id would be available in review mode
-    // For now, we mark it and let the server handle scoring
     answersMapRef.current[currentQuestion.id] = selectedOption;
 
-    // We don't know correctness here without answer keys
-    // The CAT engine will be fed correctness from the server after submission
-    // For live adaptation, we'll use a simplified heuristic:
-    // - Fast answers on easy = likely correct → increase
-    // - Slow answers = keep same
-    // This is a UX-only preview; actual scoring is server-side
+    // Check correctness using real answer keys
+    const key = answerKeys[currentQuestion.id];
+    const isCorrect = key ? selectedOption === key.correct_option_id : false;
 
+    setFeedbackCorrect(isCorrect);
     setShowFeedback(true);
 
-    // Auto-advance after brief feedback
+    // Auto-advance after feedback
     setTimeout(() => {
       const answer = {
         questionId: currentQuestion.id,
         selectedOptionId: selectedOption,
-        isCorrect: true, // Will be corrected by server
+        isCorrect,
         difficulty: currentQuestion.difficulty,
         timeSpentMs: timeSpent,
         topic: currentQuestion.topic,
       };
 
       const newState = processAnswer(catState, answer);
+      // Add the current question to questionsServed
+      newState.questionsServed = [...catState.questionsServed, currentQuestion];
+      
       const nextQ = selectNextQuestion(newState, questionPool, maxQuestions);
 
       if (!nextQ || newState.answers.length >= maxQuestions) {
-        // Session complete
-        const summary = generateCATSummary(newState);
-        onComplete(summary, answersMapRef.current);
+        const finalState = { ...newState, isComplete: true };
+        const summary = generateCATSummary(finalState);
+        onComplete(summary, answersMapRef.current, finalState);
         return;
       }
 
@@ -111,9 +99,10 @@ export default function AdaptiveQuestionFlow({
       setCurrentQuestion(nextQ);
       setSelectedOption(null);
       setShowFeedback(false);
+      setFeedbackCorrect(false);
       questionStartRef.current = Date.now();
-    }, 800);
-  }, [selectedOption, currentQuestion, catState, questionPool, maxQuestions, onComplete, showFeedback]);
+    }, 1200);
+  }, [selectedOption, currentQuestion, catState, questionPool, maxQuestions, onComplete, showFeedback, answerKeys]);
 
   if (!currentQuestion) {
     return (
@@ -123,9 +112,10 @@ export default function AdaptiveQuestionFlow({
     );
   }
 
-  const questionNum = catState.questionsServed.length + 1;
+  const questionNum = catState.answers.length + 1;
   const progressPct = (catState.answers.length / maxQuestions) * 100;
   const diff = difficultyLabels[catState.currentDifficulty] || difficultyLabels.medium;
+  const correctKey = answerKeys[currentQuestion.id]?.correct_option_id;
 
   return (
     <div className="space-y-4">
@@ -195,23 +185,39 @@ export default function AdaptiveQuestionFlow({
             {currentQuestion.options.map((opt, idx) => {
               const isSelected = selectedOption === opt.id;
               const optionLetters = ['أ', 'ب', 'ج', 'د'];
+              const isCorrectOption = showFeedback && opt.id === correctKey;
+              const isWrongSelected = showFeedback && isSelected && !feedbackCorrect;
+
               return (
                 <button
                   key={opt.id}
                   onClick={() => handleSelectOption(opt.id)}
                   disabled={showFeedback}
                   className={`w-full flex items-center gap-4 rounded-xl border p-4 text-right transition-all
-                    ${isSelected
+                    ${showFeedback && isCorrectOption
+                      ? 'border-success bg-success/10 ring-2 ring-success/20'
+                      : isWrongSelected
+                      ? 'border-destructive bg-destructive/10 ring-2 ring-destructive/20'
+                      : isSelected
                       ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                       : 'border-border bg-card hover:border-primary/30 hover:bg-muted/30'
                     }
                     ${showFeedback ? 'cursor-not-allowed' : ''}`}
                 >
                   <div className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold flex-shrink-0
-                    ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                    ${showFeedback && isCorrectOption ? 'bg-success text-success-foreground'
+                      : isWrongSelected ? 'bg-destructive text-destructive-foreground'
+                      : isSelected ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'}`}>
                     {optionLetters[idx] || idx + 1}
                   </div>
                   <span className="font-medium">{opt.textAr}</span>
+                  {showFeedback && isCorrectOption && (
+                    <CheckCircle2 className="h-5 w-5 text-success mr-auto flex-shrink-0" />
+                  )}
+                  {isWrongSelected && (
+                    <XCircle className="h-5 w-5 text-destructive mr-auto flex-shrink-0" />
+                  )}
                   {isSelected && !showFeedback && (
                     <CheckCircle2 className="h-5 w-5 text-primary mr-auto flex-shrink-0" />
                   )}
@@ -219,6 +225,21 @@ export default function AdaptiveQuestionFlow({
               );
             })}
           </div>
+
+          {/* Feedback message */}
+          {showFeedback && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`rounded-xl p-3 text-center text-sm font-semibold ${
+                feedbackCorrect
+                  ? 'bg-success/10 text-success border border-success/20'
+                  : 'bg-destructive/10 text-destructive border border-destructive/20'
+              }`}
+            >
+              {feedbackCorrect ? '✅ إجابة صحيحة!' : '❌ إجابة خاطئة'}
+            </motion.div>
+          )}
 
           {/* Confirm button */}
           {selectedOption && !showFeedback && (

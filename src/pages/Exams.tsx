@@ -7,6 +7,7 @@ import { PredictiveScoreCard } from '@/components/PredictiveScoreCard';
 import type { ExamTemplate, SessionType } from '@/types';
 import {
   BookOpen,
+  Zap,
   Brain,
   BarChart3,
   Clock,
@@ -246,6 +247,32 @@ export default function Exams() {
                   </Button>
                 </div>
 
+                {/* Adaptive Training (CAT) */}
+                <div className="flex items-center justify-between rounded-xl bg-muted/50 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/10 text-gold">
+                      <Zap className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">تدريب تكيّفي (CAT)</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Coins className="h-3 w-3 text-gold" />
+                        {user?.isDiamond
+                          ? 'مجاني (Diamond)'
+                          : `${exam.practiceSessionCostPoints} نقطة`}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openSession(exam, 'adaptive_training')}
+                    className="text-xs border-gold/30 text-gold hover:bg-gold/10"
+                  >
+                    ⚡ ابدأ
+                  </Button>
+                </div>
+
                 {/* Analysis */}
                 <div className="flex items-center justify-between rounded-xl bg-muted/50 p-3">
                   <div className="flex items-center gap-3">
@@ -303,4 +330,5 @@ const sessionLabels: Record<SessionType, string> = {
   simulation: 'جلسة المحاكاة',
   practice: 'جلسة التدريب الذكي',
   analysis: 'تحليل النتيجة',
+  adaptive_training: 'جلسة التدريب التكيّفي',
 };
