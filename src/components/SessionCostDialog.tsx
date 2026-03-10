@@ -27,6 +27,7 @@ const sessionLabels: Record<SessionType, string> = {
   simulation: 'جلسة محاكاة رسمية',
   practice: 'جلسة تدريب ذكي (AI)',
   analysis: 'تحليل النتيجة',
+  adaptive_training: 'تدريب تكيّفي (CAT)',
 };
 
 function getCost(exam: ExamTemplate, type: SessionType): number {
