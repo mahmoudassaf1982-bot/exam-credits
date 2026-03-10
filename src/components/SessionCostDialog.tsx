@@ -71,31 +71,54 @@ export function SessionCostDialog({
 
     setLoading(true);
     try {
-      const body: Record<string, unknown> = {
-        exam_template_id: exam.id,
-        session_type: sessionType,
-      };
-      // Only send language if bilingual (single-language exams auto-resolve on server)
-      if (isBilingual && selectedLanguage) {
-        body.exam_language = selectedLanguage;
-      }
-      // Send target section for focused practice
-      if (sessionType === 'practice' && selectedSectionId) {
-        body.target_section_id = selectedSectionId;
-      }
+      if (sessionType === 'adaptive_training') {
+        // Use adaptive training edge function
+        const { data, error } = await supabase.functions.invoke('assemble-adaptive-training', {
+          body: { exam_template_id: exam.id, max_questions: 20 },
+        });
 
-      const { data, error } = await supabase.functions.invoke('assemble-exam', { body });
+        if (error || data?.error) {
+          toast.error(data?.error || 'فشل في بدء الجلسة');
+          setLoading(false);
+          return;
+        }
 
-      if (error || data?.error) {
-        toast.error(data?.error || 'فشل في بدء الجلسة');
-        setLoading(false);
-        return;
+        // Store pool data in sessionStorage for the CAT UI
+        sessionStorage.setItem(`cat-pool-${data.session_id}`, JSON.stringify({
+          question_pool: data.question_pool,
+          answer_keys: data.answer_keys,
+          max_questions: data.max_questions,
+        }));
+
+        await refreshWallet();
+        onConfirm();
+        onOpenChange(false);
+        navigate(`/app/adaptive-training/${data.session_id}`);
+      } else {
+        const body: Record<string, unknown> = {
+          exam_template_id: exam.id,
+          session_type: sessionType,
+        };
+        if (isBilingual && selectedLanguage) {
+          body.exam_language = selectedLanguage;
+        }
+        if (sessionType === 'practice' && selectedSectionId) {
+          body.target_section_id = selectedSectionId;
+        }
+
+        const { data, error } = await supabase.functions.invoke('assemble-exam', { body });
+
+        if (error || data?.error) {
+          toast.error(data?.error || 'فشل في بدء الجلسة');
+          setLoading(false);
+          return;
+        }
+
+        await refreshWallet();
+        onConfirm();
+        onOpenChange(false);
+        navigate(`/app/exam-session/${data.session_id}`);
       }
-
-      await refreshWallet();
-      onConfirm();
-      onOpenChange(false);
-      navigate(`/app/exam-session/${data.session_id}`);
     } catch {
       toast.error('حدث خطأ أثناء بدء الجلسة');
     } finally {
