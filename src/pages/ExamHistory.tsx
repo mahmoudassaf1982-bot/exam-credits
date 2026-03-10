@@ -29,6 +29,7 @@ const sessionTypeLabels: Record<string, string> = {
   simulation: 'محاكاة',
   practice: 'تدريب',
   analysis: 'تحليل',
+  adaptive_training: 'تدريب تكيّفي',
 };
 
 export default function ExamHistory() {
@@ -159,7 +160,11 @@ export default function ExamHistory() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => navigate(`/app/exam-session/${s.id}`)}
+                        onClick={() => navigate(
+                          s.session_type === 'adaptive_training'
+                            ? `/app/adaptive-training/${s.id}`
+                            : `/app/exam-session/${s.id}`
+                        )}
                       >
                         <BookOpen className="ml-1 h-4 w-4" />
                         مراجعة
@@ -167,7 +172,11 @@ export default function ExamHistory() {
                     ) : (
                       <Button
                         size="sm"
-                        onClick={() => navigate(`/app/exam-session/${s.id}`)}
+                        onClick={() => navigate(
+                          s.session_type === 'adaptive_training'
+                            ? `/app/adaptive-training/${s.id}`
+                            : `/app/exam-session/${s.id}`
+                        )}
                       >
                         متابعة
                         <ChevronLeft className="mr-1 h-4 w-4" />
