@@ -35,6 +35,7 @@ function getCost(exam: ExamTemplate, type: SessionType): number {
     case 'simulation':
       return exam.simulationSessionCostPoints;
     case 'practice':
+    case 'adaptive_training':
       return exam.practiceSessionCostPoints;
     case 'analysis':
       return exam.analysisCostPoints;
