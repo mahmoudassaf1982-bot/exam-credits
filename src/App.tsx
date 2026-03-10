@@ -16,6 +16,7 @@ import Wallet from "./pages/Wallet";
 import Referral from "./pages/Referral";
 import Exams from "./pages/Exams";
 import ExamSession from "./pages/ExamSession";
+import AdaptiveTrainingSession from "./pages/AdaptiveTrainingSession";
 import ExamHistory from "./pages/ExamHistory";
 import PerformanceProfile from "./pages/PerformanceProfile";
 import TopUp from "./pages/TopUp";
