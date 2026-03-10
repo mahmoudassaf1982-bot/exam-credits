@@ -14,6 +14,7 @@ interface SessionHistoryItem {
   id: string;
   session_type: string;
   status: string;
+  exam_template_id: string;
   score_json: {
     total_correct: number;
     total_questions: number;

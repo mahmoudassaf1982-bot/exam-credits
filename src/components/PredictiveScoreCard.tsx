@@ -125,11 +125,54 @@ export function PredictiveScoreCard({ examTemplateId }: Props) {
         </div>
       )}
 
+      {/* Improvement Simulation */}
+      <ImprovementSimulation prediction={prediction} />
+
       <NextBestAction
         predictedScore={prediction.predicted_score}
         confidenceLevel={prediction.confidence_level}
         sectionBreakdown={prediction.section_breakdown}
       />
     </motion.div>
+  );
+}
+
+/** Simulates projected score improvement based on additional training */
+function ImprovementSimulation({ prediction }: { prediction: PredictionData }) {
+  const currentScore = prediction.predicted_score;
+  const sessionCount = prediction.training_session_count + prediction.exam_session_count;
+
+  // Diminishing returns: each batch of sessions adds less improvement
+  const improvementPerBatch = Math.max(1, Math.round((100 - currentScore) * 0.12));
+  const projectedWith5More = Math.min(100, currentScore + improvementPerBatch);
+
+  // Weak skill improvement: if weakest sections improved to 60%+, how much would score change?
+  const weakSections = prediction.section_breakdown.filter(s => s.skill_score < 60);
+  let projectedWithSkillFix = currentScore;
+  if (weakSections.length > 0) {
+    const totalWeight = prediction.section_breakdown.reduce((s, b) => s + b.weight, 0) || 1;
+    const boost = weakSections.reduce((sum, s) => {
+      const gap = 65 - s.skill_score;
+      return sum + (gap > 0 ? (gap * s.weight) / totalWeight : 0);
+    }, 0);
+    projectedWithSkillFix = Math.min(100, Math.round(currentScore + boost));
+  }
+
+  if (sessionCount < 1) return null;
+
+  return (
+    <div className="space-y-1.5 pt-2 border-t text-xs">
+      <p className="font-semibold text-muted-foreground mb-1">📈 محاكاة التحسن:</p>
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground">لو أكملت 5 جلسات إضافية</span>
+        <span className="font-mono font-bold text-success">{projectedWith5More}%</span>
+      </div>
+      {projectedWithSkillFix > currentScore && (
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">لو حسّنت نقاط الضعف</span>
+          <span className="font-mono font-bold text-success">{projectedWithSkillFix}%</span>
+        </div>
+      )}
+    </div>
   );
 }
