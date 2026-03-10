@@ -29,6 +29,7 @@ const sessionTypeLabels: Record<string, string> = {
   simulation: 'محاكاة',
   practice: 'تدريب',
   analysis: 'تحليل',
+  adaptive_training: 'تدريب تكيّفي',
 };
 
 export default function ExamHistory() {
