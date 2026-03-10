@@ -92,7 +92,7 @@ export function usePerformanceRealtime(studentId: string | undefined): Performan
     if (!studentId) return;
     const { data } = await supabase
       .from('exam_sessions')
-      .select('id, session_type, status, score_json, completed_at, started_at, time_limit_sec, exam_snapshot')
+      .select('id, session_type, status, score_json, completed_at, started_at, time_limit_sec, exam_snapshot, exam_template_id')
       .eq('user_id', studentId)
       .in('status', ['completed', 'submitted'])
       .not('score_json', 'is', null)
