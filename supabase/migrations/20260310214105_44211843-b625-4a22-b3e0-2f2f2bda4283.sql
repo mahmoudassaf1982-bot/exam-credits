@@ -1,0 +1,1 @@
+ALTER TABLE public.exam_sessions ADD COLUMN IF NOT EXISTS cat_session_json jsonb DEFAULT NULL;
