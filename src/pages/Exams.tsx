@@ -6,7 +6,7 @@ import { SessionCostDialog } from '@/components/SessionCostDialog';
 import { PredictiveScoreCard } from '@/components/PredictiveScoreCard';
 import type { ExamTemplate, SessionType } from '@/types';
 import {
-  BookOpen,
+  Zap,
   Brain,
   BarChart3,
   Clock,
