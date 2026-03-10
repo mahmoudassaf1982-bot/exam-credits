@@ -1,9 +1,11 @@
+import { useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { Loader2, BarChart3, Wifi, WifiOff } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { usePerformanceRealtime } from '@/hooks/usePerformanceRealtime';
 import OverviewSummary from '@/components/performance/OverviewSummary';
+import PredictedScoreOverview from '@/components/performance/PredictedScoreOverview';
 import LearningDNACard from '@/components/LearningDNACard';
 import SkillMapCard from '@/components/SkillMapCard';
 import RecommendedTrainingCard from '@/components/RecommendedTrainingCard';
@@ -12,6 +14,15 @@ import TrainingHistoryList from '@/components/performance/TrainingHistoryList';
 export default function PerformanceProfile() {
   const { user } = useAuth();
   const { dna, memory, recommendations, sessions, loading, realtimeConnected } = usePerformanceRealtime(user?.id);
+
+  // Extract unique exam template IDs from sessions
+  const examTemplateIds = useMemo(() => {
+    const ids = new Set<string>();
+    sessions.forEach(s => {
+      if ((s as any).exam_template_id) ids.add((s as any).exam_template_id);
+    });
+    return Array.from(ids);
+  }, [sessions]);
 
   if (loading) {
     return (
@@ -61,6 +72,7 @@ export default function PerformanceProfile() {
       <Tabs defaultValue="overview" dir="rtl">
         <TabsList className="w-full justify-start overflow-x-auto flex-nowrap">
           <TabsTrigger value="overview">نظرة عامة</TabsTrigger>
+          <TabsTrigger value="prediction">الدرجة المتوقعة</TabsTrigger>
           <TabsTrigger value="dna">بصمة التعلم (DNA)</TabsTrigger>
           <TabsTrigger value="skills">خريطة المهارات</TabsTrigger>
           <TabsTrigger value="recommendations">التوصيات</TabsTrigger>
@@ -69,6 +81,16 @@ export default function PerformanceProfile() {
 
         <TabsContent value="overview">
           <OverviewSummary dna={dna} memory={memory} sessions={sessions} />
+        </TabsContent>
+
+        <TabsContent value="prediction">
+          {examTemplateIds.length > 0 ? (
+            <PredictedScoreOverview examTemplateIds={examTemplateIds} />
+          ) : (
+            <div className="rounded-2xl border bg-card p-12 text-center text-muted-foreground">
+              أكمل اختباراً واحداً على الأقل لرؤية الدرجة المتوقعة
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="dna">
