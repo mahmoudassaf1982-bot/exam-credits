@@ -37,18 +37,14 @@ const PLATFORM_KNOWLEDGE = {
 function detectMode(context: any): "training_coach" | "learning_tutor" | "platform_guide" {
   const msg = (context.message || "").toLowerCase();
   
-  // Platform guide keywords
   const guideKeywords = ["أين", "كيف أجد", "وين", "أين أذهب", "أين أرى", "صفحة", "زر", "أيقونة", "كيف أستخدم", "التنقل", "القائمة"];
   if (guideKeywords.some(k => msg.includes(k))) return "platform_guide";
   
-  // Training coach - inside active training session
   if (context.sessionActive && context.sessionType === "smart_training") return "training_coach";
   
-  // Learning tutor keywords
   const tutorKeywords = ["لماذا", "اشرح", "لم أفهم", "مثال", "كيف أحل", "وضح", "الإجابة الصحيحة", "شرح"];
   if (tutorKeywords.some(k => msg.includes(k))) return "learning_tutor";
   
-  // Default based on context
   if (context.currentPage?.includes("performance") || context.currentPage?.includes("history")) return "learning_tutor";
   
   return "platform_guide";
@@ -132,8 +128,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -189,8 +185,9 @@ serve(async (req) => {
     const mode = detectMode(enrichedContext);
     const systemPrompt = buildSystemPrompt(mode, enrichedContext);
 
-    // Build messages for Claude
-    const claudeMessages = [
+    // Build messages for AI
+    const aiMessages = [
+      { role: "system", content: systemPrompt },
       ...conversation_history.slice(-10).map((m: any) => ({
         role: m.role === "coach" ? "assistant" : "user",
         content: m.content,
@@ -198,25 +195,43 @@ serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    // Call Claude
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+    // Call Lovable AI Gateway
+    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model: "google/gemini-2.5-flash",
+        messages: aiMessages,
         max_tokens: 500,
-        system: systemPrompt,
-        messages: claudeMessages,
       }),
     });
 
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
-      console.error("Claude error:", claudeRes.status, errText);
+    if (!aiRes.ok) {
+      const errText = await aiRes.text();
+      console.error("AI gateway error:", aiRes.status, errText);
+      
+      if (aiRes.status === 429) {
+        return new Response(JSON.stringify({
+          reply: "عذراً، النظام مشغول حالياً. حاول مرة أخرى بعد قليل.",
+          mode,
+          error: true,
+        }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (aiRes.status === 402) {
+        return new Response(JSON.stringify({
+          reply: "عذراً، خدمة الذكاء الاصطناعي غير متاحة مؤقتاً.",
+          mode,
+          error: true,
+        }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify({
         reply: "عذراً، حدث خطأ في معالجة طلبك. حاول مرة أخرى.",
         mode,
@@ -226,8 +241,8 @@ serve(async (req) => {
       });
     }
 
-    const claudeData = await claudeRes.json();
-    const reply = claudeData.content?.[0]?.text || "عذراً، لم أتمكن من الإجابة.";
+    const aiData = await aiRes.json();
+    const reply = aiData.choices?.[0]?.message?.content || "عذراً، لم أتمكن من الإجابة.";
 
     return new Response(JSON.stringify({ reply, mode }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
