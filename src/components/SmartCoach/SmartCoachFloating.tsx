@@ -118,11 +118,11 @@ export default function SmartCoachFloating() {
               dir="rtl"
             >
               <div className="flex items-start gap-4">
-                <img src={coachImage} alt="المدرب الذكي" className="h-16 w-16 flex-shrink-0" />
+                <img src={coachImage} alt="SARIS" className="h-16 w-16 flex-shrink-0" />
                 <div className="flex-1 space-y-3">
                   <div className="flex items-center gap-2">
                     <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
-                    <h3 className="font-bold text-foreground">المدرب الذكي</h3>
+                    <h3 className="font-bold text-foreground">SARIS — المدرب الذكي</h3>
                   </div>
                   <p className="text-sm text-foreground leading-relaxed">
                     {intervention.message}
@@ -156,12 +156,13 @@ export default function SmartCoachFloating() {
               <X className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
             <div className="flex items-center gap-3 mb-3">
-              <img src={coachImage} alt="المدرب الذكي" className="h-10 w-10" />
-              <span className="font-bold text-sm text-foreground">المدرب الذكي</span>
+              <img src={coachImage} alt="SARIS" className="h-10 w-10" />
+              <span className="font-bold text-sm text-foreground">SARIS — المدرب الذكي</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed mb-3">
-              مرحباً، أنا المدرب الذكي في منصة SARIS.
-              سأساعدك في التدريب، فهم الأسئلة، ومساعدتك على التنقل داخل المنصة.
+              مرحباً، أنا SARIS.
+              مدربك الذكي في منصة SARIS EXAMS.
+              سأساعدك في التدريب، فهم الأسئلة، والتنقل داخل المنصة.
             </p>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => handleQuickAction('train')} className="text-xs gradient-gold text-gold-foreground">
@@ -189,9 +190,9 @@ export default function SmartCoachFloating() {
             {/* Chat Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
               <div className="flex items-center gap-2">
-                <img src={coachImage} alt="المدرب الذكي" className="h-8 w-8" />
+                <img src={coachImage} alt="SARIS" className="h-8 w-8" />
                 <div>
-                  <h3 className="text-sm font-bold text-foreground">المدرب الذكي</h3>
+                  <h3 className="text-sm font-bold text-foreground">SARIS — المدرب الذكي</h3>
                   <p className="text-[10px] text-muted-foreground">جاهز لمساعدتك</p>
                 </div>
               </div>
@@ -204,9 +205,9 @@ export default function SmartCoachFloating() {
             <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-[200px] max-h-[50vh]">
               {messages.length === 0 && (
                 <div className="text-center py-8">
-                  <img src={coachImage} alt="المدرب الذكي" className="h-14 w-14 mx-auto mb-3 opacity-60" />
+                  <img src={coachImage} alt="SARIS" className="h-14 w-14 mx-auto mb-3 opacity-60" />
                   <p className="text-xs text-muted-foreground">
-                    مرحباً! كيف يمكنني مساعدتك؟
+                    مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟
                   </p>
                   <div className="mt-3 flex flex-wrap justify-center gap-1.5">
                     {['أين أجد التدريب الذكي؟', 'كيف أحسن درجتي؟', 'اشرح لي الاختبار'].map(q => (
@@ -305,7 +306,7 @@ export default function SmartCoachFloating() {
         )}
         
         <div className="relative h-14 w-14 rounded-full bg-card border-2 border-[hsl(var(--gold))] shadow-lg overflow-hidden flex items-center justify-center">
-          <img src={coachImage} alt="المدرب الذكي" className="h-11 w-11 object-contain" />
+          <img src={coachImage} alt="SARIS" className="h-11 w-11 object-contain" />
           
           {/* Attention lightbulb */}
           {visualState === 'attention' && (
