@@ -567,9 +567,11 @@ EXAM PROFILE DNA (MUST FOLLOW):
 
     const batchCount = item.input_json.count || 10;
 
+    const blueprintConstraint = buildBlueprintPromptConstraint(examName, sectionName);
+
     const systemPrompt = contentLang === "en"
-      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: ${outputSchema}`
-      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: ${outputSchema}`;
+      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}${topicConstraint}${blueprintConstraint}Return JSON array ONLY. Each item: ${outputSchema}`
+      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}${topicConstraint}${blueprintConstraint}Return JSON array ONLY. Each item: ${outputSchema}`;
 
     const sectionContext = sectionName ? ` for section "${sectionName}"` : "";
     const userPrompt = `Generate exactly ${batchCount} questions at difficulty "${difficulty}" for "${examName}" (${countryName})${sectionContext}. ${allowedTopics.length > 0 ? `ONLY from topics: ${allowedTopics.join(", ")}. Each question MUST include section_id and topic_tag.` : ""} Return JSON array ONLY.`;
