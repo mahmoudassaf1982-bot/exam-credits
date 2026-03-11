@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -119,9 +119,9 @@ const App = () => (
 
 // Smart Coach global wrapper - hides during exam simulation
 function SmartCoachGlobal() {
-  const path = window.location.pathname;
-  if (path.includes('/exam-session/')) return null;
-  if (['/', '/auth', '/auth/login', '/auth/register', '/choose-country'].includes(path)) return null;
+  const { pathname } = useLocation();
+  if (pathname.includes('/exam-session/')) return null;
+  if (['/', '/auth', '/auth/login', '/auth/register', '/choose-country'].includes(pathname)) return null;
   return <SmartCoachFloating />;
 }
 
