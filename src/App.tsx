@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { SmartCoachProvider, SmartCoachFloating } from "@/components/SmartCoach";
 import { Layout } from "@/components/Layout";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import Index from "./pages/Index";
@@ -58,6 +59,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
+        <SmartCoachProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
@@ -106,11 +108,21 @@ const App = () => (
 
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <SmartCoachGlobal />
         </BrowserRouter>
+        </SmartCoachProvider>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
   </ErrorBoundary>
 );
+
+// Smart Coach global wrapper - hides during exam simulation
+function SmartCoachGlobal() {
+  const path = window.location.pathname;
+  if (path.includes('/exam-session/')) return null;
+  if (['/', '/auth', '/auth/login', '/auth/register', '/choose-country'].includes(path)) return null;
+  return <SmartCoachFloating />;
+}
 
 export default App;

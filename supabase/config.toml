@@ -77,3 +77,6 @@ verify_jwt = false
 
 [functions.smart-hint-claude]
 verify_jwt = false
+
+[functions.smart-coach]
+verify_jwt = false
