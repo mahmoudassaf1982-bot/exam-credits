@@ -25,7 +25,7 @@ export default function SmartCoachFloating() {
   const {
     visualState, setVisualState,
     chatOpen, setChatOpen,
-    messages, addMessage,
+    messages, addMessage, updateLastCoachMessage,
     currentPage, sessionActive, sessionType, currentQuestion,
     intervention, dismissIntervention,
     visible, showIntro, setShowIntro,
