@@ -188,6 +188,18 @@ export default function ExamSession() {
       setSession(sessionData);
       setAnswers((sessionData.answers_json as Record<string, string>) || {});
 
+      // Load existing hints from cat_session_json
+      const catData = (data as any).cat_session_json as any;
+      if (catData?.hints_json) {
+        const loadedHints: Record<string, string> = {};
+        for (const [qId, hintData] of Object.entries(catData.hints_json)) {
+          if ((hintData as any)?.hint_text) {
+            loadedHints[qId] = (hintData as any).hint_text;
+          }
+        }
+        setHintsMap(loadedHints);
+      }
+
       if (sessionData.status === 'completed' || sessionData.status === 'submitted') {
         setShowResults(true);
         setScoreData(sessionData.score_json);
