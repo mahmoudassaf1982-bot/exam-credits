@@ -335,7 +335,11 @@ export default function SmartCoachFloating() {
       {/* ─── Floating Coach Character ─── */}
       <motion.div
         className="fixed z-[90]"
-        style={{ bottom: posBottom, left: posLeft }}
+        animate={{
+          bottom: chatOpen ? 24 : WANDER_POSITIONS[wanderIdx].bottom,
+          left: chatOpen ? 16 : WANDER_POSITIONS[wanderIdx].left,
+        }}
+        transition={{ type: 'spring', stiffness: 30, damping: 20 }}
       >
         <motion.button
           onClick={() => {
