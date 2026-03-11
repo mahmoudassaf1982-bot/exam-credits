@@ -411,7 +411,7 @@ function computeQualityGateDecision(allReviews: ReviewItem[], failedBatches: num
     decision = avgConfidence >= AUTO_PUBLISH_THRESHOLD ? "approved" : "pending_review";
   }
 
-  return { decision, avg_confidence: avgConfidence, auto_publishable: autoPublishable, needs_review_count: needsReviewCount, needs_fix_count: needsFixCount, language_failures: languageFailures };
+  return { decision, avg_confidence: avgConfidence, auto_publishable: autoPublishable, needs_review_count: needsReviewCount, needs_fix_count: needsFixCount, language_failures: languageFailures, blueprint_failures: blueprintFailures };
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────
