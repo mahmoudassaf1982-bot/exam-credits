@@ -7,6 +7,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const MAX_HINTS_PER_EXAM = 5;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -24,7 +26,6 @@ serve(async (req) => {
     });
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Authenticate user
     const { data: { user }, error: authErr } = await userClient.auth.getUser();
     if (authErr || !user) return errorRes(401, "غير مصرح");
 
@@ -51,7 +52,6 @@ serve(async (req) => {
       const found = (questions || []).find((q: any) => q.id === question_id);
       if (found) {
         targetQuestion = found;
-        // Find section name from snapshot
         const sections = (session.exam_snapshot as any)?.sections || [];
         const sec = sections.find((s: any) => s.id === sectionId);
         sectionName = sec?.name_ar || "";
@@ -66,41 +66,56 @@ serve(async (req) => {
       return errorRes(400, "التلميح متاح فقط للأسئلة الصعبة");
     }
 
-    // 4. Check if hint already used
+    // 4. Check existing hints (cache check + per-question dedup + session limit)
     const catSession = session.cat_session_json as any;
     const existingHints = catSession?.hints_json || {};
+    const hintsUsedCount = Object.values(existingHints).filter((h: any) => h?.hint_used).length;
+    const remainingHints = MAX_HINTS_PER_EXAM - hintsUsedCount;
+
+    // 4a. If hint already cached for this question, return it (no Claude call)
     if (existingHints[question_id]?.hint_used) {
-      return jsonRes({ hint: existingHints[question_id].hint_text, already_used: true });
+      return jsonRes({
+        hint: existingHints[question_id].hint_text,
+        already_used: true,
+        hints_used: hintsUsedCount,
+        hints_remaining: remainingHints,
+        max_hints: MAX_HINTS_PER_EXAM,
+      });
     }
 
-    // 5. Gather SARIS context
-    // Exam profile
-    const { data: examProfile } = await adminClient
-      .from("exam_profiles")
-      .select("profile_json")
-      .eq("exam_template_id", session.exam_template_id)
-      .eq("status", "approved")
-      .maybeSingle();
+    // 4b. Check session-level limit
+    if (remainingHints <= 0) {
+      return errorRes(400, "لقد استخدمت جميع التلميحات المتاحة في هذه الجلسة");
+    }
 
-    // Exam standards
-    const { data: examStandards } = await adminClient
-      .from("exam_standards")
-      .select("section_name, question_count, difficulty_distribution, topics")
-      .eq("exam_template_id", session.exam_template_id);
-
-    // Student skill memory
-    const { data: skillMemory } = await adminClient
-      .from("skill_memory")
-      .select("section_name, skill_score, total_correct, total_answered")
-      .eq("user_id", user.id)
-      .eq("exam_template_id", session.exam_template_id);
-
-    // Question metadata from bank (topic, explanation — but NOT correct answer for hint)
-    const { data: questionMeta } = await adminClient
-      .from("questions")
-      .select("topic, difficulty, section_id, explanation")
-      .eq("id", question_id)
-      .maybeSingle();
+    // 5. Gather SARIS context (parallel fetches)
+    const [
+      { data: examProfile },
+      { data: examStandards },
+      { data: skillMemory },
+      { data: questionMeta },
+    ] = await Promise.all([
+      adminClient
+        .from("exam_profiles")
+        .select("profile_json")
+        .eq("exam_template_id", session.exam_template_id)
+        .eq("status", "approved")
+        .maybeSingle(),
+      adminClient
+        .from("exam_standards")
+        .select("section_name, question_count, difficulty_distribution, topics")
+        .eq("exam_template_id", session.exam_template_id),
+      adminClient
+        .from("skill_memory")
+        .select("section_name, skill_score, total_correct, total_answered")
+        .eq("user_id", user.id)
+        .eq("exam_template_id", session.exam_template_id),
+      adminClient
+        .from("questions")
+        .select("topic, difficulty, section_id, explanation")
+        .eq("id", question_id)
+        .maybeSingle(),
+    ]);
 
     // 6. Build Claude prompt
     const systemPrompt = `You are the SARIS EXAMS Smart Hint Assistant.
@@ -123,7 +138,6 @@ IMPORTANT RULES:
 
 The hint must help the student start solving the question while preserving exam integrity.`;
 
-    // Student weak skills from skill memory
     const weakSkills = (skillMemory || [])
       .filter((s: any) => s.skill_score < 50)
       .map((s: any) => `${s.section_name}: ${s.skill_score}%`);
@@ -182,9 +196,7 @@ Do NOT reveal the answer.`;
     }
 
     const anthropicData = await anthropicResponse.json();
-    // Post-response processing: sanitize and trim
     let hintText = (anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
-    // Enforce max length (500 chars safety cap)
     if (hintText.length > 500) hintText = hintText.substring(0, 500);
 
     // 8. Store hint in session
@@ -209,8 +221,16 @@ Do NOT reveal the answer.`;
       .update({ cat_session_json: updatedCatSession })
       .eq("id", session_id);
 
-    // 9. Return hint
-    return jsonRes({ hint: hintText, already_used: false });
+    const newHintsUsed = hintsUsedCount + 1;
+
+    // 9. Return hint with counter
+    return jsonRes({
+      hint: hintText,
+      already_used: false,
+      hints_used: newHintsUsed,
+      hints_remaining: MAX_HINTS_PER_EXAM - newHintsUsed,
+      max_hints: MAX_HINTS_PER_EXAM,
+    });
   } catch (err) {
     console.error("[smart-hint-claude] Error:", err);
     return errorRes(500, err instanceof Error ? err.message : "خطأ غير متوقع");
