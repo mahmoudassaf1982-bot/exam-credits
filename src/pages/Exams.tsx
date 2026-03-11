@@ -221,15 +221,18 @@ export default function Exams() {
                   )}
                 </div>
 
-                {/* Practice */}
-                <div className="flex items-center justify-between rounded-xl bg-muted/50 p-3">
+                {/* Smart Training (unified) */}
+                <div className="flex items-center justify-between rounded-xl bg-muted/50 p-3 ring-1 ring-primary/10">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-info/10 text-info">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
                       <Brain className="h-4 w-4" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">تدريب ذكي (AI)</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <p className="text-sm font-semibold">جلسة التدريب الذكي</p>
+                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                        تتكيف مع مستواك وتركز على نقاط ضعفك
+                      </p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                         <Coins className="h-3 w-3 text-gold" />
                         {user?.isDiamond
                           ? 'مجاني (Diamond)'
@@ -239,37 +242,10 @@ export default function Exams() {
                   </div>
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => openSession(exam, 'practice')}
-                    className="text-xs"
+                    onClick={() => openSession(exam, 'smart_training')}
+                    className="text-xs gradient-primary text-primary-foreground"
                   >
-                    ابدأ
-                  </Button>
-                </div>
-
-                {/* Adaptive Training (CAT) */}
-                <div className="flex items-center justify-between rounded-xl bg-muted/50 p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/10 text-gold">
-                      <Zap className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">تدريب تكيّفي (CAT)</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Coins className="h-3 w-3 text-gold" />
-                        {user?.isDiamond
-                          ? 'مجاني (Diamond)'
-                          : `${exam.practiceSessionCostPoints} نقطة`}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => openSession(exam, 'adaptive_training')}
-                    className="text-xs border-gold/30 text-gold hover:bg-gold/10"
-                  >
-                    ⚡ ابدأ
+                    🧠 ابدأ
                   </Button>
                 </div>
 
