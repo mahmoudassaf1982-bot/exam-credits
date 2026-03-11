@@ -218,7 +218,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Then: fill from all sections
+    // Then: fill from all sections (must have a valid section_id)
+    const allSectionIds = sections.map((s: any) => s.id);
     for (const diff of ["easy", "medium", "hard"]) {
       const { data } = await admin
         .from("questions")
@@ -227,6 +228,7 @@ Deno.serve(async (req) => {
         .eq("country_id", template.country_id)
         .eq("difficulty", diff)
         .eq("exam_template_id", String(exam_template_id))
+        .in("section_id", allSectionIds)
         .is("deleted_at", null)
         .limit(POOL_SIZE_PER_DIFFICULTY);
 
