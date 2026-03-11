@@ -182,7 +182,10 @@ Do NOT reveal the answer.`;
     }
 
     const anthropicData = await anthropicResponse.json();
-    const hintText = anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح";
+    // Post-response processing: sanitize and trim
+    let hintText = (anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
+    // Enforce max length (500 chars safety cap)
+    if (hintText.length > 500) hintText = hintText.substring(0, 500);
 
     // 8. Store hint in session
     const updatedHints = {
