@@ -13,6 +13,13 @@ export default function Welcome() {
   const { user, session } = useAuth();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
+  const { setShowIntro } = useSmartCoach();
+
+  // Trigger coach intro on welcome page
+  useEffect(() => {
+    setShowIntro(true);
+    return () => setShowIntro(false);
+  }, [setShowIntro]);
 
   if (user?.welcomeSeen) {
     navigate('/app', { replace: true });
