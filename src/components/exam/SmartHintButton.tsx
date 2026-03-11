@@ -106,7 +106,7 @@ export default function SmartHintButton({
           ) : (
             <Lightbulb className="h-4 w-4" />
           )}
-          {loading ? 'جارٍ التوليد...' : '💡 تلميح'}
+          {loading ? 'لحظة واحدة…' : '💡 تلميح'}
         </Button>
       )}
 
