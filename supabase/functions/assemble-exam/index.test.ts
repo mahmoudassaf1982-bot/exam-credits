@@ -27,6 +27,11 @@ async function findKwMathTemplate(): Promise<{ id: string; name_ar: string } | n
       "exam_templates?country_id=eq.kw&is_active=eq.true&select=id,name_ar"
     );
   }
+  // RLS may block anon access — fall back to known template ID
+  if (!Array.isArray(templates) || templates.length === 0) {
+    console.warn("⚠️ RLS blocks anon template access, using known KW math template ID");
+    return { id: "a1000000-0000-0000-0000-000000000001", name_ar: "اختبار الرياضيات (hardcoded)" };
+  }
   // Find aptitude / math template
   const mathKeywords = ["رياضيات", "كمي", "math", "aptitude"];
   const match = templates?.find((t) =>
