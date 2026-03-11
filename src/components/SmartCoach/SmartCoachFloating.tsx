@@ -369,7 +369,7 @@ export default function SmartCoachFloating() {
           whileTap={{ scale: 0.95 }}
         >
           {/* ── Attention outer glow ── */}
-          {visualState === 'attention' && (
+          {(visualState === 'attention' || visualState === 'intervention') && (
             <motion.div
               className="absolute inset-[-12px] rounded-full pointer-events-none"
               style={{
