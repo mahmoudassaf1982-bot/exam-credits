@@ -248,9 +248,23 @@ Deno.serve(async (req) => {
       ? Math.round(verifiedAnswers.reduce((s, a) => s + a.timeSpentMs, 0) / verifiedAnswers.length)
       : 0;
 
-    // Build CAT session JSON for storage
+    // Build CAT session JSON for storage (enhanced for Smart Training)
+    const previousAbility = cat_session_data.previousAbility || 50;
+    const confidencePhase = cat_session_data.confidencePhase || "HIGH";
+    
+    // Section-level performance
+    const sectionPerformance = cat_session_data.sectionPerformance || {};
+    const weakSections = Object.entries(sectionPerformance)
+      .filter(([, p]: any) => p.total >= 2 && (p.correct / p.total) < 0.5)
+      .map(([sectionId, p]: any) => ({ sectionId, accuracy: Math.round((p.correct / p.total) * 100) }));
+    const strongSections = Object.entries(sectionPerformance)
+      .filter(([, p]: any) => p.total >= 2 && (p.correct / p.total) >= 0.7)
+      .map(([sectionId, p]: any) => ({ sectionId, accuracy: Math.round((p.correct / p.total) * 100) }));
+
     const catSessionJson = {
       ability_score: serverAbilityScore,
+      previous_ability: previousAbility,
+      confidence_phase: confidencePhase,
       accuracy_rate: percentage,
       avg_response_time_ms: avgResponseTimeMs,
       difficulty_progression: cat_session_data.difficultyProgression || [],
@@ -266,6 +280,8 @@ Deno.serve(async (req) => {
       topic_performance: topicPerformance,
       weak_topics: weakTopics,
       strong_topics: strongTopics,
+      weak_sections: weakSections,
+      strong_sections: strongSections,
       speed_rating: avgResponseTimeMs < 25000 ? "سريع" : avgResponseTimeMs < 45000 ? "متوسط" : "بطيء",
       accuracy_rating: percentage >= 80 ? "ممتاز" : percentage >= 60 ? "جيد" : percentage >= 40 ? "متوسط" : "يحتاج تحسين",
     };
