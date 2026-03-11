@@ -14,7 +14,8 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-const POOL_SIZE_PER_DIFFICULTY = 25; // 25 easy + 25 medium + 25 hard = 75 pool
+const POOL_SIZE_PER_DIFFICULTY = 30;
+const DEFAULT_MAX_QUESTIONS = 15;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -46,7 +47,7 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
-    const { exam_template_id, max_questions = 20 } = await req.json();
+    const { exam_template_id, max_questions = DEFAULT_MAX_QUESTIONS } = await req.json();
 
     if (!exam_template_id) {
       return new Response(
@@ -84,14 +85,56 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 3. Points cost
+    // 3. Load student context in parallel: skill_memory, learning_dna, profile
+    const [skillMemoryRes, dnaRes, profileRes] = await Promise.all([
+      admin
+        .from("skill_memory")
+        .select("section_id, section_name, skill_score, total_answered")
+        .eq("user_id", user.id)
+        .eq("exam_template_id", exam_template_id),
+      admin
+        .from("student_learning_dna")
+        .select("confidence_score, history_json")
+        .eq("student_id", user.id)
+        .maybeSingle(),
+      admin
+        .from("profiles")
+        .select("is_diamond")
+        .eq("id", user.id)
+        .single(),
+    ]);
+
+    const skillMemory = (skillMemoryRes.data || []).map((s: any) => ({
+      section_id: s.section_id,
+      section_name: s.section_name || "",
+      skill_score: Number(s.skill_score) || 50,
+      total_answered: s.total_answered || 0,
+    }));
+
+    // Extract previous ability from DNA history
+    let previousAbility = 50;
+    if (dnaRes.data) {
+      const dna = dnaRes.data as any;
+      const history = dna.history_json as any[] || [];
+      if (history.length > 0) {
+        const lastSnapshot = history[history.length - 1];
+        // Estimate ability from accuracy
+        previousAbility = lastSnapshot?.metrics?.accuracy || 50;
+      } else {
+        previousAbility = dna.confidence_score || 50;
+      }
+    }
+
+    // Exam DNA distribution from template
+    const examDNA = {
+      easy_pct: template.target_easy_pct || 30,
+      medium_pct: template.target_medium_pct || 50,
+      hard_pct: template.target_hard_pct || 20,
+    };
+
+    // 4. Points cost
     const pointsCost = template.practice_cost_points || 5;
-    const { data: profile } = await admin
-      .from("profiles")
-      .select("is_diamond")
-      .eq("id", user.id)
-      .single();
-    const isDiamond = profile?.is_diamond ?? false;
+    const isDiamond = profileRes.data?.is_diamond ?? false;
 
     if (!isDiamond && pointsCost > 0) {
       const { data: wallet } = await admin
@@ -112,12 +155,12 @@ Deno.serve(async (req) => {
         user_id: user.id,
         type: "debit",
         amount: pointsCost,
-        reason: "adaptive_training_session",
-        meta_json: { exam_template_id, session_type: "adaptive_training" },
+        reason: "smart_training_session",
+        meta_json: { exam_template_id, session_type: "smart_training" },
       });
     }
 
-    // 4. Exclude recently used questions
+    // 5. Exclude recently used questions
     const { data: recentSessions } = await admin
       .from("exam_sessions")
       .select("questions_json")
@@ -142,44 +185,63 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 5. Fetch question pool grouped by difficulty (with answer keys!)
-    // For adaptive training, we include correct_option_id so the client can check correctness in real-time
-    const pool: {
-      id: string;
-      text_ar: string;
-      options: unknown;
-      difficulty: string;
-      topic: string;
-      section_id: string;
-      correct_option_id: string;
-      explanation: string | null;
-    }[] = [];
+    // 6. Fetch question pool - prioritize weak sections
+    const weakSectionIds = skillMemory
+      .filter((s: any) => s.skill_score < 60)
+      .map((s: any) => s.section_id);
 
-    for (const diff of ["easy", "medium", "hard"]) {
-      let query = admin
-        .from("questions")
-        .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
-        .eq("is_approved", true)
-        .eq("country_id", template.country_id)
-        .eq("difficulty", diff)
-        .is("deleted_at", null);
+    const pool: any[] = [];
+    const existingIds = new Set<string>();
 
-      // Prefer exam-template specific questions
-      query = query.eq("exam_template_id", String(exam_template_id));
+    // First: fetch from weak sections (higher pool)
+    if (weakSectionIds.length > 0) {
+      for (const diff of ["easy", "medium", "hard"]) {
+        const { data } = await admin
+          .from("questions")
+          .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
+          .eq("is_approved", true)
+          .eq("country_id", template.country_id)
+          .eq("difficulty", diff)
+          .eq("exam_template_id", String(exam_template_id))
+          .in("section_id", weakSectionIds)
+          .is("deleted_at", null)
+          .limit(POOL_SIZE_PER_DIFFICULTY);
 
-      const { data } = await query.limit(POOL_SIZE_PER_DIFFICULTY);
-      if (data) {
-        for (const q of data) {
-          if (!recentIds.has(q.id)) {
-            pool.push(q as any);
+        if (data) {
+          for (const q of data) {
+            if (!recentIds.has(q.id) && !existingIds.has(q.id)) {
+              pool.push(q);
+              existingIds.add(q.id);
+            }
           }
         }
       }
     }
 
-    // Fallback: if pool is too small, fetch without template filter
+    // Then: fill from all sections
+    for (const diff of ["easy", "medium", "hard"]) {
+      const { data } = await admin
+        .from("questions")
+        .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
+        .eq("is_approved", true)
+        .eq("country_id", template.country_id)
+        .eq("difficulty", diff)
+        .eq("exam_template_id", String(exam_template_id))
+        .is("deleted_at", null)
+        .limit(POOL_SIZE_PER_DIFFICULTY);
+
+      if (data) {
+        for (const q of data) {
+          if (!recentIds.has(q.id) && !existingIds.has(q.id)) {
+            pool.push(q);
+            existingIds.add(q.id);
+          }
+        }
+      }
+    }
+
+    // Fallback: without template filter
     if (pool.length < max_questions) {
-      const existingIds = new Set(pool.map(q => q.id));
       for (const diff of ["easy", "medium", "hard"]) {
         const { data } = await admin
           .from("questions")
@@ -193,7 +255,7 @@ Deno.serve(async (req) => {
         if (data) {
           for (const q of data) {
             if (!recentIds.has(q.id) && !existingIds.has(q.id)) {
-              pool.push(q as any);
+              pool.push(q);
               existingIds.add(q.id);
             }
           }
@@ -210,25 +272,25 @@ Deno.serve(async (req) => {
           await admin.from("transactions").insert({
             user_id: user.id, type: "credit", amount: pointsCost,
             reason: "refund_insufficient_questions",
-            meta_json: { exam_template_id, session_type: "adaptive_training" },
+            meta_json: { exam_template_id, session_type: "smart_training" },
           });
         }
       }
       return new Response(
-        JSON.stringify({ error: "لا توجد أسئلة كافية للتدريب التكيّفي" }),
+        JSON.stringify({ error: "لا توجد أسئلة كافية للتدريب الذكي" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 6. Build section name map
+    // 7. Build section name map
     const sectionNameMap: Record<string, string> = {};
     for (const s of sections) {
       sectionNameMap[s.id] = s.name_ar;
     }
 
-    // 7. Build answer keys and stripped pool for client
+    // 8. Build answer keys and client pool
     const answerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
-    const clientPool = shuffle(pool).map((q) => {
+    const clientPool = shuffle(pool).map((q: any) => {
       answerKeys[q.id] = {
         correct_option_id: q.correct_option_id,
         explanation: q.explanation || undefined,
@@ -250,8 +312,8 @@ Deno.serve(async (req) => {
       };
     });
 
-    // 8. Build questions_json (grouped by a single virtual section for compatibility)
-    const virtualSectionId = "adaptive";
+    // 9. Build questions_json
+    const virtualSectionId = "smart_training";
     const questionsJson: Record<string, unknown[]> = {
       [virtualSectionId]: clientPool.map(q => ({
         id: q.id,
@@ -262,12 +324,12 @@ Deno.serve(async (req) => {
       })),
     };
 
-    const answersKeyJson: Record<string, Record<string, { correct_option_id: string; explanation?: string }>> = {
+    const answersKeyJson = {
       [virtualSectionId]: answerKeys,
     };
 
-    // 9. Create session
-    const timeLimitSec = Math.max(1200, max_questions * 90); // 1.5 min per question
+    // 10. Create session
+    const timeLimitSec = Math.max(1200, max_questions * 90);
 
     const examSnapshot = {
       template: {
@@ -279,12 +341,12 @@ Deno.serve(async (req) => {
       },
       sections: [{
         id: virtualSectionId,
-        name_ar: "تدريب تكيّفي",
+        name_ar: "جلسة التدريب الذكي",
         order: 1,
         question_count: clientPool.length,
         time_limit_sec: timeLimitSec,
       }],
-      practice_mode: "cat_adaptive",
+      practice_mode: "smart_training",
       is_diagnostic: false,
     };
 
@@ -293,7 +355,7 @@ Deno.serve(async (req) => {
       .insert({
         user_id: user.id,
         exam_template_id,
-        session_type: "adaptive_training",
+        session_type: "smart_training",
         status: "not_started",
         exam_snapshot: examSnapshot,
         questions_json: questionsJson,
@@ -301,7 +363,7 @@ Deno.serve(async (req) => {
         time_limit_sec: timeLimitSec,
         points_cost: isDiamond ? 0 : pointsCost,
         question_order: clientPool.map(q => q.id),
-        order_locked: false, // CAT chooses order dynamically
+        order_locked: false,
       })
       .select("id")
       .single();
@@ -309,7 +371,7 @@ Deno.serve(async (req) => {
     if (sessionErr) {
       console.error("Session creation error:", sessionErr);
       return new Response(
-        JSON.stringify({ error: "فشل في إنشاء جلسة التدريب التكيّفي" }),
+        JSON.stringify({ error: "فشل في إنشاء جلسة التدريب الذكي" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -321,25 +383,30 @@ Deno.serve(async (req) => {
     });
 
     console.log(
-      `[assemble-adaptive] Session ${session.id}: pool=${pool.length}, max=${max_questions}, ` +
-      `easy=${pool.filter(q => q.difficulty === "easy").length}, ` +
-      `medium=${pool.filter(q => q.difficulty === "medium").length}, ` +
-      `hard=${pool.filter(q => q.difficulty === "hard").length}`
+      `[assemble-smart] Session ${session.id}: pool=${pool.length}, max=${max_questions}, ` +
+      `prevAbility=${previousAbility}, weakSections=${weakSectionIds.length}, ` +
+      `easy=${pool.filter((q: any) => q.difficulty === "easy").length}, ` +
+      `medium=${pool.filter((q: any) => q.difficulty === "medium").length}, ` +
+      `hard=${pool.filter((q: any) => q.difficulty === "hard").length}`
     );
 
     return new Response(
       JSON.stringify({
         session_id: session.id,
         question_pool: clientPool,
-        answer_keys: answerKeys, // Client needs this for real-time CAT correctness
-        max_questions: max_questions,
+        answer_keys: answerKeys,
+        max_questions,
         pool_size: clientPool.length,
         points_deducted: isDiamond ? 0 : pointsCost,
+        // Smart training context for the client engine
+        skill_memory: skillMemory,
+        exam_dna: examDNA,
+        previous_ability: previousAbility,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error("Assemble adaptive training error:", err);
+    console.error("Assemble smart training error:", err);
     return new Response(
       JSON.stringify({ error: "خطأ داخلي في الخادم" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

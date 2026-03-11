@@ -70,17 +70,13 @@ export async function startTrainingFromRecommendation(
     }
   }
 
-  // Create training session via assemble-exam
-  const body: Record<string, unknown> = {
-    exam_template_id: examTemplateId,
-    session_type: 'practice',
-  };
-
-  if (targetSectionId) {
-    body.target_section_id = targetSectionId;
-  }
-
-  const { data, error } = await supabase.functions.invoke('assemble-exam', { body });
+  // Create training session via smart training pipeline
+  const { data, error } = await supabase.functions.invoke('assemble-adaptive-training', {
+    body: {
+      exam_template_id: examTemplateId,
+      max_questions: 15,
+    },
+  });
 
   if (error || data?.error) {
     return { success: false, error: data?.error || 'فشل في إنشاء جلسة التدريب' };

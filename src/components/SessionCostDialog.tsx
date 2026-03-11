@@ -25,9 +25,10 @@ interface SessionCostDialogProps {
 
 const sessionLabels: Record<SessionType, string> = {
   simulation: 'جلسة محاكاة رسمية',
-  practice: 'جلسة تدريب ذكي (AI)',
+  practice: 'جلسة تدريب ذكي',
   analysis: 'تحليل النتيجة',
-  adaptive_training: 'تدريب تكيّفي (CAT)',
+  adaptive_training: 'جلسة التدريب الذكي',
+  smart_training: 'جلسة التدريب الذكي',
 };
 
 function getCost(exam: ExamTemplate, type: SessionType): number {
@@ -36,6 +37,7 @@ function getCost(exam: ExamTemplate, type: SessionType): number {
       return exam.simulationSessionCostPoints;
     case 'practice':
     case 'adaptive_training':
+    case 'smart_training':
       return exam.practiceSessionCostPoints;
     case 'analysis':
       return exam.analysisCostPoints;
@@ -71,10 +73,10 @@ export function SessionCostDialog({
 
     setLoading(true);
     try {
-      if (sessionType === 'adaptive_training') {
-        // Use adaptive training edge function
+      if (sessionType === 'adaptive_training' || sessionType === 'smart_training') {
+        // Use smart training edge function
         const { data, error } = await supabase.functions.invoke('assemble-adaptive-training', {
-          body: { exam_template_id: exam.id, max_questions: 20 },
+          body: { exam_template_id: exam.id, max_questions: 15 },
         });
 
         if (error || data?.error) {
@@ -83,11 +85,14 @@ export function SessionCostDialog({
           return;
         }
 
-        // Store pool data in sessionStorage for the CAT UI
+        // Store pool data + smart context in sessionStorage
         sessionStorage.setItem(`cat-pool-${data.session_id}`, JSON.stringify({
           question_pool: data.question_pool,
           answer_keys: data.answer_keys,
           max_questions: data.max_questions,
+          skill_memory: data.skill_memory,
+          exam_dna: data.exam_dna,
+          previous_ability: data.previous_ability,
         }));
 
         await refreshWallet();

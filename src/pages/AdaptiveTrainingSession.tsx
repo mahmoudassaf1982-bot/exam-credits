@@ -4,12 +4,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Loader2, ArrowLeft, Zap, RefreshCw, Home } from 'lucide-react';
-import AdaptiveQuestionFlow from '@/components/exam/AdaptiveQuestionFlow';
-import CATSessionSummary from '@/components/exam/CATSessionSummary';
+import { Loader2, Brain, Home } from 'lucide-react';
+import SmartQuestionFlow from '@/components/exam/SmartQuestionFlow';
+import SmartSessionSummary from '@/components/exam/SmartSessionSummary';
 import { runPostTrainingPipeline } from '@/services/postTrainingPipeline';
-import type { CATQuestion, CATSessionState } from '@/services/catAdaptiveEngine';
-import type { generateCATSummary } from '@/services/catAdaptiveEngine';
+import type { STEQuestion, STESessionState, STESessionSummary, SkillMemoryEntry, ExamDNADistribution } from '@/services/smartTrainingEngine';
 
 export default function AdaptiveTrainingSession() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -19,14 +18,18 @@ export default function AdaptiveTrainingSession() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [questionPool, setQuestionPool] = useState<CATQuestion[]>([]);
+  const [questionPool, setQuestionPool] = useState<STEQuestion[]>([]);
   const [answerKeys, setAnswerKeys] = useState<Record<string, { correct_option_id: string; explanation?: string }>>({});
-  const [maxQuestions, setMaxQuestions] = useState(20);
+  const [maxQuestions, setMaxQuestions] = useState(15);
   const [examName, setExamName] = useState('');
   const [showSummary, setShowSummary] = useState(false);
-  const [summaryData, setSummaryData] = useState<ReturnType<typeof generateCATSummary> | null>(null);
+  const [summaryData, setSummaryData] = useState<STESessionSummary | null>(null);
 
-  // Load session data
+  // Smart training context
+  const [skillMemory, setSkillMemory] = useState<SkillMemoryEntry[]>([]);
+  const [examDNA, setExamDNA] = useState<ExamDNADistribution>({ easy_pct: 30, medium_pct: 50, hard_pct: 20 });
+  const [previousAbility, setPreviousAbility] = useState(50);
+
   useEffect(() => {
     if (!sessionId) return;
 
@@ -35,7 +38,6 @@ export default function AdaptiveTrainingSession() {
       setError(null);
 
       try {
-        // Fetch session to get exam_snapshot
         const { data: session, error: sErr } = await supabase
           .from('exam_sessions')
           .select('id, exam_snapshot, status, score_json, cat_session_json')
@@ -49,7 +51,7 @@ export default function AdaptiveTrainingSession() {
         }
 
         const snapshot = session.exam_snapshot as any;
-        setExamName(snapshot?.template?.name_ar || 'تدريب تكيّفي');
+        setExamName(snapshot?.template?.name_ar || 'جلسة التدريب الذكي');
 
         // If already completed, show summary
         if (session.status === 'completed' || session.status === 'submitted') {
@@ -57,14 +59,19 @@ export default function AdaptiveTrainingSession() {
             const catData = session.cat_session_json as any;
             setSummaryData({
               abilityScore: catData.ability_score || 0,
+              previousAbility: catData.previous_ability || 50,
+              abilityDelta: (catData.ability_score || 0) - (catData.previous_ability || 50),
               accuracyRate: catData.accuracy_rate || 0,
               speedRating: catData.speed_rating || 'متوسط',
               accuracyRating: catData.accuracy_rating || 'متوسط',
               weakTopics: catData.weak_topics || [],
               strongTopics: catData.strong_topics || [],
+              weakSections: catData.weak_sections || [],
+              strongSections: catData.strong_sections || [],
               difficultyProgression: catData.difficulty_progression || [],
               totalQuestions: catData.per_question_data?.length || 0,
               correctCount: catData.per_question_data?.filter((q: any) => q.is_correct).length || 0,
+              confidencePhase: catData.confidence_phase || 'HIGH',
             });
             setShowSummary(true);
           }
@@ -72,7 +79,7 @@ export default function AdaptiveTrainingSession() {
           return;
         }
 
-        // Fetch the pool data from localStorage (set during assembly)
+        // Load pool data from sessionStorage
         const poolData = sessionStorage.getItem(`cat-pool-${sessionId}`);
         if (!poolData) {
           setError('بيانات الجلسة غير متوفرة. يرجى بدء جلسة جديدة.');
@@ -83,10 +90,13 @@ export default function AdaptiveTrainingSession() {
         const parsed = JSON.parse(poolData);
         setQuestionPool(parsed.question_pool || []);
         setAnswerKeys(parsed.answer_keys || {});
-        setMaxQuestions(parsed.max_questions || 20);
+        setMaxQuestions(parsed.max_questions || 15);
+        setSkillMemory(parsed.skill_memory || []);
+        setExamDNA(parsed.exam_dna || { easy_pct: 30, medium_pct: 50, hard_pct: 20 });
+        setPreviousAbility(parsed.previous_ability || 50);
         setLoading(false);
       } catch (err) {
-        console.error('[AdaptiveSession] Error:', err);
+        console.error('[SmartTraining] Error:', err);
         setError('حدث خطأ غير متوقع');
         setLoading(false);
       }
@@ -96,9 +106,9 @@ export default function AdaptiveTrainingSession() {
   }, [sessionId]);
 
   const handleComplete = useCallback(async (
-    summary: ReturnType<typeof generateCATSummary>,
+    summary: STESessionSummary,
     answers: Record<string, string>,
-    catState: CATSessionState
+    steState: STESessionState,
   ) => {
     if (submitting || !sessionId || !user) return;
     setSubmitting(true);
@@ -109,12 +119,15 @@ export default function AdaptiveTrainingSession() {
           session_id: sessionId,
           answers,
           cat_session_data: {
-            answers: catState.answers,
-            difficultyProgression: catState.difficultyProgression,
-            abilityEstimate: catState.abilityEstimate,
-            accuracyRate: catState.accuracyRate,
-            avgResponseTimeMs: catState.avgResponseTimeMs,
-            topicPerformance: catState.topicPerformance,
+            answers: steState.answers,
+            difficultyProgression: steState.difficultyProgression,
+            abilityEstimate: steState.currentAbility,
+            accuracyRate: steState.accuracyRate,
+            avgResponseTimeMs: steState.avgResponseTimeMs,
+            topicPerformance: steState.topicPerformance,
+            sectionPerformance: steState.sectionPerformance,
+            previousAbility: steState.previousAbility,
+            confidencePhase: steState.confidencePhase,
           },
         },
       });
@@ -125,19 +138,23 @@ export default function AdaptiveTrainingSession() {
         return;
       }
 
-      // Use server-verified summary
       const serverSummary = result.cat_summary;
       if (serverSummary) {
         setSummaryData({
           abilityScore: serverSummary.ability_score,
+          previousAbility: serverSummary.previous_ability || summary.previousAbility,
+          abilityDelta: (serverSummary.ability_score || 0) - (serverSummary.previous_ability || summary.previousAbility),
           accuracyRate: serverSummary.accuracy_rate,
           speedRating: serverSummary.speed_rating,
           accuracyRating: serverSummary.accuracy_rating,
           weakTopics: serverSummary.weak_topics || [],
           strongTopics: serverSummary.strong_topics || [],
+          weakSections: serverSummary.weak_sections || [],
+          strongSections: serverSummary.strong_sections || [],
           difficultyProgression: serverSummary.difficulty_progression || [],
           totalQuestions: serverSummary.per_question_data?.length || summary.totalQuestions,
           correctCount: serverSummary.per_question_data?.filter((q: any) => q.is_correct).length || summary.correctCount,
+          confidencePhase: serverSummary.confidence_phase || summary.confidencePhase,
         });
       } else {
         setSummaryData(summary);
@@ -146,17 +163,14 @@ export default function AdaptiveTrainingSession() {
       setShowSummary(true);
       setSubmitting(false);
       refreshWallet();
-
-      // Clean up session storage
       sessionStorage.removeItem(`cat-pool-${sessionId}`);
 
-      // Run post-training pipeline in background
       const sessionScore = result.score?.percentage || summary.accuracyRate;
       runPostTrainingPipeline(user.id, sessionId, sessionScore)
-        .then(() => console.log('[CAT] Post-training pipeline complete'))
-        .catch(e => console.error('[CAT] Pipeline error:', e));
+        .then(() => console.log('[SmartTraining] Post-training pipeline complete'))
+        .catch(e => console.error('[SmartTraining] Pipeline error:', e));
     } catch (err) {
-      console.error('[CAT] Submit error:', err);
+      console.error('[SmartTraining] Submit error:', err);
       toast.error('فشل في حفظ النتيجة');
       setSubmitting(false);
     }
@@ -174,7 +188,7 @@ export default function AdaptiveTrainingSession() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6" dir="rtl">
         <div className="text-center max-w-md space-y-4">
-          <Zap className="h-12 w-12 text-destructive mx-auto" />
+          <Brain className="h-12 w-12 text-destructive mx-auto" />
           <h2 className="text-xl font-bold">{error}</h2>
           <div className="flex gap-3 justify-center">
             <Button onClick={() => navigate('/app/exams')} variant="outline">
@@ -192,10 +206,10 @@ export default function AdaptiveTrainingSession() {
       <div className="min-h-screen bg-background p-4 sm:p-6" dir="rtl">
         <div className="mx-auto max-w-2xl">
           <div className="mb-4 text-center">
-            <p className="text-sm text-muted-foreground">⚡ تدريب تكيّفي</p>
+            <p className="text-sm text-muted-foreground">🧠 جلسة التدريب الذكي</p>
             <h1 className="text-xl font-black">{examName}</h1>
           </div>
-          <CATSessionSummary
+          <SmartSessionSummary
             summary={summaryData}
             onBack={() => navigate('/app/exams')}
             onStartSmartTraining={() => navigate('/app/exams')}
@@ -216,28 +230,29 @@ export default function AdaptiveTrainingSession() {
 
   return (
     <div className="min-h-screen bg-background" dir="rtl">
-      {/* Top bar */}
       <div className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur-sm px-4 py-3">
         <div className="mx-auto max-w-3xl flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="font-bold text-sm sm:text-base flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" />
-              تدريب تكيّفي
+              <Brain className="h-4 w-4 text-primary" />
+              جلسة التدريب الذكي
             </h2>
             <span className="text-xs text-muted-foreground">{examName}</span>
           </div>
           <Button variant="ghost" size="sm" onClick={() => navigate('/app/exams')}>
-            <ArrowLeft className="h-4 w-4 ml-1" />
             خروج
           </Button>
         </div>
       </div>
 
       <div className="mx-auto max-w-3xl p-4 sm:p-6">
-        <AdaptiveQuestionFlow
+        <SmartQuestionFlow
           questionPool={questionPool}
           answerKeys={answerKeys}
           maxQuestions={maxQuestions}
+          skillMemory={skillMemory}
+          examDNA={examDNA}
+          previousAbility={previousAbility}
           onComplete={handleComplete}
           onExit={() => navigate('/app/exams')}
         />
