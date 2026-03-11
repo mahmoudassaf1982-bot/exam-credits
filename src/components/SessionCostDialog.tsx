@@ -25,9 +25,10 @@ interface SessionCostDialogProps {
 
 const sessionLabels: Record<SessionType, string> = {
   simulation: 'جلسة محاكاة رسمية',
-  practice: 'جلسة تدريب ذكي (AI)',
+  practice: 'جلسة تدريب ذكي',
   analysis: 'تحليل النتيجة',
-  adaptive_training: 'تدريب تكيّفي (CAT)',
+  adaptive_training: 'جلسة التدريب الذكي',
+  smart_training: 'جلسة التدريب الذكي',
 };
 
 function getCost(exam: ExamTemplate, type: SessionType): number {
