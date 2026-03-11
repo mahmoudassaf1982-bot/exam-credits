@@ -394,14 +394,14 @@ export default function SmartCoachFloating() {
           <motion.div
             className="relative"
             animate={
-              visualState === 'attention'
+              visualState === 'attention' || visualState === 'intervention'
                 ? attentionFloat
                 : sessionActive
                   ? trainingFloat
                   : idleFloat
             }
             transition={{
-              duration: visualState === 'attention' ? 2 : sessionActive ? 4 : 5,
+              duration: visualState === 'attention' || visualState === 'intervention' ? 2 : sessionActive ? 4 : 5,
               repeat: Infinity,
               ease: 'easeInOut',
             }}
