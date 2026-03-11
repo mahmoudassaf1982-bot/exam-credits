@@ -103,7 +103,7 @@ function categorizeSections(
   return performances;
 }
 
-/** Count available approved questions for a section (with fallback pools) */
+/** Count available approved questions for a section (template-bounded only) */
 async function countAvailableQuestions(
   admin: ReturnType<typeof createClient>,
   sectionId: string,
@@ -121,6 +121,7 @@ async function countAvailableQuestions(
 
   if ((sectionCount ?? 0) > 0) return sectionCount ?? 0;
 
+  // Fallback: count from same template only (never cross-template or country-only)
   const { count: templateCount } = await admin
     .from("questions")
     .select("id", { count: "exact", head: true })
@@ -129,16 +130,7 @@ async function countAvailableQuestions(
     .eq("language", language)
     .eq("exam_template_id", String(examTemplateId));
 
-  if ((templateCount ?? 0) > 0) return templateCount ?? 0;
-
-  const { count: countryCount } = await admin
-    .from("questions")
-    .select("id", { count: "exact", head: true })
-    .eq("is_approved", true)
-    .eq("country_id", countryId)
-    .eq("language", language);
-
-  return countryCount ?? 0;
+  return templateCount ?? 0;
 }
 
 /** Fetch questions for a single section with difficulty mix and 3-tier fallback.
@@ -215,26 +207,18 @@ async function fetchSectionQuestions(
   rMedium -= p1Ids.filter(id => p1Pool.find(q => q.id === id)?.difficulty === "medium").length;
   rHard -= p1Ids.filter(id => p1Pool.find(q => q.id === id)?.difficulty === "hard").length;
 
-  // Priority 2: template-level (null section)
+  // Priority 2: other sections within the SAME exam template (strict template boundary)
+  // NOTE: Unsafe country-only and null-section fallbacks have been removed
+  // to prevent cross-subject contamination (e.g. verbal questions in math training).
   if (rEasy + rMedium + rHard > 0) {
-    const p2Pool = await fetchIdPool({ examTemplateId: templateIdStr, nullSection: true });
+    const p2Pool = await fetchIdPool({ examTemplateId: templateIdStr });
     const p2Ids = pickByDifficulty(p2Pool, { easy: rEasy, medium: rMedium, hard: rHard });
     selectedIds.push(...p2Ids);
-    rEasy -= p2Ids.filter(id => p2Pool.find(q => q.id === id)?.difficulty === "easy").length;
-    rMedium -= p2Ids.filter(id => p2Pool.find(q => q.id === id)?.difficulty === "medium").length;
-    rHard -= p2Ids.filter(id => p2Pool.find(q => q.id === id)?.difficulty === "hard").length;
   }
 
-  // Priority 3: country pool
-  if (rEasy + rMedium + rHard > 0) {
-    const p3Pool = await fetchIdPool({});
-    const p3Ids = pickByDifficulty(p3Pool, { easy: rEasy, medium: rMedium, hard: rHard });
-    selectedIds.push(...p3Ids);
-  }
-
-  // Fill remaining with any difficulty if still short
+  // Fill remaining with any difficulty from the same template if still short
   if (selectedIds.length < targetCount) {
-    const fillPool = await fetchIdPool({});
+    const fillPool = await fetchIdPool({ examTemplateId: templateIdStr });
     const unused = fillPool.filter(q => !usedIds.has(q.id));
     for (let i = 0; i < Math.min(targetCount - selectedIds.length, unused.length); i++) {
       selectedIds.push(unused[i].id);
