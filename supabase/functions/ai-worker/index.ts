@@ -703,6 +703,16 @@ EXAM PROFILE DNA (MUST FOLLOW):
           batchQuestions = parsed;
         }
 
+        // ── BLUEPRINT COMPLIANCE GUARD (Semantic Level) ──
+        // Catches questions that belong to forbidden question families
+        // (e.g., verbal analogy in a Math exam) even if topic_tag is "correct"
+        const { valid: blueprintValid, violations: blueprintViolations } = validateBlueprintCompliance(batchQuestions, examName, sectionName);
+        if (blueprintViolations.length > 0) {
+          console.warn(`[ai-worker] 🚫 BLUEPRINT violations: ${blueprintViolations.length} questions rejected`, 
+            JSON.stringify(blueprintViolations.slice(0, 5)));
+          batchQuestions = blueprintValid;
+        }
+
         allGeneratedQuestions = allGeneratedQuestions.concat(batchQuestions);
 
         await admin.from("ai_job_items").update({
