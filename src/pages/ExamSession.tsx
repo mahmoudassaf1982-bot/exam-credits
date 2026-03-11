@@ -32,6 +32,7 @@ import { updateStudentMemory, getStudentMemory } from '@/services/studentMemory'
 import ThinkingAnalysisCard from '@/components/exam/ThinkingAnalysisCard';
 import { generateRecommendations, saveRecommendations } from '@/services/trainingRecommendationEngine';
 import { runPostTrainingPipeline } from '@/services/postTrainingPipeline';
+import SmartHintButton from '@/components/exam/SmartHintButton';
 
 interface QuestionData {
   id: string;
