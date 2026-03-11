@@ -80,3 +80,9 @@ verify_jwt = false
 
 [functions.smart-coach]
 verify_jwt = false
+
+[functions.ai-provider-router]
+verify_jwt = false
+
+[functions.ai-provider-healthcheck]
+verify_jwt = false
