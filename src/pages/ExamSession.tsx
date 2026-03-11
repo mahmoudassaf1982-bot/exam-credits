@@ -132,6 +132,7 @@ export default function ExamSession() {
   const expiresAtRef = useRef<Date | null>(null);
   const serverTimeOffsetRef = useRef<number>(0);
   const attemptTokenRef = useRef<string | null>(null);
+  const [hintsMap, setHintsMap] = useState<Record<string, string>>({});
 
   // Live performance insights
   const { insights, trackAnswer } = useLivePerformanceInsights(sessionId, user?.id);
