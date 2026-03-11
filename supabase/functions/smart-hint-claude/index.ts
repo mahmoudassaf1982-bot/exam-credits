@@ -13,8 +13,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return errorRes(401, "Missing authorization");
@@ -177,34 +177,35 @@ Generate ONE safe hint that helps the student think about the problem.
 Do NOT solve the question.
 Do NOT reveal the answer.`;
 
-      // Call Lovable AI Gateway instead of Anthropic
-      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      // Call Anthropic Claude API
+      const aiResponse = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+          model: "claude-sonnet-4-20250514",
           max_tokens: 150,
           temperature: 0.2,
+          system: systemPrompt,
+          messages: [
+            { role: "user", content: userPrompt },
+          ],
         }),
       });
 
       if (!aiResponse.ok) {
         const errText = await aiResponse.text();
-        console.error("[smart-hint] AI gateway error:", aiResponse.status, errText);
+        console.error("[smart-hint] Anthropic error:", aiResponse.status, errText);
         if (aiResponse.status === 429) return errorRes(429, "تم تجاوز حد الطلبات، حاول لاحقاً");
         if (aiResponse.status === 402) return errorRes(402, "رصيد غير كافٍ للذكاء الاصطناعي");
         return errorRes(502, "فشل في توليد التلميح");
       }
 
       const aiData = await aiResponse.json();
-      hintText = (aiData.choices?.[0]?.message?.content || "لا يوجد تلميح متاح").trim();
+      hintText = (aiData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
       if (hintText.length > 500) hintText = hintText.substring(0, 500);
 
       // Cache globally
@@ -216,7 +217,7 @@ Do NOT reveal the answer.`;
           hint_text: hintText,
           hint_mode: "smart_hint",
           language: "ar",
-          model: "gemini-2.5-flash",
+          model: "claude-sonnet-4-20250514",
           usage_count: 1,
           is_active: true,
           updated_at: new Date().toISOString(),
@@ -229,7 +230,7 @@ Do NOT reveal the answer.`;
       [question_id]: {
         hint_text: hintText,
         hint_used: true,
-        model: hintSource === "cache" ? (cachedHint?.model || "gemini") : "gemini-2.5-flash",
+        model: hintSource === "cache" ? (cachedHint?.model || "claude") : "claude-sonnet-4-20250514",
         source: hintSource,
         created_at: new Date().toISOString(),
         mode: "smart_hint",
