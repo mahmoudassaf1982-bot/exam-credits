@@ -172,6 +172,48 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_provider_state: {
+        Row: {
+          active_provider: string
+          failure_reason: string | null
+          fallback_provider: string
+          id: string
+          last_email_sent_at: string | null
+          last_failure_at: string | null
+          last_healthcheck_at: string | null
+          last_recovery_at: string | null
+          primary_provider: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          active_provider?: string
+          failure_reason?: string | null
+          fallback_provider?: string
+          id?: string
+          last_email_sent_at?: string | null
+          last_failure_at?: string | null
+          last_healthcheck_at?: string | null
+          last_recovery_at?: string | null
+          primary_provider?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          active_provider?: string
+          failure_reason?: string | null
+          fallback_provider?: string
+          id?: string
+          last_email_sent_at?: string | null
+          last_failure_at?: string | null
+          last_healthcheck_at?: string | null
+          last_recovery_at?: string | null
+          primary_provider?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_system_state: {
         Row: {
           gemini_circuit_open_until: string | null
