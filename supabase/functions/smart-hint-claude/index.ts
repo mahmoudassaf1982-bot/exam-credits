@@ -110,14 +110,9 @@ serve(async (req) => {
       // Increment usage_count (fire-and-forget)
       adminClient
         .from("question_hints_cache")
-        .update({ usage_count: (cachedHint as any).usage_count + 1, updated_at: new Date().toISOString() })
+        .update({ usage_count: ((cachedHint as any).usage_count ?? 0) + 1, updated_at: new Date().toISOString() })
         .eq("id", cachedHint.id)
         .then(() => {});
-
-      // We need the usage_count for the increment, fetch it properly
-      adminClient.rpc("increment_hint_usage", { hint_id: cachedHint.id }).catch(() => {
-        // Fallback: direct update already attempted above
-      });
 
     } else {
       // ---- CACHE MISS: Call Claude ----
