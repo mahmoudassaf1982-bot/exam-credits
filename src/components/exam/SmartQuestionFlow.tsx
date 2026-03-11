@@ -64,6 +64,13 @@ export default function SmartQuestionFlow({
   onComplete,
   onExit,
 }: Props) {
+  const { recordAnswerResult, resetErrorStreak, sessionActive } = useSmartCoach();
+
+  // Reset error streak when component mounts (new session)
+  useEffect(() => {
+    resetErrorStreak();
+    return () => resetErrorStreak();
+  }, [resetErrorStreak]);
   const [steState, setSteState] = useState<STESessionState>(() =>
     createSTESession(skillMemory, examDNA, previousAbility)
   );
