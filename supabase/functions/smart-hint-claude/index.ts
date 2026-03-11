@@ -13,9 +13,6 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return errorRes(401, "Missing authorization");
 
@@ -99,10 +96,12 @@ serve(async (req) => {
 
     let hintText: string;
     let hintSource: "cache" | "ai";
+    let usedProvider = "claude";
 
     if (cachedHint) {
       hintText = cachedHint.hint_text;
       hintSource = "cache";
+      usedProvider = cachedHint.model || "claude";
       adminClient
         .from("question_hints_cache")
         .update({ usage_count: ((cachedHint as any).usage_count ?? 0) + 1, updated_at: new Date().toISOString() })
@@ -177,38 +176,39 @@ Generate ONE safe hint that helps the student think about the problem.
 Do NOT solve the question.
 Do NOT reveal the answer.`;
 
-      // Call Anthropic Claude API
-      const aiResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      // Call AI provider router
+      const routerRes = await fetch(`${supabaseUrl}/functions/v1/ai-provider-router`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
+          Authorization: `Bearer ${supabaseServiceKey}`,
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 150,
+          feature: "smart-hint",
+          systemPrompt,
+          userPrompt,
           temperature: 0.2,
-          system: systemPrompt,
-          messages: [
-            { role: "user", content: userPrompt },
-          ],
+          maxTokens: 150,
         }),
       });
 
-      if (!aiResponse.ok) {
-        const errText = await aiResponse.text();
-        console.error("[smart-hint] Anthropic error:", aiResponse.status, errText);
-        if (aiResponse.status === 429) return errorRes(429, "تم تجاوز حد الطلبات، حاول لاحقاً");
-        if (aiResponse.status === 402) return errorRes(402, "رصيد غير كافٍ للذكاء الاصطناعي");
+      if (!routerRes.ok) {
+        console.error("[smart-hint] Router error:", routerRes.status);
         return errorRes(502, "فشل في توليد التلميح");
       }
 
-      const aiData = await aiResponse.json();
-      hintText = (aiData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
+      const routerData = await routerRes.json();
+
+      if (routerData.error) {
+        return errorRes(502, "فشل في توليد التلميح");
+      }
+
+      hintText = (routerData.reply || "لا يوجد تلميح متاح").trim();
+      usedProvider = routerData.provider || "claude";
       if (hintText.length > 500) hintText = hintText.substring(0, 500);
 
       // Cache globally
+      const modelName = usedProvider === "openai" ? "gpt-5-mini" : "claude-sonnet-4-20250514";
       await adminClient
         .from("question_hints_cache")
         .upsert({
@@ -217,7 +217,7 @@ Do NOT reveal the answer.`;
           hint_text: hintText,
           hint_mode: "smart_hint",
           language: "ar",
-          model: "claude-sonnet-4-20250514",
+          model: modelName,
           usage_count: 1,
           is_active: true,
           updated_at: new Date().toISOString(),
@@ -230,7 +230,7 @@ Do NOT reveal the answer.`;
       [question_id]: {
         hint_text: hintText,
         hint_used: true,
-        model: hintSource === "cache" ? (cachedHint?.model || "claude") : "claude-sonnet-4-20250514",
+        model: usedProvider === "openai" ? "gpt-5-mini" : "claude-sonnet-4-20250514",
         source: hintSource,
         created_at: new Date().toISOString(),
         mode: "smart_hint",
@@ -247,6 +247,7 @@ Do NOT reveal the answer.`;
     return jsonRes({
       hint: hintText,
       source: hintSource,
+      provider: usedProvider,
       already_used: false,
       hints_used: newHintsUsed,
       hints_remaining: MAX_HINTS_PER_EXAM - newHintsUsed,

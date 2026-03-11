@@ -36,17 +36,12 @@ const PLATFORM_KNOWLEDGE = {
 
 function detectMode(context: any): "training_coach" | "learning_tutor" | "platform_guide" {
   const msg = (context.message || "").toLowerCase();
-  
   const guideKeywords = ["أين", "كيف أجد", "وين", "أين أذهب", "أين أرى", "صفحة", "زر", "أيقونة", "كيف أستخدم", "التنقل", "القائمة"];
   if (guideKeywords.some(k => msg.includes(k))) return "platform_guide";
-  
   if (context.sessionActive && context.sessionType === "smart_training") return "training_coach";
-  
   const tutorKeywords = ["لماذا", "اشرح", "لم أفهم", "مثال", "كيف أحل", "وضح", "الإجابة الصحيحة", "شرح"];
   if (tutorKeywords.some(k => msg.includes(k))) return "learning_tutor";
-  
   if (context.currentPage?.includes("performance") || context.currentPage?.includes("history")) return "learning_tutor";
-  
   return "platform_guide";
 }
 
@@ -101,7 +96,6 @@ ${context.questionData ? `بيانات السؤال:\nالسؤال: ${context.qu
 ${context.studentDNA ? `مستوى الطالب: ${context.studentDNA.dna_type || 'متوازن'}` : ''}`;
   }
 
-  // platform_guide
   return `${baseIdentity}
 
 أنت الآن في وضع "دليل المنصة" لمساعدة الطالب في التنقل واستخدام المنصة.
@@ -128,9 +122,6 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing authorization" }), {
@@ -161,33 +152,28 @@ serve(async (req) => {
       });
     }
 
-    // Enrich context with student data
+    // Enrich context
     const enrichedContext = { ...context, message };
 
-    // Load student DNA if available
     const { data: dna } = await adminClient
       .from("student_learning_dna")
       .select("*")
       .eq("student_id", user.id)
       .maybeSingle();
-    
     if (dna) enrichedContext.studentDNA = dna;
 
-    // Load skill memory
     const { data: skills } = await adminClient
       .from("skill_memory")
       .select("section_name, skill_score, total_answered")
       .eq("user_id", user.id);
-    
     if (skills?.length) enrichedContext.skillMemory = skills;
 
-    // Detect mode
+    // Detect mode and build prompt
     const mode = detectMode(enrichedContext);
     const systemPrompt = buildSystemPrompt(mode, enrichedContext);
 
-    // Build messages for AI
+    // Build conversation messages for router
     const aiMessages = [
-      { role: "system", content: systemPrompt },
       ...conversation_history.slice(-10).map((m: any) => ({
         role: m.role === "coach" ? "assistant" : "user",
         content: m.content,
@@ -195,43 +181,24 @@ serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    // Call Lovable AI Gateway
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Call the AI provider router
+    const routerRes = await fetch(`${supabaseUrl}/functions/v1/ai-provider-router`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${supabaseServiceKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        feature: `smart-coach:${mode}`,
+        systemPrompt,
         messages: aiMessages,
-        max_tokens: 500,
+        maxTokens: 500,
+        temperature: 0.3,
       }),
     });
 
-    if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      console.error("AI gateway error:", aiRes.status, errText);
-      
-      if (aiRes.status === 429) {
-        return new Response(JSON.stringify({
-          reply: "عذراً، النظام مشغول حالياً. حاول مرة أخرى بعد قليل.",
-          mode,
-          error: true,
-        }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (aiRes.status === 402) {
-        return new Response(JSON.stringify({
-          reply: "عذراً، خدمة الذكاء الاصطناعي غير متاحة مؤقتاً.",
-          mode,
-          error: true,
-        }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
+    if (!routerRes.ok) {
+      console.error("[smart-coach] Router error:", routerRes.status);
       return new Response(JSON.stringify({
         reply: "عذراً، حدث خطأ في معالجة طلبك. حاول مرة أخرى.",
         mode,
@@ -241,10 +208,26 @@ serve(async (req) => {
       });
     }
 
-    const aiData = await aiRes.json();
-    const reply = aiData.choices?.[0]?.message?.content || "عذراً، لم أتمكن من الإجابة.";
+    const routerData = await routerRes.json();
 
-    return new Response(JSON.stringify({ reply, mode }), {
+    if (routerData.error) {
+      return new Response(JSON.stringify({
+        reply: routerData.reply || "عذراً، حدث خطأ.",
+        mode,
+        provider: routerData.provider,
+        fallback_used: routerData.fallback_used,
+        error: true,
+      }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({
+      reply: routerData.reply,
+      mode,
+      provider: routerData.provider,
+      fallback_used: routerData.fallback_used,
+    }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
