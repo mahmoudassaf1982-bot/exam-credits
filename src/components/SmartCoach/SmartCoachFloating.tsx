@@ -139,15 +139,23 @@ export default function SmartCoachFloating() {
     }
   };
 
-  // Idle floating keyframes for the character image
+  // Idle: gentle horizontal sway + float
   const idleFloat = {
     y: [0, -6, 0, -3, 0],
-    rotate: [0, 0.8, 0, -0.5, 0],
+    x: [0, 3, 0, -2, 0],
+    rotate: [0, 1, 0, -0.5, 0],
+  };
+
+  // Training: very calm, minimal breathing only
+  const trainingFloat = {
+    y: [0, -2, 0],
+    scale: [1, 1.01, 1],
   };
 
   const attentionFloat = {
     y: [0, -10, 0, -6, 0],
-    scale: [1, 1.08, 1, 1.05, 1],
+    x: [0, 20, 0],
+    scale: [1, 1.06, 1, 1.04, 1],
   };
 
   return (
