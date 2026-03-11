@@ -138,7 +138,7 @@ export default function SmartQuestionFlow({
       setFeedbackCorrect(false);
       questionStartRef.current = Date.now();
     }, 1200);
-  }, [selectedOption, currentQuestion, steState, questionPool, maxQuestions, onComplete, showFeedback, answerKeys]);
+  }, [selectedOption, currentQuestion, steState, questionPool, maxQuestions, onComplete, showFeedback, answerKeys, sessionActive, recordAnswerResult]);
 
   if (!currentQuestion) {
     return (
