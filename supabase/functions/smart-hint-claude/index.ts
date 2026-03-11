@@ -217,7 +217,7 @@ Do NOT reveal the answer.`;
           hint_text: hintText,
           hint_mode: "smart_hint",
           language: "ar",
-          model: "gemini-2.5-flash",
+          model: "claude-sonnet-4-20250514",
           usage_count: 1,
           is_active: true,
           updated_at: new Date().toISOString(),
