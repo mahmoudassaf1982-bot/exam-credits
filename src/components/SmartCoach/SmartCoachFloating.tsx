@@ -433,7 +433,7 @@ export default function SmartCoachFloating() {
           </motion.div>
 
           {/* ── Attention lightbulb badge ── */}
-          {visualState === 'attention' && (
+          {(visualState === 'attention' || visualState === 'intervention') && (
             <motion.div
               className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
               animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
