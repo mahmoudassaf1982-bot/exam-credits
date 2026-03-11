@@ -118,11 +118,11 @@ export default function SmartCoachFloating() {
               dir="rtl"
             >
               <div className="flex items-start gap-4">
-                <img src={coachImage} alt="المدرب الذكي" className="h-16 w-16 flex-shrink-0" />
+                <img src={coachImage} alt="SARIS" className="h-16 w-16 flex-shrink-0" />
                 <div className="flex-1 space-y-3">
                   <div className="flex items-center gap-2">
                     <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
-                    <h3 className="font-bold text-foreground">المدرب الذكي</h3>
+                    <h3 className="font-bold text-foreground">SARIS — المدرب الذكي</h3>
                   </div>
                   <p className="text-sm text-foreground leading-relaxed">
                     {intervention.message}
