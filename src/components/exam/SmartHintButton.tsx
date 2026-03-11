@@ -41,15 +41,26 @@ export default function SmartHintButton({
         body: { session_id: sessionId, question_id: questionId },
       });
 
+      // Log errors internally only — never show technical errors to student
       if (error) {
-        toast.error('فشل في جلب التلميح');
-        console.error('[SmartHint] Error:', error);
+        console.error('[SmartHint] Internal error (hidden from user):', error);
+        // Show a friendly non-technical fallback
+        toast('لحظة واحدة…', { duration: 1500 });
         setLoading(false);
         return;
       }
 
       if (data?.error) {
-        toast.error(data.error);
+        // Only show user-friendly messages for business logic errors (e.g. hints exhausted)
+        const businessErrors = ['لقد استخدمت جميع التلميحات', 'التلميح متاح فقط للأسئلة الصعبة', 'الجلسة ليست نشطة'];
+        const isBusiness = businessErrors.some(e => data.error.includes(e));
+        if (isBusiness) {
+          toast(data.error, { duration: 3000 });
+        } else {
+          // Technical error — log internally, show friendly message
+          console.error('[SmartHint] Internal error (hidden from user):', data.error);
+          toast('لحظة واحدة… حاول مرة أخرى', { duration: 2000 });
+        }
         setLoading(false);
         return;
       }
@@ -59,8 +70,9 @@ export default function SmartHintButton({
       setHint(hintText);
       onHintReceived(questionId, hintText, remaining);
     } catch (err) {
-      toast.error('حدث خطأ أثناء جلب التلميح');
-      console.error('[SmartHint] Unexpected error:', err);
+      // Log internally only — never show technical errors to student
+      console.error('[SmartHint] Internal error (hidden from user):', err);
+      toast('لحظة واحدة… حاول مرة أخرى', { duration: 2000 });
     } finally {
       setLoading(false);
     }

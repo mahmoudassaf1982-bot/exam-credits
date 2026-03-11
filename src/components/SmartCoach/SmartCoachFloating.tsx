@@ -87,6 +87,10 @@ export default function SmartCoachFloating() {
     addMessage({ role: 'user', content: msg });
     setLoading(true);
 
+    // Show a seamless waiting message (never technical errors)
+    const waitingMsgId = Date.now();
+    addMessage({ role: 'coach', content: 'لحظة واحدة…' });
+
     try {
       const { data, error } = await supabase.functions.invoke('smart-coach', {
         body: {
@@ -105,18 +109,41 @@ export default function SmartCoachFloating() {
         },
       });
 
-      if (error) throw error;
+      // Remove the waiting message and replace with actual reply
+      // The router always returns a user-friendly reply even on failover
+      const reply = data?.reply || 'عذراً، لم أتمكن من الإجابة الآن. حاول مرة أخرى.';
 
-      addMessage({
-        role: 'coach',
-        content: data?.reply || 'عذراً، حدث خطأ.',
-        mode: data?.mode,
+      // Replace last coach message (the waiting one) with actual response
+      setMessages((prev: any[]) => {
+        const updated = [...prev];
+        // Find and replace last coach message
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i].role === 'coach' && updated[i].content === 'لحظة واحدة…') {
+            updated[i] = { role: 'coach', content: reply, mode: data?.mode };
+            break;
+          }
+        }
+        return updated;
       });
+
+      if (error) {
+        // Log internally only — never show to user
+        console.error('[SmartCoach] Internal error (hidden from user):', error);
+      }
     } catch (e) {
-      console.error('Coach error:', e);
-      addMessage({
-        role: 'coach',
-        content: 'عذراً، حدث خطأ في الاتصال. حاول مرة أخرى.',
+      // Log internally only — never show to user
+      console.error('[SmartCoach] Internal error (hidden from user):', e);
+
+      // Replace waiting message with a friendly non-technical message
+      setMessages((prev: any[]) => {
+        const updated = [...prev];
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i].role === 'coach' && updated[i].content === 'لحظة واحدة…') {
+            updated[i] = { role: 'coach', content: 'عذراً، لم أتمكن من الإجابة الآن. حاول مرة أخرى.' };
+            break;
+          }
+        }
+        return updated;
       });
     } finally {
       setLoading(false);
