@@ -190,9 +190,9 @@ export default function SmartCoachFloating() {
             {/* Chat Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
               <div className="flex items-center gap-2">
-                <img src={coachImage} alt="المدرب الذكي" className="h-8 w-8" />
+                <img src={coachImage} alt="SARIS" className="h-8 w-8" />
                 <div>
-                  <h3 className="text-sm font-bold text-foreground">المدرب الذكي</h3>
+                  <h3 className="text-sm font-bold text-foreground">SARIS — المدرب الذكي</h3>
                   <p className="text-[10px] text-muted-foreground">جاهز لمساعدتك</p>
                 </div>
               </div>
