@@ -77,6 +77,19 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
     }]);
   }, []);
   
+  const updateLastCoachMessage = useCallback((content: string, mode?: CoachMode) => {
+    setMessages(prev => {
+      const updated = [...prev];
+      for (let i = updated.length - 1; i >= 0; i--) {
+        if (updated[i].role === 'coach') {
+          updated[i] = { ...updated[i], content, mode };
+          break;
+        }
+      }
+      return updated;
+    });
+  }, []);
+
   const clearMessages = useCallback(() => setMessages([]), []);
   
   const triggerIntervention = useCallback((data: InterventionData) => {
