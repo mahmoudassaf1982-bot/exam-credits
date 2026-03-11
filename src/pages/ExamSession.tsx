@@ -133,6 +133,8 @@ export default function ExamSession() {
   const serverTimeOffsetRef = useRef<number>(0);
   const attemptTokenRef = useRef<string | null>(null);
   const [hintsMap, setHintsMap] = useState<Record<string, string>>({});
+  const MAX_HINTS_PER_EXAM = 5;
+  const [hintsUsedCount, setHintsUsedCount] = useState(0);
 
   // Live performance insights
   const { insights, trackAnswer } = useLivePerformanceInsights(sessionId, user?.id);
