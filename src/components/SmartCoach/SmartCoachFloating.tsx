@@ -46,11 +46,8 @@ export default function SmartCoachFloating() {
   }, [chatOpen, visible]);
   // Reset to home when chat opens
   useEffect(() => {
-    if (chatOpen) {
-      posBottom.set(24);
-      posLeft.set(16);
-    }
-  }, [chatOpen, posBottom, posLeft]);
+    if (chatOpen) setWanderIdx(0);
+  }, [chatOpen]);
 
   // Blink cycle
   useEffect(() => {
