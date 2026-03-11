@@ -156,12 +156,13 @@ export default function SmartCoachFloating() {
               <X className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
             <div className="flex items-center gap-3 mb-3">
-              <img src={coachImage} alt="المدرب الذكي" className="h-10 w-10" />
-              <span className="font-bold text-sm text-foreground">المدرب الذكي</span>
+              <img src={coachImage} alt="SARIS" className="h-10 w-10" />
+              <span className="font-bold text-sm text-foreground">SARIS — المدرب الذكي</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed mb-3">
-              مرحباً، أنا المدرب الذكي في منصة SARIS.
-              سأساعدك في التدريب، فهم الأسئلة، ومساعدتك على التنقل داخل المنصة.
+              مرحباً، أنا SARIS.
+              مدربك الذكي في منصة SARIS EXAMS.
+              سأساعدك في التدريب، فهم الأسئلة، والتنقل داخل المنصة.
             </p>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => handleQuickAction('train')} className="text-xs gradient-gold text-gold-foreground">
