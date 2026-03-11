@@ -103,7 +103,7 @@ function categorizeSections(
   return performances;
 }
 
-/** Count available approved questions for a section (with fallback pools) */
+/** Count available approved questions for a section (template-bounded only) */
 async function countAvailableQuestions(
   admin: ReturnType<typeof createClient>,
   sectionId: string,
@@ -121,6 +121,7 @@ async function countAvailableQuestions(
 
   if ((sectionCount ?? 0) > 0) return sectionCount ?? 0;
 
+  // Fallback: count from same template only (never cross-template or country-only)
   const { count: templateCount } = await admin
     .from("questions")
     .select("id", { count: "exact", head: true })
@@ -129,16 +130,7 @@ async function countAvailableQuestions(
     .eq("language", language)
     .eq("exam_template_id", String(examTemplateId));
 
-  if ((templateCount ?? 0) > 0) return templateCount ?? 0;
-
-  const { count: countryCount } = await admin
-    .from("questions")
-    .select("id", { count: "exact", head: true })
-    .eq("is_approved", true)
-    .eq("country_id", countryId)
-    .eq("language", language);
-
-  return countryCount ?? 0;
+  return templateCount ?? 0;
 }
 
 /** Fetch questions for a single section with difficulty mix and 3-tier fallback.
