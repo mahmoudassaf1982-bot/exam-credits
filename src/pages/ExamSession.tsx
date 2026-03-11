@@ -194,12 +194,15 @@ export default function ExamSession() {
       const catData = (data as any).cat_session_json as any;
       if (catData?.hints_json) {
         const loadedHints: Record<string, string> = {};
+        let count = 0;
         for (const [qId, hintData] of Object.entries(catData.hints_json)) {
           if ((hintData as any)?.hint_text) {
             loadedHints[qId] = (hintData as any).hint_text;
+            if ((hintData as any)?.hint_used) count++;
           }
         }
         setHintsMap(loadedHints);
+        setHintsUsedCount(count);
       }
 
       if (sessionData.status === 'completed' || sessionData.status === 'submitted') {
