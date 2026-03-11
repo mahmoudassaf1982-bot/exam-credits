@@ -32,6 +32,7 @@ import { updateStudentMemory, getStudentMemory } from '@/services/studentMemory'
 import ThinkingAnalysisCard from '@/components/exam/ThinkingAnalysisCard';
 import { generateRecommendations, saveRecommendations } from '@/services/trainingRecommendationEngine';
 import { runPostTrainingPipeline } from '@/services/postTrainingPipeline';
+import SmartHintButton from '@/components/exam/SmartHintButton';
 
 interface QuestionData {
   id: string;
@@ -131,6 +132,7 @@ export default function ExamSession() {
   const expiresAtRef = useRef<Date | null>(null);
   const serverTimeOffsetRef = useRef<number>(0);
   const attemptTokenRef = useRef<string | null>(null);
+  const [hintsMap, setHintsMap] = useState<Record<string, string>>({});
 
   // Live performance insights
   const { insights, trackAnswer } = useLivePerformanceInsights(sessionId, user?.id);
@@ -185,6 +187,18 @@ export default function ExamSession() {
 
       setSession(sessionData);
       setAnswers((sessionData.answers_json as Record<string, string>) || {});
+
+      // Load existing hints from cat_session_json
+      const catData = (data as any).cat_session_json as any;
+      if (catData?.hints_json) {
+        const loadedHints: Record<string, string> = {};
+        for (const [qId, hintData] of Object.entries(catData.hints_json)) {
+          if ((hintData as any)?.hint_text) {
+            loadedHints[qId] = (hintData as any).hint_text;
+          }
+        }
+        setHintsMap(loadedHints);
+      }
 
       if (sessionData.status === 'completed' || sessionData.status === 'submitted') {
         setShowResults(true);
@@ -479,6 +493,7 @@ export default function ExamSession() {
             sections={sections}
             questionsJson={reviewQuestions || {}}
             answers={answers}
+            hintsMap={hintsMap}
             onBack={() => setShowReview(false)}
           />
         </div>
@@ -693,6 +708,19 @@ export default function ExamSession() {
                   );
                 })}
               </div>
+
+              {/* Smart Hint Button - only for hard questions */}
+              {sessionId && currentQuestion && (
+                <SmartHintButton
+                  sessionId={sessionId}
+                  questionId={currentQuestion.id}
+                  difficulty={currentQuestion.difficulty}
+                  existingHint={hintsMap[currentQuestion.id] || null}
+                  onHintReceived={(qId, text) =>
+                    setHintsMap(prev => ({ ...prev, [qId]: text }))
+                  }
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         ) : (
