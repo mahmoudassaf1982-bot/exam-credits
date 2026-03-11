@@ -172,13 +172,26 @@ export default function ExamReview({ sections, questionsJson, answers, hintsMap,
             })}
           </div>
 
+          {/* Stored Hint from exam */}
+          {hintsMap?.[currentQuestion.id] && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed dark:border-amber-800 dark:bg-amber-950/50">
+              <div className="flex items-start gap-2">
+                <Lightbulb className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-500" />
+                <div>
+                  <p className="font-semibold text-amber-700 dark:text-amber-300 mb-1">التلميح المستخدم أثناء الاختبار:</p>
+                  <p className="text-amber-900 dark:text-amber-200">{hintsMap[currentQuestion.id]}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Explanation */}
           {currentQuestion.explanation && (
             <Collapsible defaultOpen>
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" className="w-full justify-start gap-2 text-primary">
                   <Lightbulb className="h-4 w-4" />
-                  الشرح
+                  الشرح الكامل
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent>
