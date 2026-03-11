@@ -39,14 +39,14 @@ export default function SmartCoachFloating() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Wandering movement cycle
+  // Wandering movement cycle — only when not in training
   useEffect(() => {
-    if (chatOpen || !visible) return;
+    if (chatOpen || !visible || sessionActive) return;
     const timer = setInterval(() => {
       setWanderIdx(prev => (prev + 1) % WANDER_POSITIONS.length);
     }, WANDER_INTERVAL);
     return () => clearInterval(timer);
-  }, [chatOpen, visible]);
+  }, [chatOpen, visible, sessionActive]);
   // Reset to home when chat opens
   useEffect(() => {
     if (chatOpen) setWanderIdx(0);
