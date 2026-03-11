@@ -7,16 +7,19 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import coachImage from '@/assets/smart-coach.png';
 
-// Wandering positions the coach drifts between (CSS values)
+// Horizontal drift positions for non-training mode
 const WANDER_POSITIONS = [
   { bottom: 24, left: 16 },
-  { bottom: 80, left: 16 },
-  { bottom: 140, left: 24 },
+  { bottom: 28, left: 50 },
+  { bottom: 20, left: 80 },
+  { bottom: 26, left: 40 },
   { bottom: 24, left: 16 },
-  { bottom: 60, left: 40 },
 ] as const;
 
-const WANDER_INTERVAL = 18_000;
+// Training mode: stationary position
+const TRAINING_POSITION = { bottom: 24, left: 16 };
+
+const WANDER_INTERVAL = 12_000;
 
 export default function SmartCoachFloating() {
   const {
