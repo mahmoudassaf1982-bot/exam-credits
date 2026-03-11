@@ -367,7 +367,7 @@ function applyLanguageVerification(reviews: ReviewItem[], questions: any[], cont
 // ─── Quality Gate Decision ───────────────────────────────────────────
 function computeQualityGateDecision(allReviews: ReviewItem[], failedBatches: number[]) {
   if (allReviews.length === 0 || failedBatches.length > 0) {
-    return { decision: "needs_fix" as const, avg_confidence: 0, auto_publishable: 0, needs_review_count: 0, needs_fix_count: allReviews.length, language_failures: 0 };
+    return { decision: "needs_fix" as const, avg_confidence: 0, auto_publishable: 0, needs_review_count: 0, needs_fix_count: allReviews.length, language_failures: 0, blueprint_failures: 0 };
   }
 
   let autoPublishable = 0;
@@ -375,14 +375,20 @@ function computeQualityGateDecision(allReviews: ReviewItem[], failedBatches: num
   let needsFixCount = 0;
   let totalConfidence = 0;
   let languageFailures = 0;
+  let blueprintFailures = 0;
 
   for (const r of allReviews) {
     const conf = r.quality_scores?.confidence_score ?? 0;
     const langScore = r.quality_scores?.language_consistency_score ?? 1;
+    const blueprintScore = r.quality_scores?.blueprint_compliance_score ?? 1;
     totalConfidence += conf;
 
+    // Blueprint failure overrides everything
+    if (blueprintScore < 0.5) {
+      needsFixCount++;
+      blueprintFailures++;
     // Language failure overrides confidence
-    if (langScore < 0.5) {
+    } else if (langScore < 0.5) {
       needsFixCount++;
       languageFailures++;
     } else if (conf >= AUTO_PUBLISH_THRESHOLD) {
