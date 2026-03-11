@@ -343,14 +343,14 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
-      {/* ─── Floating Coach Character ─── */}
+      {/* ─── Free-Standing Coach Character ─── */}
       <motion.div
         className="fixed z-[90]"
         animate={{
-          bottom: chatOpen ? 24 : WANDER_POSITIONS[wanderIdx].bottom,
-          left: chatOpen ? 16 : WANDER_POSITIONS[wanderIdx].left,
+          bottom: chatOpen ? 24 : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
+          left: chatOpen ? 16 : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
         }}
-        transition={{ type: 'spring', stiffness: 30, damping: 20 }}
+        transition={{ type: 'spring', stiffness: 25, damping: 18 }}
       >
         <motion.button
           onClick={() => {
@@ -359,53 +359,60 @@ export default function SmartCoachFloating() {
             if (visualState === 'attention') setVisualState('idle');
           }}
           className="relative group focus:outline-none"
-          whileHover={{ scale: 1.08 }}
+          whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
-          {/* ── Attention outer glow ring ── */}
+          {/* ── Attention outer glow ── */}
           {visualState === 'attention' && (
             <motion.div
-              className="absolute inset-[-8px] rounded-full"
+              className="absolute inset-[-12px] rounded-full pointer-events-none"
               style={{
-                background: 'radial-gradient(circle, hsl(var(--gold) / 0.35) 0%, transparent 70%)',
+                background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
               }}
-              animate={{ scale: [1, 1.5, 1], opacity: [0.6, 0, 0.6] }}
+              animate={{ scale: [1, 1.6, 1], opacity: [0.5, 0, 0.5] }}
               transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
             />
           )}
 
-          {/* ── Idle ambient glow ── */}
+          {/* ── Ambient ground glow ── */}
           <motion.div
-            className="absolute inset-[-4px] rounded-full"
+            className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-14 h-3 rounded-full pointer-events-none"
             style={{
-              background: 'radial-gradient(circle, hsl(var(--gold) / 0.12) 0%, transparent 70%)',
+              background: 'radial-gradient(ellipse, hsl(var(--gold) / 0.15) 0%, transparent 80%)',
             }}
-            animate={{ opacity: [0.4, 0.7, 0.4] }}
-            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+            animate={{ opacity: [0.3, 0.6, 0.3], scaleX: [0.9, 1.1, 0.9] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
           />
 
-          {/* ── Character container ── */}
+          {/* ── Free character (no circle container) ── */}
           <motion.div
-            className="relative h-16 w-16 rounded-full bg-card border-2 border-[hsl(var(--gold))] shadow-lg overflow-hidden flex items-center justify-center"
-            animate={visualState === 'attention' ? attentionFloat : idleFloat}
+            className="relative"
+            animate={
+              visualState === 'attention'
+                ? attentionFloat
+                : sessionActive
+                  ? trainingFloat
+                  : idleFloat
+            }
             transition={{
-              duration: visualState === 'attention' ? 2 : 5,
+              duration: visualState === 'attention' ? 2 : sessionActive ? 4 : 5,
               repeat: Infinity,
               ease: 'easeInOut',
             }}
           >
-            {/* Character image with breathing scale */}
+            {/* Character image — free silhouette, no clipping */}
             <motion.img
               src={coachImage}
               alt="SARIS — المدرب الذكي"
-              className="h-[52px] w-[52px] object-contain"
+              className="h-20 w-20 object-contain drop-shadow-lg"
               animate={{
-                scale: [1, 1.03, 1], // subtle breathing
+                scale: [1, 1.02, 1],
               }}
               transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+              style={{ filter: 'drop-shadow(0 4px 12px hsl(var(--gold) / 0.2))' }}
             />
 
-            {/* Blink overlay — simulates eye blink */}
+            {/* Blink overlay */}
             <AnimatePresence>
               {blinking && (
                 <motion.div
@@ -413,7 +420,7 @@ export default function SmartCoachFloating() {
                   animate={{ scaleY: 1 }}
                   exit={{ scaleY: 0 }}
                   transition={{ duration: 0.1 }}
-                  className="absolute top-[30%] left-[25%] w-[50%] h-[12%] bg-card rounded-full origin-top"
+                  className="absolute top-[28%] left-[28%] w-[44%] h-[10%] bg-card rounded-full origin-top"
                 />
               )}
             </AnimatePresence>
@@ -422,18 +429,18 @@ export default function SmartCoachFloating() {
           {/* ── Attention lightbulb badge ── */}
           {visualState === 'attention' && (
             <motion.div
-              className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
-              animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0] }}
+              className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
+              animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
               transition={{ duration: 1.2, repeat: Infinity }}
             >
-              <Lightbulb className="h-3.5 w-3.5 text-[hsl(var(--gold-foreground))]" />
+              <Lightbulb className="h-4 w-4 text-[hsl(var(--gold-foreground))]" />
             </motion.div>
           )}
 
           {/* ── Unread messages badge ── */}
           {!chatOpen && messages.length > 0 && (
             <motion.div
-              className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-destructive flex items-center justify-center"
+              className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive flex items-center justify-center"
               animate={{ scale: [1, 1.15, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
