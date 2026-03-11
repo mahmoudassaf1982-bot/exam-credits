@@ -348,8 +348,13 @@ export default function SmartCoachFloating() {
       <motion.div
         className="fixed z-[90]"
         animate={{
-          bottom: chatOpen ? 24 : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
-          left: chatOpen ? 16 : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
+          bottom: chatOpen ? 24
+            : visualState === 'intervention' ? 80
+            : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
+          left: chatOpen ? 16
+            : visualState === 'intervention' ? '50%'
+            : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
+          x: visualState === 'intervention' && !chatOpen ? '-50%' : '0%',
         }}
         transition={{ type: 'spring', stiffness: 25, damping: 18 }}
       >
