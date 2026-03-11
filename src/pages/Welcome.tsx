@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -7,6 +7,7 @@ import {
   BookOpen, Brain, BarChart3, Zap, Target, ListChecks, HelpCircle, LineChart, Loader2, GraduationCap, Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useSmartCoach } from '@/components/SmartCoach';
 
 export default function Welcome() {
   const { user, session } = useAuth();
