@@ -302,6 +302,149 @@ function validateTopicTags(questions: any[], allowedTopics: string[]): TopicVali
   return { valid, violations, violationDetails };
 }
 
+// ─── Blueprint Compliance Guard (Semantic Level) ─────────────────────
+// Defines forbidden question families per exam category.
+// These are question TYPES/FAMILIES that should never appear in certain exams,
+// regardless of topic_tag correctness.
+
+interface ExamFamilyRules {
+  examNamePatterns: RegExp[];
+  forbiddenFamilies: { name: string; keywords: RegExp[] }[];
+  requiredFamily: string; // e.g. "math", "verbal", "chemistry"
+}
+
+const EXAM_FAMILY_RULES: ExamFamilyRules[] = [
+  {
+    examNamePatterns: [/رياضيات/i, /math/i, /الرياضيات/i],
+    requiredFamily: "math",
+    forbiddenFamilies: [
+      {
+        name: "verbal_analogy",
+        keywords: [/تناظر\s*لفظي/i, /تناظر/i, /analogy/i, /analogies/i, /العلاقة\s*بين.*كالعلاقة/i, /يناظر/i],
+      },
+      {
+        name: "vocabulary",
+        keywords: [/مرادف/i, /مضاد/i, /synonym/i, /antonym/i, /معنى\s*الكلمة/i, /المعنى\s*المناسب/i],
+      },
+      {
+        name: "reading_comprehension",
+        keywords: [/استيعاب\s*مقروء/i, /reading\s*comprehension/i, /فهم\s*المقروء/i, /النص\s*التالي.*اقرأ/i, /اقرأ\s*النص/i],
+      },
+      {
+        name: "grammar",
+        keywords: [/إعراب/i, /نحو/i, /صرف/i, /بلاغة/i, /الفاعل/i, /المفعول\s*به/i, /المبتدأ/i, /الخبر/i],
+      },
+    ],
+  },
+  {
+    examNamePatterns: [/إنجليزي/i, /english/i, /انجليزي/i, /انقليزي/i],
+    requiredFamily: "english",
+    forbiddenFamilies: [
+      {
+        name: "math_calculation",
+        keywords: [/احسب/i, /الناتج/i, /المعادلة/i, /حل\s*المعادلة/i, /calculate/i, /equation/i, /∫/i, /∑/i],
+      },
+      {
+        name: "chemistry",
+        keywords: [/تفاعل\s*كيميائي/i, /العنصر/i, /المركب/i, /الذرة/i, /chemical/i, /element/i, /molecule/i],
+      },
+    ],
+  },
+  {
+    examNamePatterns: [/عربي/i, /arabic/i, /العربية/i, /لغة\s*عربية/i],
+    requiredFamily: "arabic",
+    forbiddenFamilies: [
+      {
+        name: "math_calculation",
+        keywords: [/احسب/i, /الناتج/i, /المعادلة/i, /حل\s*المعادلة/i, /calculate/i, /equation/i],
+      },
+    ],
+  },
+  {
+    examNamePatterns: [/كيمياء/i, /chemistry/i, /الكيمياء/i],
+    requiredFamily: "chemistry",
+    forbiddenFamilies: [
+      {
+        name: "verbal_analogy",
+        keywords: [/تناظر\s*لفظي/i, /تناظر/i, /analogy/i, /يناظر/i],
+      },
+      {
+        name: "grammar",
+        keywords: [/إعراب/i, /نحو/i, /صرف/i, /بلاغة/i],
+      },
+    ],
+  },
+];
+
+interface BlueprintViolation {
+  index: number;
+  questionText: string;
+  violatedFamily: string;
+  matchedKeyword: string;
+}
+
+function detectExamFamilyRules(examName: string, sectionName: string | null): ExamFamilyRules | null {
+  const combined = `${examName} ${sectionName || ""}`;
+  for (const rule of EXAM_FAMILY_RULES) {
+    if (rule.examNamePatterns.some(p => p.test(combined))) return rule;
+  }
+  return null;
+}
+
+function validateBlueprintCompliance(
+  questions: any[],
+  examName: string,
+  sectionName: string | null
+): { valid: any[]; violations: BlueprintViolation[] } {
+  const rules = detectExamFamilyRules(examName, sectionName);
+  if (!rules) return { valid: questions, violations: [] };
+
+  const violations: BlueprintViolation[] = [];
+
+  const valid = questions.filter((q, i) => {
+    const textToCheck = [
+      q.text_ar || q.stem || "",
+      ...(q.options || []).map((o: any) => o.textAr || o.text || ""),
+      q.explanation || "",
+      q.topic_tag || q.topic || "",
+    ].join(" ");
+
+    for (const family of rules.forbiddenFamilies) {
+      for (const kw of family.keywords) {
+        if (kw.test(textToCheck)) {
+          violations.push({
+            index: i,
+            questionText: (q.text_ar || q.stem || "").substring(0, 80),
+            violatedFamily: family.name,
+            matchedKeyword: kw.source,
+          });
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+
+  return { valid, violations };
+}
+
+function buildBlueprintPromptConstraint(examName: string, sectionName: string | null): string {
+  const rules = detectExamFamilyRules(examName, sectionName);
+  if (!rules) return "";
+
+  const forbiddenNames = rules.forbiddenFamilies.map(f => f.name).join(", ");
+  return `
+
+🚨 BLUEPRINT COMPLIANCE — MANDATORY 🚨
+This is a ${rules.requiredFamily.toUpperCase()} exam section.
+FORBIDDEN question families that MUST NOT appear:
+${rules.forbiddenFamilies.map(f => `- ${f.name}: DO NOT generate any questions of this type`).join("\n")}
+
+If you generate a question belonging to [${forbiddenNames}], the ENTIRE batch will be REJECTED.
+Every question MUST be a pure ${rules.requiredFamily} question matching the section blueprint.
+`;
+}
+
 async function processGenerateDraftJob(admin: any, job: any, apiKey: string) {
   const params = job.params_json;
   const profileSnapshot = job.profile_snapshot_json || null;
@@ -424,9 +567,11 @@ EXAM PROFILE DNA (MUST FOLLOW):
 
     const batchCount = item.input_json.count || 10;
 
+    const blueprintConstraint = buildBlueprintPromptConstraint(examName, sectionName);
+
     const systemPrompt = contentLang === "en"
-      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: ${outputSchema}`
-      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}${topicConstraint}Return JSON array ONLY. Each item: ${outputSchema}`;
+      ? `You are an Elite Exam Question Generator. Generate ALL content in ENGLISH ONLY. ${profileContext}${topicConstraint}${blueprintConstraint}Return JSON array ONLY. Each item: ${outputSchema}`
+      : `You are an Elite Exam Question Generator. Generate ALL content in ARABIC ONLY. ${profileContext}${topicConstraint}${blueprintConstraint}Return JSON array ONLY. Each item: ${outputSchema}`;
 
     const sectionContext = sectionName ? ` for section "${sectionName}"` : "";
     const userPrompt = `Generate exactly ${batchCount} questions at difficulty "${difficulty}" for "${examName}" (${countryName})${sectionContext}. ${allowedTopics.length > 0 ? `ONLY from topics: ${allowedTopics.join(", ")}. Each question MUST include section_id and topic_tag.` : ""} Return JSON array ONLY.`;
@@ -556,6 +701,16 @@ EXAM PROFILE DNA (MUST FOLLOW):
           batchQuestions = valid;
         } else {
           batchQuestions = parsed;
+        }
+
+        // ── BLUEPRINT COMPLIANCE GUARD (Semantic Level) ──
+        // Catches questions that belong to forbidden question families
+        // (e.g., verbal analogy in a Math exam) even if topic_tag is "correct"
+        const { valid: blueprintValid, violations: blueprintViolations } = validateBlueprintCompliance(batchQuestions, examName, sectionName);
+        if (blueprintViolations.length > 0) {
+          console.warn(`[ai-worker] 🚫 BLUEPRINT violations: ${blueprintViolations.length} questions rejected`, 
+            JSON.stringify(blueprintViolations.slice(0, 5)));
+          batchQuestions = blueprintValid;
         }
 
         allGeneratedQuestions = allGeneratedQuestions.concat(batchQuestions);
