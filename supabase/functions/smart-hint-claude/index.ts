@@ -13,8 +13,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return errorRes(401, "Missing authorization");
@@ -66,13 +66,12 @@ serve(async (req) => {
       return errorRes(400, "التلميح متاح فقط للأسئلة الصعبة");
     }
 
-    // 4. Session-level checks (cache + per-question dedup + session limit)
+    // 4. Session-level checks
     const catSession = session.cat_session_json as any;
     const existingHints = catSession?.hints_json || {};
     const hintsUsedCount = Object.values(existingHints).filter((h: any) => h?.hint_used).length;
     const remainingHints = MAX_HINTS_PER_EXAM - hintsUsedCount;
 
-    // 4a. If hint already used for this question in this session, return it
     if (existingHints[question_id]?.hint_used) {
       return jsonRes({
         hint: existingHints[question_id].hint_text,
@@ -84,12 +83,11 @@ serve(async (req) => {
       });
     }
 
-    // 4b. Check session-level limit
     if (remainingHints <= 0) {
       return errorRes(400, "لقد استخدمت جميع التلميحات المتاحة في هذه الجلسة");
     }
 
-    // 5. CHECK GLOBAL CACHE first
+    // 5. Check global cache
     const { data: cachedHint } = await adminClient
       .from("question_hints_cache")
       .select("id, hint_text, model, usage_count")
@@ -100,54 +98,31 @@ serve(async (req) => {
       .maybeSingle();
 
     let hintText: string;
-    let hintSource: "cache" | "claude";
+    let hintSource: "cache" | "ai";
 
     if (cachedHint) {
-      // ---- CACHE HIT ----
       hintText = cachedHint.hint_text;
       hintSource = "cache";
-
-      // Increment usage_count (fire-and-forget)
       adminClient
         .from("question_hints_cache")
         .update({ usage_count: ((cachedHint as any).usage_count ?? 0) + 1, updated_at: new Date().toISOString() })
         .eq("id", cachedHint.id)
         .then(() => {});
-
     } else {
-      // ---- CACHE MISS: Call Claude ----
-      hintSource = "claude";
+      hintSource = "ai";
 
-      // Gather SARIS context (parallel fetches)
       const [
         { data: examProfile },
         { data: examStandards },
         { data: skillMemory },
         { data: questionMeta },
       ] = await Promise.all([
-        adminClient
-          .from("exam_profiles")
-          .select("profile_json")
-          .eq("exam_template_id", session.exam_template_id)
-          .eq("status", "approved")
-          .maybeSingle(),
-        adminClient
-          .from("exam_standards")
-          .select("section_name, question_count, difficulty_distribution, topics")
-          .eq("exam_template_id", session.exam_template_id),
-        adminClient
-          .from("skill_memory")
-          .select("section_name, skill_score, total_correct, total_answered")
-          .eq("user_id", user.id)
-          .eq("exam_template_id", session.exam_template_id),
-        adminClient
-          .from("questions")
-          .select("topic, difficulty, section_id, explanation")
-          .eq("id", question_id)
-          .maybeSingle(),
+        adminClient.from("exam_profiles").select("profile_json").eq("exam_template_id", session.exam_template_id).eq("status", "approved").maybeSingle(),
+        adminClient.from("exam_standards").select("section_name, question_count, difficulty_distribution, topics").eq("exam_template_id", session.exam_template_id),
+        adminClient.from("skill_memory").select("section_name, skill_score, total_correct, total_answered").eq("user_id", user.id).eq("exam_template_id", session.exam_template_id),
+        adminClient.from("questions").select("topic, difficulty, section_id, explanation").eq("id", question_id).maybeSingle(),
       ]);
 
-      // Build Claude prompt
       const systemPrompt = `You are the SARIS EXAMS Smart Hint Assistant.
 
 Your role is to generate ONE safe hint for a difficult exam question.
@@ -202,34 +177,37 @@ Generate ONE safe hint that helps the student think about the problem.
 Do NOT solve the question.
 Do NOT reveal the answer.`;
 
-      // Call Anthropic API
-      const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      // Call Lovable AI Gateway instead of Anthropic
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 120,
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: 150,
           temperature: 0.2,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userPrompt }],
         }),
       });
 
-      if (!anthropicResponse.ok) {
-        const errText = await anthropicResponse.text();
-        console.error("[smart-hint-claude] Anthropic error:", anthropicResponse.status, errText);
+      if (!aiResponse.ok) {
+        const errText = await aiResponse.text();
+        console.error("[smart-hint] AI gateway error:", aiResponse.status, errText);
+        if (aiResponse.status === 429) return errorRes(429, "تم تجاوز حد الطلبات، حاول لاحقاً");
+        if (aiResponse.status === 402) return errorRes(402, "رصيد غير كافٍ للذكاء الاصطناعي");
         return errorRes(502, "فشل في توليد التلميح");
       }
 
-      const anthropicData = await anthropicResponse.json();
-      hintText = (anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
+      const aiData = await aiResponse.json();
+      hintText = (aiData.choices?.[0]?.message?.content || "لا يوجد تلميح متاح").trim();
       if (hintText.length > 500) hintText = hintText.substring(0, 500);
 
-      // Insert into global cache (upsert to handle race conditions)
+      // Cache globally
       await adminClient
         .from("question_hints_cache")
         .upsert({
@@ -238,39 +216,33 @@ Do NOT reveal the answer.`;
           hint_text: hintText,
           hint_mode: "smart_hint",
           language: "ar",
-          model: "claude-3-5-sonnet-20241022",
+          model: "gemini-2.5-flash",
           usage_count: 1,
           is_active: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: "question_id,hint_mode,language" });
     }
 
-    // 6. Store hint in session hints_json
+    // 6. Store hint in session
     const updatedHints = {
       ...existingHints,
       [question_id]: {
         hint_text: hintText,
         hint_used: true,
-        model: hintSource === "cache" ? (cachedHint?.model || "claude") : "claude",
+        model: hintSource === "cache" ? (cachedHint?.model || "gemini") : "gemini-2.5-flash",
         source: hintSource,
         created_at: new Date().toISOString(),
         mode: "smart_hint",
       },
     };
 
-    const updatedCatSession = {
-      ...(catSession || {}),
-      hints_json: updatedHints,
-    };
-
     await adminClient
       .from("exam_sessions")
-      .update({ cat_session_json: updatedCatSession })
+      .update({ cat_session_json: { ...(catSession || {}), hints_json: updatedHints } })
       .eq("id", session_id);
 
     const newHintsUsed = hintsUsedCount + 1;
 
-    // 7. Return hint with source
     return jsonRes({
       hint: hintText,
       source: hintSource,
@@ -280,7 +252,7 @@ Do NOT reveal the answer.`;
       max_hints: MAX_HINTS_PER_EXAM,
     });
   } catch (err) {
-    console.error("[smart-hint-claude] Error:", err);
+    console.error("[smart-hint] Error:", err);
     return errorRes(500, err instanceof Error ? err.message : "خطأ غير متوقع");
   }
 });
