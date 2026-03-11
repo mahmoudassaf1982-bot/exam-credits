@@ -104,6 +104,10 @@ export default function SmartQuestionFlow({
     setFeedbackCorrect(isCorrect);
     setShowFeedback(true);
 
+    // Track streak for SARIS coach interventions (smart training only)
+    if (sessionActive) {
+      recordAnswerResult(isCorrect);
+    }
     setTimeout(() => {
       const answer = {
         questionId: currentQuestion.id,
