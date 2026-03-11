@@ -983,6 +983,48 @@ export type Database = {
         }
         Relationships: []
       }
+      question_hints_cache: {
+        Row: {
+          created_at: string
+          exam_template_id: string | null
+          hint_mode: string
+          hint_text: string
+          id: string
+          is_active: boolean
+          language: string
+          model: string | null
+          question_id: string
+          updated_at: string
+          usage_count: number
+        }
+        Insert: {
+          created_at?: string
+          exam_template_id?: string | null
+          hint_mode?: string
+          hint_text: string
+          id?: string
+          is_active?: boolean
+          language?: string
+          model?: string | null
+          question_id: string
+          updated_at?: string
+          usage_count?: number
+        }
+        Update: {
+          created_at?: string
+          exam_template_id?: string | null
+          hint_mode?: string
+          hint_text?: string
+          id?: string
+          is_active?: boolean
+          language?: string
+          model?: string | null
+          question_id?: string
+          updated_at?: string
+          usage_count?: number
+        }
+        Relationships: []
+      }
       questions: {
         Row: {
           accuracy: number

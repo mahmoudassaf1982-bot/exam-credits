@@ -66,16 +66,17 @@ serve(async (req) => {
       return errorRes(400, "التلميح متاح فقط للأسئلة الصعبة");
     }
 
-    // 4. Check existing hints (cache check + per-question dedup + session limit)
+    // 4. Session-level checks (cache + per-question dedup + session limit)
     const catSession = session.cat_session_json as any;
     const existingHints = catSession?.hints_json || {};
     const hintsUsedCount = Object.values(existingHints).filter((h: any) => h?.hint_used).length;
     const remainingHints = MAX_HINTS_PER_EXAM - hintsUsedCount;
 
-    // 4a. If hint already cached for this question, return it (no Claude call)
+    // 4a. If hint already used for this question in this session, return it
     if (existingHints[question_id]?.hint_used) {
       return jsonRes({
         hint: existingHints[question_id].hint_text,
+        source: existingHints[question_id].source || "session",
         already_used: true,
         hints_used: hintsUsedCount,
         hints_remaining: remainingHints,
@@ -88,37 +89,66 @@ serve(async (req) => {
       return errorRes(400, "لقد استخدمت جميع التلميحات المتاحة في هذه الجلسة");
     }
 
-    // 5. Gather SARIS context (parallel fetches)
-    const [
-      { data: examProfile },
-      { data: examStandards },
-      { data: skillMemory },
-      { data: questionMeta },
-    ] = await Promise.all([
-      adminClient
-        .from("exam_profiles")
-        .select("profile_json")
-        .eq("exam_template_id", session.exam_template_id)
-        .eq("status", "approved")
-        .maybeSingle(),
-      adminClient
-        .from("exam_standards")
-        .select("section_name, question_count, difficulty_distribution, topics")
-        .eq("exam_template_id", session.exam_template_id),
-      adminClient
-        .from("skill_memory")
-        .select("section_name, skill_score, total_correct, total_answered")
-        .eq("user_id", user.id)
-        .eq("exam_template_id", session.exam_template_id),
-      adminClient
-        .from("questions")
-        .select("topic, difficulty, section_id, explanation")
-        .eq("id", question_id)
-        .maybeSingle(),
-    ]);
+    // 5. CHECK GLOBAL CACHE first
+    const { data: cachedHint } = await adminClient
+      .from("question_hints_cache")
+      .select("id, hint_text, model")
+      .eq("question_id", question_id)
+      .eq("hint_mode", "smart_hint")
+      .eq("language", "ar")
+      .eq("is_active", true)
+      .maybeSingle();
 
-    // 6. Build Claude prompt
-    const systemPrompt = `You are the SARIS EXAMS Smart Hint Assistant.
+    let hintText: string;
+    let hintSource: "cache" | "claude";
+
+    if (cachedHint) {
+      // ---- CACHE HIT ----
+      hintText = cachedHint.hint_text;
+      hintSource = "cache";
+
+      // Increment usage_count (fire-and-forget)
+      adminClient
+        .from("question_hints_cache")
+        .update({ usage_count: ((cachedHint as any).usage_count ?? 0) + 1, updated_at: new Date().toISOString() })
+        .eq("id", cachedHint.id)
+        .then(() => {});
+
+    } else {
+      // ---- CACHE MISS: Call Claude ----
+      hintSource = "claude";
+
+      // Gather SARIS context (parallel fetches)
+      const [
+        { data: examProfile },
+        { data: examStandards },
+        { data: skillMemory },
+        { data: questionMeta },
+      ] = await Promise.all([
+        adminClient
+          .from("exam_profiles")
+          .select("profile_json")
+          .eq("exam_template_id", session.exam_template_id)
+          .eq("status", "approved")
+          .maybeSingle(),
+        adminClient
+          .from("exam_standards")
+          .select("section_name, question_count, difficulty_distribution, topics")
+          .eq("exam_template_id", session.exam_template_id),
+        adminClient
+          .from("skill_memory")
+          .select("section_name, skill_score, total_correct, total_answered")
+          .eq("user_id", user.id)
+          .eq("exam_template_id", session.exam_template_id),
+        adminClient
+          .from("questions")
+          .select("topic, difficulty, section_id, explanation")
+          .eq("id", question_id)
+          .maybeSingle(),
+      ]);
+
+      // Build Claude prompt
+      const systemPrompt = `You are the SARIS EXAMS Smart Hint Assistant.
 
 Your role is to generate ONE safe hint for a difficult exam question.
 
@@ -138,11 +168,11 @@ IMPORTANT RULES:
 
 The hint must help the student start solving the question while preserving exam integrity.`;
 
-    const weakSkills = (skillMemory || [])
-      .filter((s: any) => s.skill_score < 50)
-      .map((s: any) => `${s.section_name}: ${s.skill_score}%`);
+      const weakSkills = (skillMemory || [])
+        .filter((s: any) => s.skill_score < 50)
+        .map((s: any) => `${s.section_name}: ${s.skill_score}%`);
 
-    const userPrompt = `Exam DNA:
+      const userPrompt = `Exam DNA:
 ${JSON.stringify(examProfile?.profile_json || "غير متوفر", null, 2)}
 
 Exam Standards:
@@ -172,40 +202,57 @@ Generate ONE safe hint that helps the student think about the problem.
 Do NOT solve the question.
 Do NOT reveal the answer.`;
 
-    // 7. Call Anthropic API
-    const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 120,
-        temperature: 0.2,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
-    });
+      // Call Anthropic API
+      const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 120,
+          temperature: 0.2,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
 
-    if (!anthropicResponse.ok) {
-      const errText = await anthropicResponse.text();
-      console.error("[smart-hint-claude] Anthropic error:", anthropicResponse.status, errText);
-      return errorRes(502, "فشل في توليد التلميح");
+      if (!anthropicResponse.ok) {
+        const errText = await anthropicResponse.text();
+        console.error("[smart-hint-claude] Anthropic error:", anthropicResponse.status, errText);
+        return errorRes(502, "فشل في توليد التلميح");
+      }
+
+      const anthropicData = await anthropicResponse.json();
+      hintText = (anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
+      if (hintText.length > 500) hintText = hintText.substring(0, 500);
+
+      // Insert into global cache (upsert to handle race conditions)
+      await adminClient
+        .from("question_hints_cache")
+        .upsert({
+          question_id,
+          exam_template_id: session.exam_template_id,
+          hint_text: hintText,
+          hint_mode: "smart_hint",
+          language: "ar",
+          model: "claude-3-5-sonnet-20241022",
+          usage_count: 1,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "question_id,hint_mode,language" });
     }
 
-    const anthropicData = await anthropicResponse.json();
-    let hintText = (anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
-    if (hintText.length > 500) hintText = hintText.substring(0, 500);
-
-    // 8. Store hint in session
+    // 6. Store hint in session hints_json
     const updatedHints = {
       ...existingHints,
       [question_id]: {
         hint_text: hintText,
         hint_used: true,
-        model: "claude",
+        model: hintSource === "cache" ? (cachedHint?.model || "claude") : "claude",
+        source: hintSource,
         created_at: new Date().toISOString(),
         mode: "smart_hint",
       },
@@ -223,9 +270,10 @@ Do NOT reveal the answer.`;
 
     const newHintsUsed = hintsUsedCount + 1;
 
-    // 9. Return hint with counter
+    // 7. Return hint with source
     return jsonRes({
       hint: hintText,
+      source: hintSource,
       already_used: false,
       hints_used: newHintsUsed,
       hints_remaining: MAX_HINTS_PER_EXAM - newHintsUsed,
