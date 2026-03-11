@@ -85,7 +85,7 @@ export interface Country {
   isActive?: boolean;
 }
 
-export type SessionType = 'simulation' | 'practice' | 'analysis' | 'adaptive_training';
+export type SessionType = 'simulation' | 'practice' | 'analysis' | 'adaptive_training' | 'smart_training';
 
 // ── Exam Template System ──
 
