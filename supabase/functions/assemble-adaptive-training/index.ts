@@ -218,7 +218,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Then: fill from all sections
+    // Then: fill from all sections (must have a valid section_id)
+    const allSectionIds = sections.map((s: any) => s.id);
     for (const diff of ["easy", "medium", "hard"]) {
       const { data } = await admin
         .from("questions")
@@ -227,6 +228,7 @@ Deno.serve(async (req) => {
         .eq("country_id", template.country_id)
         .eq("difficulty", diff)
         .eq("exam_template_id", String(exam_template_id))
+        .in("section_id", allSectionIds)
         .is("deleted_at", null)
         .limit(POOL_SIZE_PER_DIFFICULTY);
 
@@ -240,28 +242,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fallback: without template filter
-    if (pool.length < max_questions) {
-      for (const diff of ["easy", "medium", "hard"]) {
-        const { data } = await admin
-          .from("questions")
-          .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
-          .eq("is_approved", true)
-          .eq("country_id", template.country_id)
-          .eq("difficulty", diff)
-          .is("deleted_at", null)
-          .limit(POOL_SIZE_PER_DIFFICULTY);
-
-        if (data) {
-          for (const q of data) {
-            if (!recentIds.has(q.id) && !existingIds.has(q.id)) {
-              pool.push(q);
-              existingIds.add(q.id);
-            }
-          }
-        }
-      }
-    }
+    // NOTE: No fallback without exam_template_id filter.
+    // All questions MUST belong to the correct exam template to prevent
+    // cross-subject contamination (e.g. verbal questions in math training).
+    // Orphan questions (exam_template_id IS NULL) are never served.
 
     if (pool.length < 5) {
       // Refund
