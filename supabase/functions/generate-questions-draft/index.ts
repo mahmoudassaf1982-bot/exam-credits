@@ -319,8 +319,9 @@ serve(async (req) => {
     }
 
     const { system: systemPrompt, user: userPrompt } = buildPrompts(examName, countryName, difficulty, count, contentLang);
-    // Inject topic constraint into system prompt
-    const finalSystemPrompt = systemPrompt + topicConstraint;
+    // Inject topic constraint + blueprint constraint into system prompt
+    const blueprintConstraint = buildBlueprintPromptConstraint(examName, sectionName);
+    const finalSystemPrompt = systemPrompt + topicConstraint + blueprintConstraint;
     const topicTagSchema = allowedTopics.length > 0
       ? `\nEach question JSON MUST also include: "topic_tag": string (one of: ${allowedTopics.map(t => `"${t}"`).join(", ")})`
       : "";
