@@ -462,6 +462,15 @@ serve(async (req) => {
       break; // success or partial — exit retry loop
     }
 
+    // ── BLUEPRINT COMPLIANCE GUARD (Semantic Level) ──
+    // Catches questions belonging to forbidden families even if topic_tag is correct
+    const { valid: blueprintValid, violations: blueprintViolations } = validateBlueprintCompliance(finalQuestions, examName, sectionName);
+    if (blueprintViolations.length > 0) {
+      console.warn(`[generate-questions-draft] 🚫 BLUEPRINT violations: ${blueprintViolations.length} questions rejected`,
+        JSON.stringify(blueprintViolations.slice(0, 5)));
+      finalQuestions = blueprintValid;
+    }
+
     // Step 3: If still no valid questions after all retries → needs_review
     if (finalQuestions.length === 0 && allowedTopics.length > 0) {
       const mismatchLog = `Topic enforcement FAILED after ${retryAttempt} retries. ${totalTopicViolations} total violations. Allowed: [${allowedTopics.join(", ")}]. Sample: ${JSON.stringify(lastViolationDetails.slice(0, 5))}`;
