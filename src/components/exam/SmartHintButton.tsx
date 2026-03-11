@@ -9,9 +9,10 @@ interface SmartHintButtonProps {
   sessionId: string;
   questionId: string;
   difficulty: string;
-  /** Already-fetched hint from session state */
   existingHint?: string | null;
-  onHintReceived: (questionId: string, hintText: string) => void;
+  hintsRemaining: number;
+  maxHints: number;
+  onHintReceived: (questionId: string, hintText: string, hintsRemaining: number) => void;
 }
 
 export default function SmartHintButton({
@@ -19,6 +20,8 @@ export default function SmartHintButton({
   questionId,
   difficulty,
   existingHint,
+  hintsRemaining,
+  maxHints,
   onHintReceived,
 }: SmartHintButtonProps) {
   const [loading, setLoading] = useState(false);
@@ -27,8 +30,10 @@ export default function SmartHintButton({
   // Only show for hard questions
   if (difficulty !== 'hard') return null;
 
+  const hintsExhausted = hintsRemaining <= 0 && !hint;
+
   const handleRequestHint = async () => {
-    if (hint || loading) return;
+    if (hint || loading || hintsExhausted) return;
     setLoading(true);
 
     try {
@@ -43,9 +48,16 @@ export default function SmartHintButton({
         return;
       }
 
+      if (data?.error) {
+        toast.error(data.error);
+        setLoading(false);
+        return;
+      }
+
       const hintText = data?.hint || 'لا يوجد تلميح متاح';
+      const remaining = data?.hints_remaining ?? (hintsRemaining - 1);
       setHint(hintText);
-      onHintReceived(questionId, hintText);
+      onHintReceived(questionId, hintText, remaining);
     } catch (err) {
       toast.error('حدث خطأ أثناء جلب التلميح');
       console.error('[SmartHint] Unexpected error:', err);
@@ -56,7 +68,20 @@ export default function SmartHintButton({
 
   return (
     <div className="space-y-2">
-      {!hint && (
+      {/* Hint counter */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <Lightbulb className="h-3 w-3 text-amber-500" />
+          💡 التلميحات: {maxHints - hintsRemaining} / {maxHints}
+        </span>
+        {hintsExhausted && (
+          <span className="text-destructive font-medium">
+            لقد استخدمت جميع التلميحات المتاحة في هذه الجلسة
+          </span>
+        )}
+      </div>
+
+      {!hint && !hintsExhausted && (
         <Button
           variant="outline"
           size="sm"

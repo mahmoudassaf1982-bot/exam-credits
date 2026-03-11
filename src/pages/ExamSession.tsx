@@ -133,6 +133,8 @@ export default function ExamSession() {
   const serverTimeOffsetRef = useRef<number>(0);
   const attemptTokenRef = useRef<string | null>(null);
   const [hintsMap, setHintsMap] = useState<Record<string, string>>({});
+  const MAX_HINTS_PER_EXAM = 5;
+  const [hintsUsedCount, setHintsUsedCount] = useState(0);
 
   // Live performance insights
   const { insights, trackAnswer } = useLivePerformanceInsights(sessionId, user?.id);
@@ -192,12 +194,15 @@ export default function ExamSession() {
       const catData = (data as any).cat_session_json as any;
       if (catData?.hints_json) {
         const loadedHints: Record<string, string> = {};
+        let count = 0;
         for (const [qId, hintData] of Object.entries(catData.hints_json)) {
           if ((hintData as any)?.hint_text) {
             loadedHints[qId] = (hintData as any).hint_text;
+            if ((hintData as any)?.hint_used) count++;
           }
         }
         setHintsMap(loadedHints);
+        setHintsUsedCount(count);
       }
 
       if (sessionData.status === 'completed' || sessionData.status === 'submitted') {
@@ -716,9 +721,12 @@ export default function ExamSession() {
                   questionId={currentQuestion.id}
                   difficulty={currentQuestion.difficulty}
                   existingHint={hintsMap[currentQuestion.id] || null}
-                  onHintReceived={(qId, text) =>
-                    setHintsMap(prev => ({ ...prev, [qId]: text }))
-                  }
+                  hintsRemaining={MAX_HINTS_PER_EXAM - hintsUsedCount}
+                  maxHints={MAX_HINTS_PER_EXAM}
+                  onHintReceived={(qId, text, remaining) => {
+                    setHintsMap(prev => ({ ...prev, [qId]: text }));
+                    setHintsUsedCount(MAX_HINTS_PER_EXAM - remaining);
+                  }}
                 />
               )}
             </motion.div>
