@@ -35,10 +35,11 @@ interface ExamReviewProps {
   sections: SectionSnapshot[];
   questionsJson: Record<string, QuestionData[]>;
   answers: Record<string, string>;
+  hintsMap?: Record<string, string>;
   onBack: () => void;
 }
 
-export default function ExamReview({ sections, questionsJson, answers, onBack }: ExamReviewProps) {
+export default function ExamReview({ sections, questionsJson, answers, hintsMap, onBack }: ExamReviewProps) {
   const [sectionIdx, setSectionIdx] = useState(0);
   const [questionIdx, setQuestionIdx] = useState(0);
 
