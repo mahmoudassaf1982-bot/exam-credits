@@ -695,6 +695,19 @@ export default function ExamSession() {
                   );
                 })}
               </div>
+
+              {/* Smart Hint Button - only for hard questions */}
+              {sessionId && currentQuestion && (
+                <SmartHintButton
+                  sessionId={sessionId}
+                  questionId={currentQuestion.id}
+                  difficulty={currentQuestion.difficulty}
+                  existingHint={hintsMap[currentQuestion.id] || null}
+                  onHintReceived={(qId, text) =>
+                    setHintsMap(prev => ({ ...prev, [qId]: text }))
+                  }
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         ) : (
