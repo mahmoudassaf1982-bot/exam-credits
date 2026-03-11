@@ -31,6 +31,7 @@ interface QualityScores {
   single_answer_confidence: number;
   language_quality: number;
   language_consistency_score: number;
+  blueprint_compliance_score: number;
 }
 
 interface ReviewItem {
