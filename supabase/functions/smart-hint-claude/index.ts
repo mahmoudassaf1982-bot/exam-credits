@@ -230,7 +230,7 @@ Do NOT reveal the answer.`;
       [question_id]: {
         hint_text: hintText,
         hint_used: true,
-        model: hintSource === "cache" ? (cachedHint?.model || "gemini") : "gemini-2.5-flash",
+        model: hintSource === "cache" ? (cachedHint?.model || "claude") : "claude-sonnet-4-20250514",
         source: hintSource,
         created_at: new Date().toISOString(),
         mode: "smart_hint",
