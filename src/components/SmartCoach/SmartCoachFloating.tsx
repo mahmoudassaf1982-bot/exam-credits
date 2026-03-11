@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion';
+import { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Send, X, Lightbulb, MessageCircle, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSmartCoach } from './SmartCoachContext';
@@ -9,14 +9,14 @@ import coachImage from '@/assets/smart-coach.png';
 
 // Wandering positions the coach drifts between (CSS values)
 const WANDER_POSITIONS = [
-  { bottom: 24, left: 16 },      // bottom-left (home)
-  { bottom: 80, left: 16 },      // slightly up
-  { bottom: 140, left: 24 },     // mid-left
-  { bottom: 24, left: 16 },      // back home
-  { bottom: 60, left: 40 },      // slight diagonal
+  { bottom: 24, left: 16 },
+  { bottom: 80, left: 16 },
+  { bottom: 140, left: 24 },
+  { bottom: 24, left: 16 },
+  { bottom: 60, left: 40 },
 ] as const;
 
-const WANDER_INTERVAL = 18_000; // 18 seconds between repositions
+const WANDER_INTERVAL = 18_000;
 
 export default function SmartCoachFloating() {
   const {
@@ -36,24 +36,14 @@ export default function SmartCoachFloating() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Spring-based position for smooth wandering
-  const posBottom = useSpring(WANDER_POSITIONS[0].bottom, { stiffness: 30, damping: 20 });
-  const posLeft = useSpring(WANDER_POSITIONS[0].left, { stiffness: 30, damping: 20 });
-
   // Wandering movement cycle
   useEffect(() => {
     if (chatOpen || !visible) return;
     const timer = setInterval(() => {
-      setWanderIdx(prev => {
-        const next = (prev + 1) % WANDER_POSITIONS.length;
-        posBottom.set(WANDER_POSITIONS[next].bottom);
-        posLeft.set(WANDER_POSITIONS[next].left);
-        return next;
-      });
+      setWanderIdx(prev => (prev + 1) % WANDER_POSITIONS.length);
     }, WANDER_INTERVAL);
     return () => clearInterval(timer);
-  }, [chatOpen, visible, posBottom, posLeft]);
-
+  }, [chatOpen, visible]);
   // Reset to home when chat opens
   useEffect(() => {
     if (chatOpen) {
