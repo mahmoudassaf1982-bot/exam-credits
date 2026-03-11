@@ -493,6 +493,7 @@ export default function ExamSession() {
             sections={sections}
             questionsJson={reviewQuestions || {}}
             answers={answers}
+            hintsMap={hintsMap}
             onBack={() => setShowReview(false)}
           />
         </div>
