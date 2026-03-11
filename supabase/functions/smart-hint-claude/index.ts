@@ -103,43 +103,60 @@ serve(async (req) => {
       .maybeSingle();
 
     // 6. Build Claude prompt
-    const sarisContext = {
-      exam_profile: examProfile?.profile_json || null,
-      exam_standards: examStandards || [],
-      student_skills: skillMemory || [],
-      question: {
-        text: targetQuestion.text_ar,
-        options: (targetQuestion.options || []).map((o: any) => o.textAr || o.text),
-        difficulty: targetQuestion.difficulty,
-        topic: questionMeta?.topic || targetQuestion.topic || "",
-        section: sectionName,
-      },
-    };
+    const systemPrompt = `You are the SARIS EXAMS Smart Hint Assistant.
 
-    const systemPrompt = `أنت مساعد "تلميح ذكي" في منصة SARIS للاختبارات.
+Your role is to generate ONE safe hint for a difficult exam question.
 
-## القواعد الصارمة:
-1. استخدم فقط البيانات المقدمة من منصة SARIS — لا تستخدم معرفتك العامة عن الاختبار.
-2. لا تكشف الإجابة الصحيحة أبداً.
-3. لا تذكر أي خيار محدد (أ، ب، ج، د).
-4. لا تحل السؤال بالكامل.
-5. لا تحذف خيارات بشكل يكشف الإجابة.
-6. لا تعطي مسار الحساب الكامل الذي يوصل مباشرة للنتيجة.
-7. أعط تلميحاً واحداً فقط — قصير ومفيد وآمن.
-8. التلميح يجب أن يوجه تفكير الطالب دون حل السؤال.
-9. أجب بالعربية فقط.
-10. إذا لم تكن البيانات المقدمة كافية لتقديم تلميح مفيد، قل: "هذه المعلومة غير متوفرة في بيانات الاختبار"
+IMPORTANT RULES:
+1. You must use ONLY the information provided in the SARIS exam data.
+2. You are NOT allowed to rely on your own general knowledge about the exam.
+3. You must NOT reveal the correct answer.
+4. You must NOT mention which option is correct.
+5. You must NOT solve the question fully.
+6. You must NOT eliminate answer options in a way that reveals the solution.
+7. You must NOT give the final calculation path that directly gives the result.
+8. You must provide ONLY ONE short hint.
+9. The hint must guide the student's thinking without revealing the answer.
+10. The hint must be written in Arabic.
+11. If the provided SARIS data is insufficient, respond with:
+"هذه المعلومة غير متوفرة في بيانات الاختبار"
 
-## ما يُسمح به:
-- توجيه الطالب لمفهوم أو قاعدة ذات صلة
-- اقتراح نقطة بداية للتفكير
-- تقليل الارتباك
-- تذكير بقانون أو علاقة رياضية
+The hint must help the student start solving the question while preserving exam integrity.`;
 
-## بيانات SARIS المتوفرة:
-${JSON.stringify(sarisContext, null, 2)}`;
+    // Student weak skills from skill memory
+    const weakSkills = (skillMemory || [])
+      .filter((s: any) => s.skill_score < 50)
+      .map((s: any) => `${s.section_name}: ${s.skill_score}%`);
 
-    const userPrompt = `قدم تلميحاً ذكياً واحداً لهذا السؤال الصعب. تلميح قصير ومفيد يوجه تفكير الطالب دون كشف الإجابة.`;
+    const userPrompt = `Exam DNA:
+${JSON.stringify(examProfile?.profile_json || "غير متوفر", null, 2)}
+
+Exam Standards:
+${JSON.stringify(examStandards || [], null, 2)}
+
+Question Data:
+Question Text:
+${targetQuestion.text_ar}
+
+Answer Options:
+${(targetQuestion.options || []).map((o: any, i: number) => `${i + 1}. ${o.textAr || o.text}`).join("\n")}
+
+Question Metadata:
+Topic: ${questionMeta?.topic || targetQuestion.topic || "غير محدد"}
+Section: ${sectionName || "غير محدد"}
+Difficulty: ${targetQuestion.difficulty}
+
+Student Context:
+Weak Skills:
+${weakSkills.length > 0 ? weakSkills.join("\n") : "لا توجد نقاط ضعف مسجلة"}
+
+Skill Profile:
+${JSON.stringify(skillMemory || [], null, 2)}
+
+Instructions:
+Generate ONE safe hint that helps the student think about the problem.
+Do NOT solve the question.
+Do NOT reveal the answer.`;
 
     // 7. Call Anthropic API
     const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
@@ -150,8 +167,9 @@ ${JSON.stringify(sarisContext, null, 2)}`;
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 300,
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 120,
+        temperature: 0.2,
         system: systemPrompt,
         messages: [{ role: "user", content: userPrompt }],
       }),
@@ -164,7 +182,10 @@ ${JSON.stringify(sarisContext, null, 2)}`;
     }
 
     const anthropicData = await anthropicResponse.json();
-    const hintText = anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح";
+    // Post-response processing: sanitize and trim
+    let hintText = (anthropicData.content?.[0]?.text || "لا يوجد تلميح متاح").trim();
+    // Enforce max length (500 chars safety cap)
+    if (hintText.length > 500) hintText = hintText.substring(0, 500);
 
     // 8. Store hint in session
     const updatedHints = {
