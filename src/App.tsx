@@ -119,9 +119,9 @@ const App = () => (
 
 // Smart Coach global wrapper - hides during exam simulation
 function SmartCoachGlobal() {
-  const path = window.location.pathname;
-  if (path.includes('/exam-session/')) return null;
-  if (['/', '/auth', '/auth/login', '/auth/register', '/choose-country'].includes(path)) return null;
+  const { pathname } = useLocation();
+  if (pathname.includes('/exam-session/')) return null;
+  if (['/', '/auth', '/auth/login', '/auth/register', '/choose-country'].includes(pathname)) return null;
   return <SmartCoachFloating />;
 }
 
