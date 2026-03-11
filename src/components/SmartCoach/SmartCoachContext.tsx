@@ -26,6 +26,7 @@ interface SmartCoachContextType {
   setChatOpen: (open: boolean) => void;
   messages: ChatMessage[];
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
+  updateLastCoachMessage: (content: string, mode?: CoachMode) => void;
   clearMessages: () => void;
   
   // Mode context
