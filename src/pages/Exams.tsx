@@ -306,5 +306,6 @@ const sessionLabels: Record<SessionType, string> = {
   simulation: 'جلسة المحاكاة',
   practice: 'جلسة التدريب الذكي',
   analysis: 'تحليل النتيجة',
-  adaptive_training: 'جلسة التدريب التكيّفي',
+  adaptive_training: 'جلسة التدريب الذكي',
+  smart_training: 'جلسة التدريب الذكي',
 };
