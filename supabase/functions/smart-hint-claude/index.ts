@@ -92,7 +92,7 @@ serve(async (req) => {
     // 5. CHECK GLOBAL CACHE first
     const { data: cachedHint } = await adminClient
       .from("question_hints_cache")
-      .select("id, hint_text, model")
+      .select("id, hint_text, model, usage_count")
       .eq("question_id", question_id)
       .eq("hint_mode", "smart_hint")
       .eq("language", "ar")
