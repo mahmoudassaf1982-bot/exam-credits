@@ -222,6 +222,7 @@ function ensureQualityScores(review: any): QualityScores {
     single_answer_confidence: typeof qs.single_answer_confidence === 'number' ? qs.single_answer_confidence : (review.ok ? 0.9 : 0.5),
     language_quality: typeof qs.language_quality === 'number' ? qs.language_quality : 0.7,
     language_consistency_score: typeof qs.language_consistency_score === 'number' ? qs.language_consistency_score : 0.8,
+    blueprint_compliance_score: typeof qs.blueprint_compliance_score === 'number' ? qs.blueprint_compliance_score : 0.9,
   };
 }
 
