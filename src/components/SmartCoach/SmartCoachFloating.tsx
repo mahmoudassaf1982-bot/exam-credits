@@ -25,7 +25,7 @@ export default function SmartCoachFloating() {
   const {
     visualState, setVisualState,
     chatOpen, setChatOpen,
-    messages, addMessage,
+    messages, addMessage, updateLastCoachMessage,
     currentPage, sessionActive, sessionType, currentQuestion,
     intervention, dismissIntervention,
     visible, showIntro, setShowIntro,
@@ -87,6 +87,10 @@ export default function SmartCoachFloating() {
     addMessage({ role: 'user', content: msg });
     setLoading(true);
 
+    // Show a seamless waiting message (never technical errors)
+    const waitingMsgId = Date.now();
+    addMessage({ role: 'coach', content: 'لحظة واحدة…' });
+
     try {
       const { data, error } = await supabase.functions.invoke('smart-coach', {
         body: {
@@ -105,19 +109,16 @@ export default function SmartCoachFloating() {
         },
       });
 
-      if (error) throw error;
+      // Replace the waiting message with actual reply
+      const reply = data?.reply || 'عذراً، لم أتمكن من الإجابة الآن. حاول مرة أخرى.';
+      updateLastCoachMessage(reply, data?.mode);
 
-      addMessage({
-        role: 'coach',
-        content: data?.reply || 'عذراً، حدث خطأ.',
-        mode: data?.mode,
-      });
+      if (error) {
+        console.error('[SmartCoach] Internal error (hidden from user):', error);
+      }
     } catch (e) {
-      console.error('Coach error:', e);
-      addMessage({
-        role: 'coach',
-        content: 'عذراً، حدث خطأ في الاتصال. حاول مرة أخرى.',
-      });
+      console.error('[SmartCoach] Internal error (hidden from user):', e);
+      updateLastCoachMessage('عذراً، لم أتمكن من الإجابة الآن. حاول مرة أخرى.');
     } finally {
       setLoading(false);
     }

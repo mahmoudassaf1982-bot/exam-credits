@@ -26,6 +26,7 @@ interface SmartCoachContextType {
   setChatOpen: (open: boolean) => void;
   messages: ChatMessage[];
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
+  updateLastCoachMessage: (content: string, mode?: CoachMode) => void;
   clearMessages: () => void;
   
   // Mode context
@@ -76,6 +77,19 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
     }]);
   }, []);
   
+  const updateLastCoachMessage = useCallback((content: string, mode?: CoachMode) => {
+    setMessages(prev => {
+      const updated = [...prev];
+      for (let i = updated.length - 1; i >= 0; i--) {
+        if (updated[i].role === 'coach') {
+          updated[i] = { ...updated[i], content, mode };
+          break;
+        }
+      }
+      return updated;
+    });
+  }, []);
+
   const clearMessages = useCallback(() => setMessages([]), []);
   
   const triggerIntervention = useCallback((data: InterventionData) => {
@@ -94,7 +108,7 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
     <SmartCoachContext.Provider value={{
       visualState, setVisualState,
       chatOpen, setChatOpen,
-      messages, addMessage, clearMessages,
+      messages, addMessage, updateLastCoachMessage, clearMessages,
       currentPage, setCurrentPage,
       sessionActive, setSessionActive,
       sessionType, setSessionType,
