@@ -108,7 +108,7 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
     <SmartCoachContext.Provider value={{
       visualState, setVisualState,
       chatOpen, setChatOpen,
-      messages, addMessage, clearMessages,
+      messages, addMessage, updateLastCoachMessage, clearMessages,
       currentPage, setCurrentPage,
       sessionActive, setSessionActive,
       sessionType, setSessionType,
