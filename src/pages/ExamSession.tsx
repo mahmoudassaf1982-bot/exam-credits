@@ -721,9 +721,12 @@ export default function ExamSession() {
                   questionId={currentQuestion.id}
                   difficulty={currentQuestion.difficulty}
                   existingHint={hintsMap[currentQuestion.id] || null}
-                  onHintReceived={(qId, text) =>
-                    setHintsMap(prev => ({ ...prev, [qId]: text }))
-                  }
+                  hintsRemaining={MAX_HINTS_PER_EXAM - hintsUsedCount}
+                  maxHints={MAX_HINTS_PER_EXAM}
+                  onHintReceived={(qId, text, remaining) => {
+                    setHintsMap(prev => ({ ...prev, [qId]: text }));
+                    setHintsUsedCount(MAX_HINTS_PER_EXAM - remaining);
+                  }}
                 />
               )}
             </motion.div>
