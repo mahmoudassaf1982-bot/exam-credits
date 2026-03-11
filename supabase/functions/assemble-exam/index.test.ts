@@ -18,9 +18,15 @@ async function restGet<T>(path: string): Promise<T> {
 
 // ─── Helper: fetch active KW math template ───
 async function findKwMathTemplate(): Promise<{ id: string; name_ar: string } | null> {
-  const templates = await restGet<Array<{ id: string; name_ar: string }>>(
+  // Try both uppercase and lowercase country_id
+  let templates = await restGet<Array<{ id: string; name_ar: string }>>(
     "exam_templates?country_id=eq.KW&is_active=eq.true&select=id,name_ar"
   );
+  if (!Array.isArray(templates) || templates.length === 0) {
+    templates = await restGet<Array<{ id: string; name_ar: string }>>(
+      "exam_templates?country_id=eq.kw&is_active=eq.true&select=id,name_ar"
+    );
+  }
   // Find aptitude / math template
   const mathKeywords = ["رياضيات", "كمي", "math", "aptitude"];
   const match = templates?.find((t) =>
