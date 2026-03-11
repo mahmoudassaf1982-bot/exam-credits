@@ -63,6 +63,46 @@ serve(async (req) => {
       return jsonResponse({ error: "No questions selected for publishing" }, 400);
     }
 
+    // ── Orphan Guard: reject questions missing required fields ────────
+    const orphanIssues: string[] = [];
+    for (let i = 0; i < toPublish.length; i++) {
+      const q = toPublish[i];
+      const sectionId = q.section_id || draft.section_id;
+      if (!sectionId) {
+        orphanIssues.push(`Q${i + 1}: missing section_id`);
+      }
+      if (!draft.exam_template_id) {
+        orphanIssues.push(`Q${i + 1}: missing exam_template_id`);
+      }
+      if (!draft.country_id) {
+        orphanIssues.push(`Q${i + 1}: missing country_id`);
+      }
+    }
+    if (!draft.exam_template_id || !draft.country_id) {
+      return jsonResponse({
+        error: "Draft is missing exam_template_id or country_id — cannot publish orphan questions",
+        error_ar: "لا يمكن نشر أسئلة بدون تحديد الاختبار أو الدولة",
+        issues: orphanIssues,
+      }, 400);
+    }
+    // Validate section exists for the template
+    const { data: validSections } = await adminSupabase
+      .from("exam_sections")
+      .select("id")
+      .eq("exam_template_id", draft.exam_template_id);
+    const validSectionIds = new Set((validSections || []).map((s: any) => s.id));
+
+    const questionsWithoutSection = toPublish.filter((q: any) => {
+      const sid = q.section_id || draft.section_id;
+      return !sid || !validSectionIds.has(sid);
+    });
+    if (questionsWithoutSection.length > 0) {
+      return jsonResponse({
+        error: `${questionsWithoutSection.length} question(s) have invalid or missing section_id for this exam template`,
+        error_ar: "بعض الأسئلة لا تنتمي لأي قسم صالح في هذا الاختبار",
+      }, 400);
+    }
+
     // ── Duplicate Guard ──────────────────────────────────────────────
     let guardedQuestions = toPublish;
     let duplicateRejectedCount = 0;
