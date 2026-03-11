@@ -72,7 +72,7 @@ export default function SmartHintButton({
     } catch (err) {
       // Log internally only — never show technical errors to student
       console.error('[SmartHint] Internal error (hidden from user):', err);
-      toast('لحظة واحدة… حاول مرة أخرى', { duration: 2000 });
+      toast('لحظة واحدة…', { duration: 2000 });
     } finally {
       setLoading(false);
     }
