@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useSmartCoach } from '@/components/SmartCoach/SmartCoachContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -63,6 +64,13 @@ export default function SmartQuestionFlow({
   onComplete,
   onExit,
 }: Props) {
+  const { recordAnswerResult, resetErrorStreak, sessionActive } = useSmartCoach();
+
+  // Reset error streak when component mounts (new session)
+  useEffect(() => {
+    resetErrorStreak();
+    return () => resetErrorStreak();
+  }, [resetErrorStreak]);
   const [steState, setSteState] = useState<STESessionState>(() =>
     createSTESession(skillMemory, examDNA, previousAbility)
   );
@@ -96,6 +104,10 @@ export default function SmartQuestionFlow({
     setFeedbackCorrect(isCorrect);
     setShowFeedback(true);
 
+    // Track streak for SARIS coach interventions (smart training only)
+    if (sessionActive) {
+      recordAnswerResult(isCorrect);
+    }
     setTimeout(() => {
       const answer = {
         questionId: currentQuestion.id,
@@ -126,7 +138,7 @@ export default function SmartQuestionFlow({
       setFeedbackCorrect(false);
       questionStartRef.current = Date.now();
     }, 1200);
-  }, [selectedOption, currentQuestion, steState, questionPool, maxQuestions, onComplete, showFeedback, answerKeys]);
+  }, [selectedOption, currentQuestion, steState, questionPool, maxQuestions, onComplete, showFeedback, answerKeys, sessionActive, recordAnswerResult]);
 
   if (!currentQuestion) {
     return (

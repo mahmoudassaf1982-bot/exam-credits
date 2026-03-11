@@ -348,8 +348,13 @@ export default function SmartCoachFloating() {
       <motion.div
         className="fixed z-[90]"
         animate={{
-          bottom: chatOpen ? 24 : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
-          left: chatOpen ? 16 : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
+          bottom: chatOpen ? 24
+            : visualState === 'intervention' ? 80
+            : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
+          left: chatOpen ? 16
+            : visualState === 'intervention' ? '50%'
+            : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
+          x: visualState === 'intervention' && !chatOpen ? '-50%' : '0%',
         }}
         transition={{ type: 'spring', stiffness: 25, damping: 18 }}
       >
@@ -364,7 +369,7 @@ export default function SmartCoachFloating() {
           whileTap={{ scale: 0.95 }}
         >
           {/* ── Attention outer glow ── */}
-          {visualState === 'attention' && (
+          {(visualState === 'attention' || visualState === 'intervention') && (
             <motion.div
               className="absolute inset-[-12px] rounded-full pointer-events-none"
               style={{
@@ -389,14 +394,14 @@ export default function SmartCoachFloating() {
           <motion.div
             className="relative"
             animate={
-              visualState === 'attention'
+              visualState === 'attention' || visualState === 'intervention'
                 ? attentionFloat
                 : sessionActive
                   ? trainingFloat
                   : idleFloat
             }
             transition={{
-              duration: visualState === 'attention' ? 2 : sessionActive ? 4 : 5,
+              duration: visualState === 'attention' || visualState === 'intervention' ? 2 : sessionActive ? 4 : 5,
               repeat: Infinity,
               ease: 'easeInOut',
             }}
@@ -428,7 +433,7 @@ export default function SmartCoachFloating() {
           </motion.div>
 
           {/* ── Attention lightbulb badge ── */}
-          {visualState === 'attention' && (
+          {(visualState === 'attention' || visualState === 'intervention') && (
             <motion.div
               className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
               animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}

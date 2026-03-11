@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
 
 export type CoachVisualState = 'idle' | 'attention' | 'intervention' | 'conversation';
 export type CoachMode = 'training_coach' | 'learning_tutor' | 'platform_guide';
@@ -45,6 +45,11 @@ interface SmartCoachContextType {
   dismissIntervention: () => void;
   interventionCount: number;
   
+  // Error streak tracking
+  errorStreak: number;
+  recordAnswerResult: (isCorrect: boolean) => void;
+  resetErrorStreak: () => void;
+  
   // Visibility
   visible: boolean;
   setVisible: (v: boolean) => void;
@@ -55,6 +60,12 @@ interface SmartCoachContextType {
 }
 
 const SmartCoachContext = createContext<SmartCoachContextType | null>(null);
+
+const STREAK_ATTENTION_MESSAGES = [
+  'لاحظت أنك تواجه بعض الصعوبة… اضغط عليّ إذا احتجت مساعدة 💡',
+  'يبدو أن هذا الجزء يحتاج تركيزاً أكبر. أنا هنا لمساعدتك! 💡',
+  'لا تقلق، كل طالب يمر بلحظات صعبة. اضغط عليّ وسأساعدك في التفكير 💡',
+];
 
 export function SmartCoachProvider({ children }: { children: ReactNode }) {
   const [visualState, setVisualState] = useState<CoachVisualState>('idle');
@@ -68,6 +79,8 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
   const [interventionCount, setInterventionCount] = useState(0);
   const [visible, setVisible] = useState(true);
   const [showIntro, setShowIntro] = useState(false);
+  const [errorStreak, setErrorStreak] = useState(0);
+  const interventionMsgIdx = useRef(0);
   
   const addMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, {
@@ -103,6 +116,37 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
     setIntervention(null);
     setVisualState('idle');
   }, []);
+
+  const resetErrorStreak = useCallback(() => {
+    setErrorStreak(0);
+  }, []);
+
+  const recordAnswerResult = useCallback((isCorrect: boolean) => {
+    if (isCorrect) {
+      setErrorStreak(0);
+      return;
+    }
+
+    setErrorStreak(prev => {
+      const newStreak = prev + 1;
+
+      if (newStreak === 2) {
+        // Subtle attention signal (light bulb glow)
+        setVisualState('attention');
+      } else if (newStreak >= 3) {
+        // Full intervention — only during smart training, max 3 per session
+        if (interventionCount < 3) {
+          const msg = STREAK_ATTENTION_MESSAGES[interventionMsgIdx.current % STREAK_ATTENTION_MESSAGES.length];
+          interventionMsgIdx.current += 1;
+          setIntervention({ message: msg, type: 'weakness_streak' });
+          setInterventionCount(c => c + 1);
+          setVisualState('intervention');
+        }
+      }
+
+      return newStreak;
+    });
+  }, [interventionCount]);
   
   return (
     <SmartCoachContext.Provider value={{
@@ -114,6 +158,7 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
       sessionType, setSessionType,
       currentQuestion, setCurrentQuestion,
       intervention, triggerIntervention, dismissIntervention, interventionCount,
+      errorStreak, recordAnswerResult, resetErrorStreak,
       visible, setVisible,
       showIntro, setShowIntro,
     }}>
