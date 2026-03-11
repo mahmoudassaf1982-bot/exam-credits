@@ -205,9 +205,9 @@ export default function SmartCoachFloating() {
             <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-[200px] max-h-[50vh]">
               {messages.length === 0 && (
                 <div className="text-center py-8">
-                  <img src={coachImage} alt="المدرب الذكي" className="h-14 w-14 mx-auto mb-3 opacity-60" />
+                  <img src={coachImage} alt="SARIS" className="h-14 w-14 mx-auto mb-3 opacity-60" />
                   <p className="text-xs text-muted-foreground">
-                    مرحباً! كيف يمكنني مساعدتك؟
+                    مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟
                   </p>
                   <div className="mt-3 flex flex-wrap justify-center gap-1.5">
                     {['أين أجد التدريب الذكي؟', 'كيف أحسن درجتي؟', 'اشرح لي الاختبار'].map(q => (
