@@ -108,11 +108,22 @@ const App = () => (
 
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <SmartCoachGlobal />
         </BrowserRouter>
+        </SmartCoachProvider>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
   </ErrorBoundary>
 );
+
+// Smart Coach global wrapper - hides during exam simulation
+function SmartCoachGlobal() {
+  const location = window.location.pathname;
+  // Hide during exam simulation sessions
+  if (location.includes('/exam-session/')) return null;
+  return <SmartCoachFloating />;
+}
+
 
 export default App;
