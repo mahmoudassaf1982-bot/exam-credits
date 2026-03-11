@@ -306,7 +306,7 @@ export default function SmartCoachFloating() {
         )}
         
         <div className="relative h-14 w-14 rounded-full bg-card border-2 border-[hsl(var(--gold))] shadow-lg overflow-hidden flex items-center justify-center">
-          <img src={coachImage} alt="المدرب الذكي" className="h-11 w-11 object-contain" />
+          <img src={coachImage} alt="SARIS" className="h-11 w-11 object-contain" />
           
           {/* Attention lightbulb */}
           {visualState === 'attention' && (
