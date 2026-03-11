@@ -1,11 +1,22 @@
-import { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion';
 import { Send, X, Lightbulb, MessageCircle, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSmartCoach } from './SmartCoachContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import coachImage from '@/assets/smart-coach.png';
+
+// Wandering positions the coach drifts between (CSS values)
+const WANDER_POSITIONS = [
+  { bottom: 24, left: 16 },      // bottom-left (home)
+  { bottom: 80, left: 16 },      // slightly up
+  { bottom: 140, left: 24 },     // mid-left
+  { bottom: 24, left: 16 },      // back home
+  { bottom: 60, left: 40 },      // slight diagonal
+] as const;
+
+const WANDER_INTERVAL = 18_000; // 18 seconds between repositions
 
 export default function SmartCoachFloating() {
   const {
@@ -17,11 +28,54 @@ export default function SmartCoachFloating() {
     visible, showIntro, setShowIntro,
   } = useSmartCoach();
   const { user } = useAuth();
-  
+
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [blinking, setBlinking] = useState(false);
+  const [wanderIdx, setWanderIdx] = useState(0);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Spring-based position for smooth wandering
+  const posBottom = useSpring(WANDER_POSITIONS[0].bottom, { stiffness: 30, damping: 20 });
+  const posLeft = useSpring(WANDER_POSITIONS[0].left, { stiffness: 30, damping: 20 });
+
+  // Wandering movement cycle
+  useEffect(() => {
+    if (chatOpen || !visible) return;
+    const timer = setInterval(() => {
+      setWanderIdx(prev => {
+        const next = (prev + 1) % WANDER_POSITIONS.length;
+        posBottom.set(WANDER_POSITIONS[next].bottom);
+        posLeft.set(WANDER_POSITIONS[next].left);
+        return next;
+      });
+    }, WANDER_INTERVAL);
+    return () => clearInterval(timer);
+  }, [chatOpen, visible, posBottom, posLeft]);
+
+  // Reset to home when chat opens
+  useEffect(() => {
+    if (chatOpen) {
+      posBottom.set(24);
+      posLeft.set(16);
+    }
+  }, [chatOpen, posBottom, posLeft]);
+
+  // Blink cycle
+  useEffect(() => {
+    if (!visible) return;
+    const scheduleNextBlink = () => {
+      const delay = 3000 + Math.random() * 4000; // 3-7s between blinks
+      return setTimeout(() => {
+        setBlinking(true);
+        setTimeout(() => setBlinking(false), 200);
+        blinkTimer = scheduleNextBlink();
+      }, delay);
+    };
+    let blinkTimer = scheduleNextBlink();
+    return () => clearTimeout(blinkTimer);
+  }, [visible]);
 
   // Auto scroll chat
   useEffect(() => {
@@ -38,7 +92,7 @@ export default function SmartCoachFloating() {
   const handleSend = async () => {
     const msg = input.trim();
     if (!msg || loading) return;
-    
+
     setInput('');
     addMessage({ role: 'user', content: msg });
     setLoading(true);
@@ -62,7 +116,7 @@ export default function SmartCoachFloating() {
       });
 
       if (error) throw error;
-      
+
       addMessage({
         role: 'coach',
         content: data?.reply || 'عذراً، حدث خطأ.',
@@ -86,7 +140,6 @@ export default function SmartCoachFloating() {
     }
   };
 
-  // Quick actions for intro
   const handleQuickAction = (action: string) => {
     setShowIntro(false);
     if (action === 'train') {
@@ -96,9 +149,20 @@ export default function SmartCoachFloating() {
     }
   };
 
+  // Idle floating keyframes for the character image
+  const idleFloat = {
+    y: [0, -6, 0, -3, 0],
+    rotate: [0, 0.8, 0, -0.5, 0],
+  };
+
+  const attentionFloat = {
+    y: [0, -10, 0, -6, 0],
+    scale: [1, 1.08, 1, 1.05, 1],
+  };
+
   return (
     <>
-      {/* Intervention Overlay */}
+      {/* ─── Intervention Overlay ─── */}
       <AnimatePresence>
         {intervention && (
           <motion.div
@@ -118,7 +182,13 @@ export default function SmartCoachFloating() {
               dir="rtl"
             >
               <div className="flex items-start gap-4">
-                <img src={coachImage} alt="SARIS" className="h-16 w-16 flex-shrink-0" />
+                <motion.img
+                  src={coachImage}
+                  alt="SARIS"
+                  className="h-20 w-20 flex-shrink-0 drop-shadow-lg"
+                  animate={{ y: [0, -4, 0] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                />
                 <div className="flex-1 space-y-3">
                   <div className="flex items-center gap-2">
                     <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
@@ -142,21 +212,21 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
-      {/* Welcome Intro */}
+      {/* ─── Welcome Intro Bubble ─── */}
       <AnimatePresence>
         {showIntro && !chatOpen && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="fixed bottom-24 left-4 z-[90] w-72 rounded-2xl bg-card border border-border p-4 shadow-xl"
+            className="fixed bottom-28 left-4 z-[90] w-72 rounded-2xl bg-card border border-border p-4 shadow-xl"
             dir="rtl"
           >
             <button onClick={() => setShowIntro(false)} className="absolute top-2 left-2 p-1 rounded-full hover:bg-muted">
               <X className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
             <div className="flex items-center gap-3 mb-3">
-              <img src={coachImage} alt="SARIS" className="h-10 w-10" />
+              <img src={coachImage} alt="SARIS" className="h-10 w-10 drop-shadow" />
               <span className="font-bold text-sm text-foreground">SARIS — المدرب الذكي</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed mb-3">
@@ -176,7 +246,7 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
-      {/* Chat Panel */}
+      {/* ─── Chat Panel ─── */}
       <AnimatePresence>
         {chatOpen && (
           <motion.div
@@ -184,7 +254,7 @@ export default function SmartCoachFloating() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ type: 'spring', damping: 25 }}
-            className="fixed bottom-24 left-4 z-[90] w-80 sm:w-96 max-h-[70vh] flex flex-col rounded-2xl bg-card border border-border shadow-2xl overflow-hidden"
+            className="fixed bottom-28 left-4 z-[90] w-80 sm:w-96 max-h-[70vh] flex flex-col rounded-2xl bg-card border border-border shadow-2xl overflow-hidden"
             dir="rtl"
           >
             {/* Chat Header */}
@@ -213,7 +283,7 @@ export default function SmartCoachFloating() {
                     {['أين أجد التدريب الذكي؟', 'كيف أحسن درجتي؟', 'اشرح لي الاختبار'].map(q => (
                       <button
                         key={q}
-                        onClick={() => { setInput(q); }}
+                        onClick={() => setInput(q)}
                         className="text-[10px] px-2.5 py-1.5 rounded-full bg-muted hover:bg-accent text-foreground transition-colors"
                       >
                         {q}
@@ -222,7 +292,7 @@ export default function SmartCoachFloating() {
                   </div>
                 </div>
               )}
-              
+
               {messages.map(msg => (
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}>
                   <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
@@ -234,7 +304,7 @@ export default function SmartCoachFloating() {
                   </div>
                 </div>
               ))}
-              
+
               {loading && (
                 <div className="flex justify-end">
                   <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-2.5">
@@ -275,58 +345,101 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
-      {/* Floating Coach Button */}
-      <motion.button
-        onClick={() => {
-          if (showIntro) setShowIntro(false);
-          setChatOpen(!chatOpen);
-          if (visualState === 'attention') setVisualState('idle');
-        }}
-        className="fixed bottom-6 left-4 z-[90] group"
-        animate={
-          visualState === 'attention'
-            ? { scale: [1, 1.1, 1], y: [0, -4, 0] }
-            : { y: [0, -3, 0] }
-        }
-        transition={
-          visualState === 'attention'
-            ? { duration: 1.2, repeat: Infinity }
-            : { duration: 3, repeat: Infinity, ease: 'easeInOut' }
-        }
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
+      {/* ─── Floating Coach Character ─── */}
+      <motion.div
+        className="fixed z-[90]"
+        style={{ bottom: posBottom, left: posLeft }}
       >
-        {/* Attention glow */}
-        {visualState === 'attention' && (
-          <motion.div
-            className="absolute inset-0 rounded-full bg-[hsl(var(--gold))]"
-            animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          />
-        )}
-        
-        <div className="relative h-14 w-14 rounded-full bg-card border-2 border-[hsl(var(--gold))] shadow-lg overflow-hidden flex items-center justify-center">
-          <img src={coachImage} alt="SARIS" className="h-11 w-11 object-contain" />
-          
-          {/* Attention lightbulb */}
+        <motion.button
+          onClick={() => {
+            if (showIntro) setShowIntro(false);
+            setChatOpen(!chatOpen);
+            if (visualState === 'attention') setVisualState('idle');
+          }}
+          className="relative group focus:outline-none"
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          {/* ── Attention outer glow ring ── */}
           {visualState === 'attention' && (
             <motion.div
-              className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center"
-              animate={{ scale: [1, 1.2, 1] }}
-              transition={{ duration: 0.8, repeat: Infinity }}
+              className="absolute inset-[-8px] rounded-full"
+              style={{
+                background: 'radial-gradient(circle, hsl(var(--gold) / 0.35) 0%, transparent 70%)',
+              }}
+              animate={{ scale: [1, 1.5, 1], opacity: [0.6, 0, 0.6] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            />
+          )}
+
+          {/* ── Idle ambient glow ── */}
+          <motion.div
+            className="absolute inset-[-4px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, hsl(var(--gold) / 0.12) 0%, transparent 70%)',
+            }}
+            animate={{ opacity: [0.4, 0.7, 0.4] }}
+            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+          />
+
+          {/* ── Character container ── */}
+          <motion.div
+            className="relative h-16 w-16 rounded-full bg-card border-2 border-[hsl(var(--gold))] shadow-lg overflow-hidden flex items-center justify-center"
+            animate={visualState === 'attention' ? attentionFloat : idleFloat}
+            transition={{
+              duration: visualState === 'attention' ? 2 : 5,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+          >
+            {/* Character image with breathing scale */}
+            <motion.img
+              src={coachImage}
+              alt="SARIS — المدرب الذكي"
+              className="h-[52px] w-[52px] object-contain"
+              animate={{
+                scale: [1, 1.03, 1], // subtle breathing
+              }}
+              transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+            />
+
+            {/* Blink overlay — simulates eye blink */}
+            <AnimatePresence>
+              {blinking && (
+                <motion.div
+                  initial={{ scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
+                  exit={{ scaleY: 0 }}
+                  transition={{ duration: 0.1 }}
+                  className="absolute top-[30%] left-[25%] w-[50%] h-[12%] bg-card rounded-full origin-top"
+                />
+              )}
+            </AnimatePresence>
+          </motion.div>
+
+          {/* ── Attention lightbulb badge ── */}
+          {visualState === 'attention' && (
+            <motion.div
+              className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
+              animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
             >
-              <Lightbulb className="h-3 w-3 text-[hsl(var(--gold-foreground))]" />
+              <Lightbulb className="h-3.5 w-3.5 text-[hsl(var(--gold-foreground))]" />
             </motion.div>
           )}
-        </div>
-        
-        {/* Chat indicator */}
-        {!chatOpen && messages.length > 0 && (
-          <div className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-destructive flex items-center justify-center">
-            <MessageCircle className="h-2.5 w-2.5 text-destructive-foreground" />
-          </div>
-        )}
-      </motion.button>
+
+          {/* ── Unread messages badge ── */}
+          {!chatOpen && messages.length > 0 && (
+            <motion.div
+              className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-destructive flex items-center justify-center"
+              animate={{ scale: [1, 1.15, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              <MessageCircle className="h-2.5 w-2.5 text-destructive-foreground" />
+            </motion.div>
+          )}
+        </motion.button>
+      </motion.div>
     </>
   );
 }
