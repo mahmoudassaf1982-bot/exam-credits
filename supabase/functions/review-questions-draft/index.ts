@@ -136,7 +136,7 @@ The questions being reviewed are ARABIC-language questions.
 ${langRule}
 
 For EACH question, you must:
-1. REVIEW: Check for issues (ambiguity, wrong answer, grammar, difficulty mismatch, hint in stem, weak distractors, duplicates, LANGUAGE CONSISTENCY)
+1. REVIEW: Check for issues (ambiguity, wrong answer, grammar, difficulty mismatch, hint in stem, weak distractors, duplicates, LANGUAGE CONSISTENCY, BLUEPRINT COMPLIANCE)
 2. AUTO-FIX: Return a CORRECTED version with ALL issues resolved (in the CORRECT language)
 3. QUALITY GATE: Return structured quality scores (0.0 to 1.0 each)
 
@@ -147,6 +147,13 @@ Quality Scores to evaluate:
 - single_answer_confidence: How confident that exactly ONE option is definitively correct (0.0-1.0)
 - language_quality: Grammar, formal academic tone, spelling correctness (0.0-1.0)
 - language_consistency_score: Whether the question is entirely in the expected language (0.0-1.0). 0.0 = wrong language or heavy mixing. 1.0 = pure correct language.
+- blueprint_compliance_score: Whether the question belongs to the correct exam type and section (0.0-1.0). 0.0 = wrong question family (e.g., verbal analogy in a math exam). 1.0 = perfectly matches the exam blueprint.
+
+🚨 BLUEPRINT COMPLIANCE CHECK 🚨
+- If generating for a MATH exam: questions MUST be mathematical. Verbal analogies, vocabulary, grammar, reading comprehension = score 0.0
+- If generating for an ENGLISH exam: questions MUST be English language. Pure math calculations = score 0.0  
+- If generating for an ARABIC exam: questions MUST be Arabic language. Pure math calculations = score 0.0
+- If a question belongs to a DIFFERENT exam family than requested → set blueprint_compliance_score to 0.0, ok=false, and add issue "Blueprint violation: [family] question in [exam_type] exam"
 
 Return a JSON object with:
 {
@@ -164,7 +171,8 @@ Return a JSON object with:
         "difficulty_match": number (0.0-1.0),
         "single_answer_confidence": number (0.0-1.0),
         "language_quality": number (0.0-1.0),
-        "language_consistency_score": number (0.0-1.0)
+        "language_consistency_score": number (0.0-1.0),
+        "blueprint_compliance_score": number (0.0-1.0)
       },
       "corrected": {
         "text_ar": string,
@@ -182,6 +190,7 @@ IMPORTANT:
 - "corrected" and "quality_scores" must ALWAYS be present for every question.
 - Be strict but fair. Score honestly. A perfect question should get 0.95+, not 1.0.
 - confidence_score is the MOST important metric — it gates auto-publishing.
+- blueprint_compliance_score: If a question is the WRONG TYPE for this exam → score = 0.0 and auto-FAIL
 - language_consistency_score: If a question meant to be English contains Arabic instructions → score = 0.0 and add issue "Language mismatch: Arabic found in English question"
 Return JSON ONLY.`;
 }
