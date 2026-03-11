@@ -59,7 +59,7 @@ export default function SmartHintButton({
         } else {
           // Technical error — log internally, show friendly message
           console.error('[SmartHint] Internal error (hidden from user):', data.error);
-          toast('لحظة واحدة… حاول مرة أخرى', { duration: 2000 });
+          toast('لحظة واحدة…', { duration: 2000 });
         }
         setLoading(false);
         return;
