@@ -131,6 +131,11 @@ export default function Dashboard() {
         <p className="mt-1 text-muted-foreground">
           إليك ملخص حسابك على منصة ساريس
         </p>
+        {user?.email && (
+          <p className="mt-0.5 text-xs text-muted-foreground/70 font-mono direction-ltr text-right">
+            {user.email}
+          </p>
+        )}
       </motion.div>
 
       {/* Diamond upsell banner */}
