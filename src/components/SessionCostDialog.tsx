@@ -118,7 +118,11 @@ export function SessionCostDialog({
         const { data, error } = await supabase.functions.invoke('assemble-exam', { body });
 
         if (error || data?.error) {
-          toast.error(data?.error || 'فشل في بدء الجلسة');
+          if (data?.required !== undefined && data?.current !== undefined) {
+            toast.error(`رصيدك الحالي ${data.current} نقطة، تحتاج ${data.required} نقطة`);
+          } else {
+            toast.error(data?.error || 'فشل في بدء الجلسة');
+          }
           setLoading(false);
           return;
         }
