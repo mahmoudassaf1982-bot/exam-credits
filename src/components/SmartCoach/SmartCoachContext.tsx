@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 
 export type CoachVisualState = 'idle' | 'attention' | 'intervention' | 'conversation';
 export type CoachMode = 'training_coach' | 'learning_tutor' | 'platform_guide';
@@ -64,6 +64,10 @@ interface SmartCoachContextType {
   currentQuestion: QuestionContext | null;
   setCurrentQuestion: (q: QuestionContext | null) => void;
   
+  // Session isolation
+  sessionId: string | null;
+  setSessionId: (id: string | null) => void;
+  
   // Exam session context
   examContext: ExamSessionContext;
   setExamContext: (ctx: ExamSessionContext) => void;
@@ -73,6 +77,8 @@ interface SmartCoachContextType {
   triggerIntervention: (data: InterventionData) => void;
   dismissIntervention: () => void;
   interventionCount: number;
+  /** True when the chat was opened specifically from an intervention click */
+  isInterventionChat: boolean;
   
   // Error streak tracking
   errorStreak: number;
@@ -97,7 +103,6 @@ function detectErrorPattern(errors: { topic?: string; sectionId?: string; sectio
 } {
   if (errors.length === 0) return {};
   
-  // Count topic frequency
   const topicCounts: Record<string, number> = {};
   const sectionCounts: Record<string, { count: number; name?: string }> = {};
   
@@ -109,7 +114,6 @@ function detectErrorPattern(errors: { topic?: string; sectionId?: string; sectio
     }
   }
   
-  // Find most frequent
   let topTopic: string | undefined;
   let topTopicCount = 0;
   for (const [t, c] of Object.entries(topicCounts)) {
@@ -158,6 +162,42 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
   const [showIntro, setShowIntro] = useState(false);
   const [errorStreak, setErrorStreak] = useState(0);
   const [recentErrors, setRecentErrors] = useState<{ topic?: string; sectionId?: string; sectionName?: string }[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isInterventionChat, setIsInterventionChat] = useState(false);
+
+  // Track previous sessionId to detect changes
+  const prevSessionIdRef = useRef<string | null>(null);
+
+  // ── Session isolation: clear chat when sessionId changes ──
+  useEffect(() => {
+    if (sessionId !== prevSessionIdRef.current) {
+      // Session changed — reset all chat state
+      setMessages([]);
+      setChatOpen(false);
+      setIntervention(null);
+      setInterventionCount(0);
+      setErrorStreak(0);
+      setRecentErrors([]);
+      setVisualState('idle');
+      setIsInterventionChat(false);
+      prevSessionIdRef.current = sessionId;
+    }
+  }, [sessionId]);
+
+  // Also clear when session becomes inactive (leaving session)
+  useEffect(() => {
+    if (!sessionActive) {
+      setMessages([]);
+      setChatOpen(false);
+      setIntervention(null);
+      setInterventionCount(0);
+      setErrorStreak(0);
+      setRecentErrors([]);
+      setVisualState('idle');
+      setIsInterventionChat(false);
+      setSessionId(null);
+    }
+  }, [sessionActive]);
   
   const addMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, {
@@ -181,6 +221,15 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearMessages = useCallback(() => setMessages([]), []);
+
+  // Custom setChatOpen that tracks intervention context
+  const handleSetChatOpen = useCallback((open: boolean) => {
+    setChatOpen(open);
+    if (!open) {
+      // When closing chat, clear intervention chat flag
+      setIsInterventionChat(false);
+    }
+  }, []);
   
   const triggerIntervention = useCallback((data: InterventionData) => {
     if (interventionCount >= 3) return; // max 3 per session
@@ -215,7 +264,6 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
         setVisualState('attention');
       } else if (newStreak >= 3) {
         if (interventionCount < 3) {
-          // Detect error pattern from recent errors
           setRecentErrors(currentErrors => {
             const allErrors = [...currentErrors];
             const pattern = detectErrorPattern(allErrors);
@@ -244,14 +292,16 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
   return (
     <SmartCoachContext.Provider value={{
       visualState, setVisualState,
-      chatOpen, setChatOpen,
+      chatOpen, setChatOpen: handleSetChatOpen,
       messages, addMessage, updateLastCoachMessage, clearMessages,
       currentPage, setCurrentPage,
       sessionActive, setSessionActive,
       sessionType, setSessionType,
       currentQuestion, setCurrentQuestion,
+      sessionId, setSessionId,
       examContext, setExamContext,
       intervention, triggerIntervention, dismissIntervention, interventionCount,
+      isInterventionChat,
       errorStreak, recentErrors, recordAnswerResult, resetErrorStreak,
       visible, setVisible,
       showIntro, setShowIntro,
