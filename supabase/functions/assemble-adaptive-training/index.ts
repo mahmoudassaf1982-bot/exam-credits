@@ -200,35 +200,29 @@ Deno.serve(async (req) => {
     console.log(`[assemble-smart] target_difficulty=${target_difficulty || 'mixed'}, target_section_id=${target_section_id || 'all'}, recommendation_type=${recommendation_type || 'none'}`);
 
     async function fetchAllEligible(): Promise<any[]> {
-      const p: any[] = [];
       const seen = new Set<string>();
+      const p: any[] = [];
       const shouldPrioritizeWeak = !target_section_id && weakSectionIds.length > 0;
 
-      // Weak sections first
-      if (shouldPrioritizeWeak) {
-        for (const diff of targetDifficulties) {
-          const { data } = await admin
-            .from("questions")
-            .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
-            .eq("is_approved", true)
-            .eq("status", "approved")
-            .eq("country_id", template.country_id)
-            .eq("difficulty", diff)
-            .eq("exam_template_id", String(exam_template_id))
-            .in("section_id", weakSectionIds.map(String))
-            .is("deleted_at", null)
-            .limit(POOL_SIZE_PER_DIFFICULTY);
-          if (data) {
-            for (const q of data) {
-              if (!seen.has(q.id)) { p.push(q); seen.add(q.id); }
-            }
-          }
-        }
-      }
+      // Build all queries in parallel
+      const weakPromises = shouldPrioritizeWeak
+        ? targetDifficulties.map(diff =>
+            admin
+              .from("questions")
+              .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
+              .eq("is_approved", true)
+              .eq("status", "approved")
+              .eq("country_id", template.country_id)
+              .eq("difficulty", diff)
+              .eq("exam_template_id", String(exam_template_id))
+              .in("section_id", weakSectionIds.map(String))
+              .is("deleted_at", null)
+              .limit(POOL_SIZE_PER_DIFFICULTY)
+          )
+        : [];
 
-      // All target sections
-      for (const diff of targetDifficulties) {
-        const { data, error: qErr } = await admin
+      const allPromises = targetDifficulties.map(diff =>
+        admin
           .from("questions")
           .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
           .eq("is_approved", true)
@@ -238,8 +232,28 @@ Deno.serve(async (req) => {
           .eq("exam_template_id", String(exam_template_id))
           .in("section_id", allSectionIds)
           .is("deleted_at", null)
-          .limit(POOL_SIZE_PER_DIFFICULTY);
-        console.log(`[assemble-smart] diff=${diff}: found=${data?.length ?? 0}, err=${qErr?.message || 'none'}`);
+          .limit(POOL_SIZE_PER_DIFFICULTY)
+      );
+
+      // Execute ALL queries simultaneously
+      const [weakResults, allResults] = await Promise.all([
+        Promise.all(weakPromises),
+        Promise.all(allPromises),
+      ]);
+
+      // Process weak sections first (priority)
+      for (const res of weakResults) {
+        if (res.data) {
+          for (const q of res.data) {
+            if (!seen.has(q.id)) { p.push(q); seen.add(q.id); }
+          }
+        }
+      }
+
+      // Then all sections
+      for (let i = 0; i < allResults.length; i++) {
+        const { data, error: qErr } = allResults[i];
+        console.log(`[assemble-smart] diff=${targetDifficulties[i]}: found=${data?.length ?? 0}, err=${qErr?.message || 'none'}`);
         if (data) {
           for (const q of data) {
             if (!seen.has(q.id)) { p.push(q); seen.add(q.id); }
