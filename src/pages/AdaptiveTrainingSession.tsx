@@ -64,7 +64,16 @@ export default function AdaptiveTrainingSession() {
         }
 
         const snapshot = session.exam_snapshot as any;
-        setExamName(snapshot?.template?.name_ar || 'جلسة التدريب الذكي');
+        const templateName = snapshot?.template?.name_ar || 'جلسة التدريب الذكي';
+        setExamName(templateName);
+
+        // Pass full exam context to SmartCoach
+        setExamContext({
+          exam_template_id: snapshot?.template?.id || '',
+          exam_name: templateName,
+          country_id: snapshot?.template?.country_id || '',
+          session_mode: 'smart_training',
+        });
 
         // If already completed, show summary
         if (session.status === 'completed' || session.status === 'submitted') {
