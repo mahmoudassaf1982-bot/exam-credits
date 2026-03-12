@@ -50,10 +50,10 @@ Deno.serve(async (req) => {
     const {
       exam_template_id,
       max_questions = DEFAULT_MAX_QUESTIONS,
-      target_difficulty,        // 'easy' | 'medium' | 'hard' | 'mixed' | undefined
-      target_section_id,        // specific section UUID or undefined
-      time_limit_override_sec,  // explicit time limit from recommendation
-      recommendation_type,      // 'focused_skill' | 'accuracy_drill' | etc.
+      target_difficulty,
+      target_section_id,
+      time_limit_override_sec,
+      recommendation_type,
     } = await req.json();
 
     if (!exam_template_id) {
@@ -92,8 +92,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 3. Load student context in parallel: skill_memory, learning_dna, profile
-    const [skillMemoryRes, dnaRes, profileRes] = await Promise.all([
+    // 3. Load student context in parallel
+    const [skillMemoryRes, dnaRes, profileRes, cycleRes] = await Promise.all([
       admin
         .from("skill_memory")
         .select("section_id, section_name, skill_score, total_answered")
@@ -109,6 +109,16 @@ Deno.serve(async (req) => {
         .select("is_diamond")
         .eq("id", user.id)
         .single(),
+      // Get active (latest incomplete) cycle for this user+template
+      admin
+        .from("student_training_cycles")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("exam_template_id", exam_template_id)
+        .is("cycle_completed_at", null)
+        .order("cycle_number", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     const skillMemory = (skillMemoryRes.data || []).map((s: any) => ({
@@ -118,21 +128,18 @@ Deno.serve(async (req) => {
       total_answered: s.total_answered || 0,
     }));
 
-    // Extract previous ability from DNA history
     let previousAbility = 50;
     if (dnaRes.data) {
       const dna = dnaRes.data as any;
       const history = dna.history_json as any[] || [];
       if (history.length > 0) {
         const lastSnapshot = history[history.length - 1];
-        // Estimate ability from accuracy
         previousAbility = lastSnapshot?.metrics?.accuracy || 50;
       } else {
         previousAbility = dna.confidence_score || 50;
       }
     }
 
-    // Exam DNA distribution from template
     const examDNA = {
       easy_pct: template.target_easy_pct || 30,
       medium_pct: template.target_medium_pct || 50,
@@ -167,42 +174,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 5. Build recent question IDs (progressive relaxation)
-    // Try last 3 sessions in 7 days first; if pool too small, relax to last 1 session
-    async function getRecentIds(sessionLimit: number, daysBack: number): Promise<Set<string>> {
-      const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
-      const { data: recentSessions } = await admin
-        .from("exam_sessions")
-        .select("questions_json")
-        .eq("user_id", user.id)
-        .eq("exam_template_id", exam_template_id)
-        .gte("created_at", since)
-        .order("created_at", { ascending: false })
-        .limit(sessionLimit);
+    // 5. Cycle-based question tracking
+    // Get the set of question IDs already used in the current cycle
+    const activeCycle = cycleRes.data as any | null;
+    const cycleUsedIds = new Set<string>(
+      activeCycle ? (activeCycle.used_question_ids as string[] || []) : []
+    );
+    const currentCycleNumber = activeCycle ? activeCycle.cycle_number : 0;
 
-      const ids = new Set<string>();
-      if (recentSessions) {
-        for (const s of recentSessions) {
-          const qJson = s.questions_json as Record<string, { id: string }[]> | null;
-          if (qJson && typeof qJson === "object") {
-            for (const sectionQs of Object.values(qJson)) {
-              if (Array.isArray(sectionQs)) {
-                for (const q of sectionQs) {
-                  if (q?.id) ids.add(q.id);
-                }
-              }
-            }
-          }
-        }
-      }
-      return ids;
-    }
+    console.log(`[assemble-smart] Cycle #${currentCycleNumber}, used_in_cycle=${cycleUsedIds.size}`);
 
-    // Start with strictest filter
-    let recentIds = await getRecentIds(3, 7);
-
-    // 6. Fetch question pool with progressive relaxation
-    // Determine which difficulties to fetch based on recommendation
+    // 6. Fetch full question pool (no recency exclusion - cycle handles reuse)
     const targetDifficulties: string[] = (target_difficulty && target_difficulty !== 'mixed')
       ? [target_difficulty]
       : ["easy", "medium", "hard"];
@@ -211,21 +193,18 @@ Deno.serve(async (req) => {
       .filter((s: any) => s.skill_score < 60)
       .map((s: any) => s.section_id);
 
-    // If a specific section is targeted, restrict to that section only
     const allSectionIds = target_section_id
       ? [String(target_section_id)]
       : sections.map((s: any) => String(s.id));
 
     console.log(`[assemble-smart] target_difficulty=${target_difficulty || 'mixed'}, target_section_id=${target_section_id || 'all'}, recommendation_type=${recommendation_type || 'none'}`);
 
-    async function buildPool(excludeIds: Set<string>) {
+    async function fetchAllEligible(): Promise<any[]> {
       const p: any[] = [];
       const seen = new Set<string>();
-
-      // If targeting a specific section, skip weak-section priority pass
       const shouldPrioritizeWeak = !target_section_id && weakSectionIds.length > 0;
 
-      // First: weak sections (only if not targeting a specific section)
+      // Weak sections first
       if (shouldPrioritizeWeak) {
         for (const diff of targetDifficulties) {
           const { data } = await admin
@@ -241,13 +220,13 @@ Deno.serve(async (req) => {
             .limit(POOL_SIZE_PER_DIFFICULTY);
           if (data) {
             for (const q of data) {
-              if (!excludeIds.has(q.id) && !seen.has(q.id)) { p.push(q); seen.add(q.id); }
+              if (!seen.has(q.id)) { p.push(q); seen.add(q.id); }
             }
           }
         }
       }
 
-      // Then: target sections with target difficulties
+      // All target sections
       for (const diff of targetDifficulties) {
         const { data, error: qErr } = await admin
           .from("questions")
@@ -263,34 +242,17 @@ Deno.serve(async (req) => {
         console.log(`[assemble-smart] diff=${diff}: found=${data?.length ?? 0}, err=${qErr?.message || 'none'}`);
         if (data) {
           for (const q of data) {
-            if (!excludeIds.has(q.id) && !seen.has(q.id)) { p.push(q); seen.add(q.id); }
+            if (!seen.has(q.id)) { p.push(q); seen.add(q.id); }
           }
         }
       }
       return p;
     }
 
-    console.log(`[assemble-smart] template=${exam_template_id}, country=${template.country_id}, sections=${JSON.stringify(allSectionIds)}`);
+    const fullPool = await fetchAllEligible();
+    console.log(`[assemble-smart] fullPool.length=${fullPool.length}`);
 
-    let pool = await buildPool(recentIds);
-    console.log(`[assemble-smart] pool.length=${pool.length}, recentIds.size=${recentIds.size} (strict filter)`);
-
-    // Progressive relaxation: if pool too small, try last 1 session only
-    if (pool.length < 5) {
-      console.log(`[assemble-smart] Relaxing to last 1 session / 3 days`);
-      recentIds = await getRecentIds(1, 3);
-      pool = await buildPool(recentIds);
-      console.log(`[assemble-smart] pool.length=${pool.length}, recentIds.size=${recentIds.size} (relaxed filter)`);
-    }
-
-    // Final relaxation: allow all questions (no recency filter)
-    if (pool.length < 5) {
-      console.log(`[assemble-smart] Final relaxation: no recency filter`);
-      pool = await buildPool(new Set());
-      console.log(`[assemble-smart] pool.length=${pool.length} (no filter)`);
-    }
-
-    if (pool.length < 5) {
+    if (fullPool.length < 5) {
       // Refund
       if (!isDiamond && pointsCost > 0) {
         const { data: wallet } = await admin.from("wallets").select("balance").eq("user_id", user.id).single();
@@ -309,15 +271,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 7. Build section name map
+    // 7. Cycle-based selection: prioritize unused questions in current cycle
+    const unusedInCycle = fullPool.filter(q => !cycleUsedIds.has(q.id));
+    let needNewCycle = false;
+
+    let selectedPool: any[];
+    if (unusedInCycle.length >= 5) {
+      // Enough unused questions - pick from them
+      selectedPool = shuffle(unusedInCycle);
+      console.log(`[assemble-smart] Using ${unusedInCycle.length} unused questions from cycle #${currentCycleNumber}`);
+    } else {
+      // Pool exhausted - start new cycle with full pool reshuffled
+      needNewCycle = true;
+      selectedPool = shuffle([...fullPool]);
+      console.log(`[assemble-smart] Cycle #${currentCycleNumber} exhausted (only ${unusedInCycle.length} unused). Starting new cycle.`);
+    }
+
+    // 8. Build section name map
     const sectionNameMap: Record<string, string> = {};
     for (const s of sections) {
       sectionNameMap[s.id] = s.name_ar;
     }
 
-    // 8. Build answer keys and client pool
+    // 9. Build answer keys and client pool
     const answerKeys: Record<string, { correct_option_id: string; explanation?: string }> = {};
-    const clientPool = shuffle(pool).map((q: any) => {
+    const clientPool = selectedPool.map((q: any) => {
       answerKeys[q.id] = {
         correct_option_id: q.correct_option_id,
         explanation: q.explanation || undefined,
@@ -339,7 +317,7 @@ Deno.serve(async (req) => {
       };
     });
 
-    // 9. Build questions_json
+    // 10. Build questions_json
     const virtualSectionId = "smart_training";
     const questionsJson: Record<string, unknown[]> = {
       [virtualSectionId]: clientPool.map(q => ({
@@ -355,8 +333,7 @@ Deno.serve(async (req) => {
       [virtualSectionId]: answerKeys,
     };
 
-    // 10. Create session
-    // Use explicit time limit from recommendation, or calculate from max_questions
+    // 11. Create session
     const timeLimitSec = time_limit_override_sec
       ? Math.max(300, time_limit_override_sec)
       : Math.max(1200, max_questions * 90);
@@ -412,12 +389,51 @@ Deno.serve(async (req) => {
       answers_key_json: answersKeyJson,
     });
 
+    // 12. Update cycle tracking
+    const sessionQuestionIds = clientPool.map((q: any) => q.id);
+
+    if (needNewCycle) {
+      // Complete old cycle if exists
+      if (activeCycle) {
+        await admin
+          .from("student_training_cycles")
+          .update({ cycle_completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", activeCycle.id);
+      }
+      // Create new cycle with these questions as first usage
+      const newCycleNumber = currentCycleNumber + 1;
+      await admin.from("student_training_cycles").insert({
+        user_id: user.id,
+        exam_template_id,
+        cycle_number: newCycleNumber,
+        used_question_ids: sessionQuestionIds,
+        cycle_started_at: new Date().toISOString(),
+      });
+      console.log(`[assemble-smart] Created new cycle #${newCycleNumber} with ${sessionQuestionIds.length} questions`);
+    } else if (activeCycle) {
+      // Append to existing cycle
+      const updatedUsed = [...cycleUsedIds, ...sessionQuestionIds];
+      const uniqueUsed = [...new Set(updatedUsed)];
+      await admin
+        .from("student_training_cycles")
+        .update({ used_question_ids: uniqueUsed, updated_at: new Date().toISOString() })
+        .eq("id", activeCycle.id);
+      console.log(`[assemble-smart] Updated cycle #${currentCycleNumber}: ${uniqueUsed.length} total used`);
+    } else {
+      // First ever cycle for this user+template
+      await admin.from("student_training_cycles").insert({
+        user_id: user.id,
+        exam_template_id,
+        cycle_number: 1,
+        used_question_ids: sessionQuestionIds,
+        cycle_started_at: new Date().toISOString(),
+      });
+      console.log(`[assemble-smart] Created first cycle #1 with ${sessionQuestionIds.length} questions`);
+    }
+
     console.log(
-      `[assemble-smart] Session ${session.id}: pool=${pool.length}, max=${max_questions}, ` +
-      `prevAbility=${previousAbility}, weakSections=${weakSectionIds.length}, ` +
-      `easy=${pool.filter((q: any) => q.difficulty === "easy").length}, ` +
-      `medium=${pool.filter((q: any) => q.difficulty === "medium").length}, ` +
-      `hard=${pool.filter((q: any) => q.difficulty === "hard").length}`
+      `[assemble-smart] Session ${session.id}: pool=${fullPool.length}, selected=${selectedPool.length}, max=${max_questions}, ` +
+      `prevAbility=${previousAbility}, weakSections=${weakSectionIds.length}, newCycle=${needNewCycle}`
     );
 
     return new Response(
@@ -434,7 +450,12 @@ Deno.serve(async (req) => {
           target_section_id: target_section_id || null,
           recommendation_type: recommendation_type || null,
         },
-        // Smart training context for the client engine
+        cycle_info: {
+          cycle_number: needNewCycle ? currentCycleNumber + 1 : (currentCycleNumber || 1),
+          new_cycle_started: needNewCycle,
+          unused_before_selection: unusedInCycle.length,
+          total_pool: fullPool.length,
+        },
         skill_memory: skillMemory,
         exam_dna: examDNA,
         previous_ability: previousAbility,
