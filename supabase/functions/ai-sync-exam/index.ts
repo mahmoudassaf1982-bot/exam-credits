@@ -338,7 +338,7 @@ Return ONLY this JSON (no extra text):
   "analysis_summary": "<2-3 sentence summary of what was found and how sections were determined>"
 }`;
 
-    console.log("[ai-sync-exam] Stage A: Fact extraction...");
+    console.log("[ai-sync-exam] Stage A: Deep structure extraction...");
     const stageAResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -348,7 +348,7 @@ Return ONLY this JSON (no extra text):
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: "You extract structured facts from text. Return ONLY valid JSON. Prioritize explicit numeric facts. Never invent data." },
+          { role: "system", content: "You are an expert exam structure analyst. Return ONLY valid JSON. Prioritize explicit facts from official sources. When official sources lack section details, infer sections by clustering question topics from uploaded samples. Never invent data." },
           { role: "user", content: stageAPrompt },
         ],
       }),
