@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSmartCoach } from '@/components/SmartCoach/SmartCoachContext';
+import SmartHintButton from '@/components/exam/SmartHintButton';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ import {
 } from '@/services/smartTrainingEngine';
 
 interface Props {
+  sessionId?: string;
   questionPool: STEQuestion[];
   answerKeys: Record<string, { correct_option_id: string; explanation?: string }>;
   maxQuestions?: number;
@@ -55,6 +57,7 @@ const confidenceLabels: Record<ConfidencePhase, { label: string; icon: typeof Sh
 };
 
 export default function SmartQuestionFlow({
+  sessionId,
   questionPool,
   answerKeys,
   maxQuestions = 15,
@@ -90,6 +93,9 @@ export default function SmartQuestionFlow({
   const [feedbackCorrect, setFeedbackCorrect] = useState(false);
   const questionStartRef = useRef<number>(Date.now());
   const answersMapRef = useRef<Record<string, string>>({});
+  const [hintsMap, setHintsMap] = useState<Record<string, string>>({});
+  const [hintsUsedCount, setHintsUsedCount] = useState(0);
+  const MAX_HINTS = 5;
 
   // Sync current question to SmartCoach context
   useEffect(() => {
@@ -320,6 +326,22 @@ export default function SmartQuestionFlow({
               );
             })}
           </div>
+
+          {/* Smart Hint - only during solving, not during feedback */}
+          {sessionId && !showFeedback && (
+            <SmartHintButton
+              sessionId={sessionId}
+              questionId={currentQuestion.id}
+              difficulty={currentQuestion.difficulty}
+              existingHint={hintsMap[currentQuestion.id] || null}
+              hintsRemaining={MAX_HINTS - hintsUsedCount}
+              maxHints={MAX_HINTS}
+              onHintReceived={(qId, text, remaining) => {
+                setHintsMap(prev => ({ ...prev, [qId]: text }));
+                setHintsUsedCount(MAX_HINTS - remaining);
+              }}
+            />
+          )}
 
           {/* Feedback */}
           {showFeedback && (

@@ -269,6 +269,7 @@ export default function AdaptiveTrainingSession() {
 
       <div className="mx-auto max-w-3xl p-4 sm:p-6">
         <SmartQuestionFlow
+          sessionId={sessionId}
           questionPool={questionPool}
           answerKeys={answerKeys}
           maxQuestions={maxQuestions}
