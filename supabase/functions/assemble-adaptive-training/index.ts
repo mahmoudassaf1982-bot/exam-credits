@@ -428,6 +428,12 @@ Deno.serve(async (req) => {
         max_questions,
         pool_size: clientPool.length,
         points_deducted: isDiamond ? 0 : pointsCost,
+        time_limit_sec: timeLimitSec,
+        applied_filters: {
+          target_difficulty: target_difficulty || 'mixed',
+          target_section_id: target_section_id || null,
+          recommendation_type: recommendation_type || null,
+        },
         // Smart training context for the client engine
         skill_memory: skillMemory,
         exam_dna: examDNA,
