@@ -57,6 +57,7 @@ const confidenceLabels: Record<ConfidencePhase, { label: string; icon: typeof Sh
 };
 
 export default function SmartQuestionFlow({
+  sessionId,
   questionPool,
   answerKeys,
   maxQuestions = 15,
