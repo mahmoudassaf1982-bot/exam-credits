@@ -15,7 +15,7 @@ export default function AdaptiveTrainingSession() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const { user, refreshWallet } = useAuth();
-  const { setSessionActive, setSessionType } = useSmartCoach();
+  const { setSessionActive, setSessionType, setExamContext } = useSmartCoach();
 
   const [loading, setLoading] = useState(true);
 
