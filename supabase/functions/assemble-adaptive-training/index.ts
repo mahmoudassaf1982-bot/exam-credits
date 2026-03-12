@@ -47,7 +47,14 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
-    const { exam_template_id, max_questions = DEFAULT_MAX_QUESTIONS } = await req.json();
+    const {
+      exam_template_id,
+      max_questions = DEFAULT_MAX_QUESTIONS,
+      target_difficulty,        // 'easy' | 'medium' | 'hard' | 'mixed' | undefined
+      target_section_id,        // specific section UUID or undefined
+      time_limit_override_sec,  // explicit time limit from recommendation
+      recommendation_type,      // 'focused_skill' | 'accuracy_drill' | etc.
+    } = await req.json();
 
     if (!exam_template_id) {
       return new Response(
@@ -195,19 +202,32 @@ Deno.serve(async (req) => {
     let recentIds = await getRecentIds(3, 7);
 
     // 6. Fetch question pool with progressive relaxation
+    // Determine which difficulties to fetch based on recommendation
+    const targetDifficulties: string[] = (target_difficulty && target_difficulty !== 'mixed')
+      ? [target_difficulty]
+      : ["easy", "medium", "hard"];
+
     const weakSectionIds = skillMemory
       .filter((s: any) => s.skill_score < 60)
       .map((s: any) => s.section_id);
 
-    const allSectionIds = sections.map((s: any) => String(s.id));
+    // If a specific section is targeted, restrict to that section only
+    const allSectionIds = target_section_id
+      ? [String(target_section_id)]
+      : sections.map((s: any) => String(s.id));
+
+    console.log(`[assemble-smart] target_difficulty=${target_difficulty || 'mixed'}, target_section_id=${target_section_id || 'all'}, recommendation_type=${recommendation_type || 'none'}`);
 
     async function buildPool(excludeIds: Set<string>) {
       const p: any[] = [];
       const seen = new Set<string>();
 
-      // First: weak sections
-      if (weakSectionIds.length > 0) {
-        for (const diff of ["easy", "medium", "hard"]) {
+      // If targeting a specific section, skip weak-section priority pass
+      const shouldPrioritizeWeak = !target_section_id && weakSectionIds.length > 0;
+
+      // First: weak sections (only if not targeting a specific section)
+      if (shouldPrioritizeWeak) {
+        for (const diff of targetDifficulties) {
           const { data } = await admin
             .from("questions")
             .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
@@ -227,8 +247,8 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Then: all sections
-      for (const diff of ["easy", "medium", "hard"]) {
+      // Then: target sections with target difficulties
+      for (const diff of targetDifficulties) {
         const { data, error: qErr } = await admin
           .from("questions")
           .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
@@ -336,7 +356,10 @@ Deno.serve(async (req) => {
     };
 
     // 10. Create session
-    const timeLimitSec = Math.max(1200, max_questions * 90);
+    // Use explicit time limit from recommendation, or calculate from max_questions
+    const timeLimitSec = time_limit_override_sec
+      ? Math.max(300, time_limit_override_sec)
+      : Math.max(1200, max_questions * 90);
 
     const examSnapshot = {
       template: {
@@ -405,6 +428,12 @@ Deno.serve(async (req) => {
         max_questions,
         pool_size: clientPool.length,
         points_deducted: isDiamond ? 0 : pointsCost,
+        time_limit_sec: timeLimitSec,
+        applied_filters: {
+          target_difficulty: target_difficulty || 'mixed',
+          target_section_id: target_section_id || null,
+          recommendation_type: recommendation_type || null,
+        },
         // Smart training context for the client engine
         skill_memory: skillMemory,
         exam_dna: examDNA,

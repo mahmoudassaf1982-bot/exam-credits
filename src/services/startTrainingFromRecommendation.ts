@@ -1,24 +1,46 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { RecommendationRow } from '@/hooks/useTrainingRecommendationsRealtime';
+import type { TrainingRecommendation } from '@/services/trainingRecommendationEngine';
 
 interface StartTrainingResult {
   success: boolean;
   sessionId?: string;
   error?: string;
+  sessionConfig?: {
+    max_questions: number;
+    target_difficulty: string;
+    target_section_id?: string;
+    time_limit_sec: number;
+  };
+}
+
+/**
+ * Parse estimated duration string (e.g. "10 دقائق") to minutes.
+ */
+function parseDurationMinutes(duration: string): number {
+  const match = duration.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 15;
+}
+
+/**
+ * Derive question count from duration (approx 1.5 min per question).
+ */
+function deriveQuestionCount(durationMinutes: number): number {
+  const count = Math.round(durationMinutes / 1.5);
+  return Math.max(5, Math.min(count, 30));
 }
 
 /**
  * Start a training session directly from a recommendation.
- * Uses the existing assemble-exam pipeline.
+ * Passes the recommendation's exact parameters to the edge function.
  */
 export async function startTrainingFromRecommendation(
   recommendation: RecommendationRow
 ): Promise<StartTrainingResult> {
-  const rec = recommendation.recommendation_json;
+  const rec = recommendation.recommendation_json as TrainingRecommendation;
 
   // If already started and has a session, return existing
   if (recommendation.training_session_id && recommendation.started_at) {
-    // Check if session still exists and is active
     const { data: existing } = await supabase
       .from('exam_sessions')
       .select('id, status')
@@ -31,7 +53,6 @@ export async function startTrainingFromRecommendation(
   }
 
   // Find exam template for the student's country
-  // We need to resolve which exam template to use
   const { data: profile } = await supabase
     .from('profiles')
     .select('country_id')
@@ -70,11 +91,28 @@ export async function startTrainingFromRecommendation(
     }
   }
 
-  // Create training session via smart training pipeline
+  // Derive session parameters from recommendation
+  const durationMinutes = parseDurationMinutes(rec.estimated_duration || '15 دقائق');
+  const maxQuestions = deriveQuestionCount(durationMinutes);
+  const timeLimitSec = durationMinutes * 60;
+
+  const sessionConfig = {
+    max_questions: maxQuestions,
+    target_difficulty: rec.difficulty_level || 'mixed',
+    target_section_id: targetSectionId,
+    time_limit_sec: timeLimitSec,
+  };
+
+  // Create training session via smart training pipeline with recommendation params
   const { data, error } = await supabase.functions.invoke('assemble-adaptive-training', {
     body: {
       exam_template_id: examTemplateId,
-      max_questions: 15,
+      max_questions: maxQuestions,
+      // Recommendation-specific parameters
+      target_difficulty: rec.difficulty_level || 'mixed',
+      target_section_id: targetSectionId,
+      time_limit_override_sec: timeLimitSec,
+      recommendation_type: rec.recommendation_type,
     },
   });
 
@@ -83,6 +121,20 @@ export async function startTrainingFromRecommendation(
   }
 
   const sessionId = data.session_id;
+
+  // Consistency guard: verify the created session matches expected config
+  const actualMaxQuestions = data.max_questions;
+  const actualPoolSize = data.pool_size;
+  if (actualMaxQuestions && actualMaxQuestions !== maxQuestions) {
+    console.warn(
+      `[RecommendationConsistency] max_questions mismatch: expected=${maxQuestions}, actual=${actualMaxQuestions}`
+    );
+  }
+  if (actualPoolSize && actualPoolSize < maxQuestions) {
+    console.warn(
+      `[RecommendationConsistency] pool smaller than target: pool=${actualPoolSize}, target=${maxQuestions}`
+    );
+  }
 
   // Mark recommendation as started
   await supabase
@@ -93,5 +145,5 @@ export async function startTrainingFromRecommendation(
     } as any)
     .eq('id', recommendation.id);
 
-  return { success: true, sessionId };
+  return { success: true, sessionId, sessionConfig };
 }
