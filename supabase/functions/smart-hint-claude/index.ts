@@ -38,28 +38,39 @@ serve(async (req) => {
 
     if (sessErr || !session) return errorRes(404, "الجلسة غير موجودة");
     if (session.user_id !== user.id) return errorRes(403, "ليس لديك صلاحية");
-    if (session.status !== "in_progress") return errorRes(400, "الجلسة ليست نشطة");
+    const activeStatuses = ["in_progress", "started", "not_started"];
+    if (!activeStatuses.includes(session.status)) return errorRes(400, "الجلسة ليست نشطة");
 
-    // 2. Find the question in the session
-    const questionsJson = session.questions_json as Record<string, any[]>;
+    // 2. Find the question in the session (supports both exam and adaptive training formats)
+    const questionsJson = session.questions_json;
     let targetQuestion: any = null;
     let sectionName = "";
 
-    for (const [sectionId, questions] of Object.entries(questionsJson || {})) {
-      const found = (questions || []).find((q: any) => q.id === question_id);
-      if (found) {
-        targetQuestion = found;
-        const sections = (session.exam_snapshot as any)?.sections || [];
-        const sec = sections.find((s: any) => s.id === sectionId);
-        sectionName = sec?.name_ar || "";
-        break;
+    if (Array.isArray(questionsJson)) {
+      // Adaptive training: flat array of questions
+      targetQuestion = questionsJson.find((q: any) => q.id === question_id);
+      if (targetQuestion) {
+        sectionName = targetQuestion.section_name || targetQuestion.sectionName || "";
+      }
+    } else if (questionsJson && typeof questionsJson === "object") {
+      // Exam format: { sectionId: [questions] }
+      for (const [sectionId, questions] of Object.entries(questionsJson as Record<string, any[]>)) {
+        const found = (questions || []).find((q: any) => q.id === question_id);
+        if (found) {
+          targetQuestion = found;
+          const sections = (session.exam_snapshot as any)?.sections || [];
+          const sec = sections.find((s: any) => s.id === sectionId);
+          sectionName = sec?.name_ar || "";
+          break;
+        }
       }
     }
 
     if (!targetQuestion) return errorRes(404, "السؤال غير موجود في هذه الجلسة");
 
-    // 3. Verify difficulty = hard
-    if (targetQuestion.difficulty !== "hard") {
+    // 3. Verify difficulty = hard (skip for adaptive training where STE controls difficulty)
+    const isAdaptive = session.session_type === "adaptive_training";
+    if (!isAdaptive && targetQuestion.difficulty !== "hard") {
       return errorRes(400, "التلميح متاح فقط للأسئلة الصعبة");
     }
 
