@@ -43,6 +43,20 @@ export default function RecommendedTrainingCard({ recommendations, loading: exte
     try {
       const result = await startTrainingFromRecommendation(row);
       if (result.success && result.sessionId) {
+        // Consistency guard: log if session config differs from recommendation
+        const rec = row.recommendation_json as TrainingRecommendation;
+        if (result.sessionConfig) {
+          const cfg = result.sessionConfig;
+          const expectedDifficulty = rec.difficulty_level || 'mixed';
+          if (cfg.target_difficulty !== expectedDifficulty) {
+            console.warn(
+              `[RecommendationGuard] Difficulty mismatch: card="${expectedDifficulty}", session="${cfg.target_difficulty}"`
+            );
+          }
+          console.log(
+            `[RecommendationGuard] Session created with: questions=${cfg.max_questions}, difficulty=${cfg.target_difficulty}, time=${cfg.time_limit_sec}s`
+          );
+        }
         await refreshWallet();
         toast.success('تم بدء تدريب مخصص بناءً على نقاط ضعفك');
         navigate(`/app/exam-session/${result.sessionId}`);
