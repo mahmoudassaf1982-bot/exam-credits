@@ -356,7 +356,10 @@ Deno.serve(async (req) => {
     };
 
     // 10. Create session
-    const timeLimitSec = Math.max(1200, max_questions * 90);
+    // Use explicit time limit from recommendation, or calculate from max_questions
+    const timeLimitSec = time_limit_override_sec
+      ? Math.max(300, time_limit_override_sec)
+      : Math.max(1200, max_questions * 90);
 
     const examSnapshot = {
       template: {
