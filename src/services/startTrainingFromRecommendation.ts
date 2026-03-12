@@ -121,6 +121,17 @@ export async function startTrainingFromRecommendation(
   });
 
   if (error || data?.error) {
+    // Check for insufficient balance (402)
+    if (data?.required !== undefined && data?.current !== undefined) {
+      return {
+        success: false,
+        error: data.error || 'رصيد النقاط غير كافٍ',
+        insufficientBalance: {
+          required: data.required,
+          current: data.current,
+        },
+      };
+    }
     return { success: false, error: data?.error || 'فشل في إنشاء جلسة التدريب' };
   }
 
