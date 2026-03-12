@@ -32,6 +32,7 @@ export default function SarisCoachController({
     message: 'مرحبًا! أنا مدربك الذكي 👋',
   });
   const [entered, setEntered] = useState(false);
+  const [isWalking, setIsWalking] = useState(true);
   const [dismissed, setDismissed] = useState(false);
   const [messageVisible, setMessageVisible] = useState(false);
 
