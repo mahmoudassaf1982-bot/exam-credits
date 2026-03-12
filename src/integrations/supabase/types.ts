@@ -1462,6 +1462,42 @@ export type Database = {
         }
         Relationships: []
       }
+      student_training_cycles: {
+        Row: {
+          created_at: string
+          cycle_completed_at: string | null
+          cycle_number: number
+          cycle_started_at: string
+          exam_template_id: string
+          id: string
+          updated_at: string
+          used_question_ids: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          cycle_completed_at?: string | null
+          cycle_number?: number
+          cycle_started_at?: string
+          exam_template_id: string
+          id?: string
+          updated_at?: string
+          used_question_ids?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          cycle_completed_at?: string | null
+          cycle_number?: number
+          cycle_started_at?: string
+          exam_template_id?: string
+          id?: string
+          updated_at?: string
+          used_question_ids?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       student_training_recommendations: {
         Row: {
           completed_at: string | null
