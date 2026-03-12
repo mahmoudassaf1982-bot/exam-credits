@@ -333,6 +333,7 @@ export default function SmartQuestionFlow({
             sessionId={sessionId}
             questionId={currentQuestion.id}
             difficulty={steState.currentDifficulty}
+            isAdaptiveSession={true}
             existingHint={hintsMap[currentQuestion.id] || null}
               hintsRemaining={MAX_HINTS - hintsUsedCount}
               maxHints={MAX_HINTS}

@@ -68,8 +68,8 @@ serve(async (req) => {
 
     if (!targetQuestion) return errorRes(404, "السؤال غير موجود في هذه الجلسة");
 
-    // 3. Verify difficulty = hard (skip for adaptive training where STE controls difficulty)
-    const isAdaptive = session.session_type === "adaptive_training";
+    // 3. Verify difficulty = hard (skip for adaptive/smart training where STE controls difficulty)
+    const isAdaptive = session.session_type === "adaptive_training" || session.session_type === "smart_training";
     if (!isAdaptive && targetQuestion.difficulty !== "hard") {
       return errorRes(400, "التلميح متاح فقط للأسئلة الصعبة");
     }
