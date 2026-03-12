@@ -175,6 +175,7 @@ export default function SarisCoachController({
           >
             <SarisCoachCharacter
               gesture={entered ? action.gesture : 'idle'}
+              isWalking={isWalking}
             />
           </motion.div>
 
