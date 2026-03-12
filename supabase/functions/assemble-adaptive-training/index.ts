@@ -200,10 +200,11 @@ Deno.serve(async (req) => {
           .from("questions")
           .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
           .eq("is_approved", true)
+          .eq("status", "approved")
           .eq("country_id", template.country_id)
           .eq("difficulty", diff)
           .eq("exam_template_id", String(exam_template_id))
-          .in("section_id", weakSectionIds)
+          .in("section_id", weakSectionIds.map(String))
           .is("deleted_at", null)
           .limit(POOL_SIZE_PER_DIFFICULTY);
 
