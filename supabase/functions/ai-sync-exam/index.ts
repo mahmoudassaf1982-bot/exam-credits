@@ -30,17 +30,26 @@ interface FieldConfidence {
 interface SectionConfidence {
   name: { value: string; confidence: number };
   question_count: { value: number | null; confidence: number };
+  weight_pct?: { value: number | null; confidence: number };
+  inference_method?: "explicit" | "topic_clustering" | "ai_knowledge";
 }
 
 interface ParsedResult {
   total_questions: FieldConfidence;
   total_time_minutes: FieldConfidence;
   sections: SectionConfidence[];
+  overall_difficulty_mix?: {
+    easy: { value: number; confidence: number };
+    medium: { value: number; confidence: number };
+    hard: { value: number; confidence: number };
+  };
   parsing_status: "complete" | "incomplete_structure" | "inconsistent_data";
   inconsistency_notes: string[];
   sources: { name: string; url: string; description: string; evidence_snippet: string }[];
   raw_topics_by_section?: Record<string, string[]>;
   difficulty_mix_by_section?: Record<string, { easy: number; medium: number; hard: number }>;
+  question_families_by_section?: Record<string, string[]>;
+  analysis_summary?: string;
 }
 
 async function searchTavily(query: string, apiKey: string): Promise<TavilyResult[]> {
@@ -166,7 +175,7 @@ serve(async (req) => {
       );
     }
 
-    // ─── ACTION: fetch (default) — Tavily research + two-stage AI parsing ───
+    // ─── ACTION: fetch (default) — Tavily research + uploaded samples + AI parsing ───
     const { data: exam, error: examErr } = await supabase
       .from("exam_templates")
       .select("*, countries:country_id(name_ar, name)")
@@ -196,6 +205,23 @@ serve(async (req) => {
     };
 
     console.log(`[ai-sync-exam] Researching: ${examName} (${countryName})`);
+
+    // ─── Step 0: Fetch uploaded exam samples (extracted text from PDFs) ───
+    const { data: uploadedSources } = await supabase
+      .from("exam_profile_sources")
+      .select("file_name, extracted_text, notes")
+      .eq("exam_template_id", examTemplateId)
+      .not("extracted_text", "is", null);
+
+    let uploadedSamplesContext = "";
+    const uploadedSamplesUsed = uploadedSources && uploadedSources.length > 0;
+    if (uploadedSamplesUsed) {
+      uploadedSamplesContext = uploadedSources!.map((src, i) => {
+        const text = (src.extracted_text || "").substring(0, 8000); // cap per source
+        return `--- Uploaded Sample ${i + 1}: ${src.file_name} ---\n${src.notes ? `Admin Notes: ${src.notes}\n` : ""}Content:\n${text}\n`;
+      }).join("\n");
+      console.log(`[ai-sync-exam] Found ${uploadedSources!.length} uploaded exam samples with extracted text`);
+    }
 
     // ─── Step 1: Tavily web search ───
     const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
@@ -232,45 +258,87 @@ serve(async (req) => {
       console.warn("[ai-sync-exam] TAVILY_API_KEY not set, using AI-only mode");
     }
 
-    // ─── Step 2 — STAGE A: Structured fact extraction with confidence ───
+    // ─── Step 2 — STAGE A: Deep structure extraction with confidence ───
     const tavilyContext = tavilyUsed
-      ? tavilyResults.map((r, i) => `--- Source ${i + 1} ---\nTitle: ${r.title}\nURL: ${r.url}\nContent:\n${r.content}\n`).join("\n")
+      ? tavilyResults.map((r, i) => `--- Web Source ${i + 1} ---\nTitle: ${r.title}\nURL: ${r.url}\nContent:\n${r.content}\n`).join("\n")
       : "";
 
-    const stageAPrompt = `You are an expert exam structure analyst. Your ONLY job is to extract EXPLICIT NUMERIC FACTS from the provided source texts about the exam "${examName}" in ${countryName}${countryNameEn ? ` (${countryNameEn})` : ""}.
+    const hasAnySources = tavilyUsed || uploadedSamplesUsed;
 
-${tavilyUsed ? `Here are real web search results. Extract facts ONLY from these sources. Do NOT invent any information.\n\n${tavilyContext}` : "Use your internal knowledge. Mark all confidence scores as 0.5 or lower since this is not from verified sources."}
+    const stageAPrompt = `You are an expert exam structure analyst and psychometric researcher. Your job is to produce a COMPREHENSIVE structural analysis of the exam "${examName}" in ${countryName}${countryNameEn ? ` (${countryNameEn})` : ""}.
+
+You have TWO types of source material:
+
+${tavilyUsed ? `═══ WEB RESEARCH SOURCES ═══\nThese are web search results about the exam structure. Use them for official facts (total questions, duration, section names, weights).\n\n${tavilyContext}` : "No web research sources available."}
+
+${uploadedSamplesUsed ? `═══ UPLOADED EXAM SAMPLES ═══\nThese are actual exam papers or sample questions uploaded by the admin. Use them to:\n- INFER sections by clustering question topics if sections are not explicitly stated\n- Identify the main topics inside each section\n- Estimate difficulty distribution by analyzing question complexity\n- Identify question families (e.g., multiple choice, analogy, calculation, comprehension)\n\n${uploadedSamplesContext}` : "No uploaded exam samples available."}
+
+${!hasAnySources ? "No external sources available. Use your internal knowledge about this exam. Mark ALL confidence scores as 0.5 or lower." : ""}
+
+ANALYSIS INSTRUCTIONS:
+
+1. SECTIONS IDENTIFICATION (Priority Order):
+   a. If official sources EXPLICITLY name the sections → use them (confidence 0.8-1.0)
+   b. If NOT explicitly stated but uploaded samples exist → INFER sections by clustering the question topics you observe. Group related questions into logical sections (e.g., "Algebra", "Geometry", "Reading Comprehension"). Mark confidence 0.5-0.7 and set inference_method = "topic_clustering"
+   c. If neither → use your knowledge with confidence ≤ 0.5 and inference_method = "ai_knowledge"
+
+2. TOPICS PER SECTION:
+   - List the main topics observed or mentioned for each section
+   - If from uploaded samples: scan actual questions and identify recurring subject areas
+   - If from web sources: extract any topic lists mentioned
+
+3. SECTION WEIGHTS:
+   - Calculate each section's weight as a percentage of total questions
+   - If explicit counts exist: weight = section_count / total_count * 100
+   - If inferred from samples: estimate based on question frequency in the samples
+
+4. DIFFICULTY DISTRIBUTION:
+   a. Overall exam difficulty mix (easy / medium / hard as percentages summing to 100)
+   b. Per-section difficulty mix if inferable
+   - From uploaded samples: classify each question's apparent complexity
+   - From web sources: use any stated difficulty breakdowns
+   - If not determinable: use default { easy: 30, medium: 50, hard: 20 } with low confidence
+
+5. QUESTION FAMILIES:
+   - Identify the types/families of questions present (e.g., "direct_calculation", "word_problem", "analogy", "reading_comprehension", "grammar", "vocabulary")
+   - Map each family to its section
 
 CRITICAL RULES:
-1. Look for EXPLICIT numbers mentioned in the text: "85 questions", "60 minutes", "4 sections", etc.
-2. If a number is explicitly stated in an official source, confidence = 0.9-1.0
-3. If inferred or estimated, confidence = 0.3-0.6
-4. If NOT found at all, use null for value and confidence = 0.0
-5. For sections: only list sections that are EXPLICITLY named in the sources
-6. If sections are not explicitly detailed but total questions IS stated, set sections confidence low and note the gap
-7. NEVER invent section names or counts that aren't in the sources
-8. If total_questions is 85 from the source, do NOT return 20 — return 85
+- If a number is EXPLICITLY stated in an official source, confidence = 0.9-1.0
+- If INFERRED from sample analysis, confidence = 0.5-0.7
+- If NOT found at all, use null for value and confidence = 0.0
+- NEVER invent facts. Clearly distinguish between "found in source" vs "inferred from samples" vs "estimated"
+- If total_questions is 85 from the source, do NOT return 20 — return 85
 
 Return ONLY this JSON (no extra text):
 {
-  "total_questions": { "value": <number|null>, "confidence": <0.0-1.0>, "source_snippet": "<exact text from source>" },
+  "total_questions": { "value": <number|null>, "confidence": <0.0-1.0>, "source_snippet": "<exact text or 'inferred from N sample questions'>" },
   "total_time_minutes": { "value": <number|null>, "confidence": <0.0-1.0>, "source_snippet": "<exact text from source>" },
   "sections": [
     {
       "name": { "value": "<section name>", "confidence": <0.0-1.0> },
-      "question_count": { "value": <number|null>, "confidence": <0.0-1.0> }
+      "question_count": { "value": <number|null>, "confidence": <0.0-1.0> },
+      "weight_pct": { "value": <number|null>, "confidence": <0.0-1.0> },
+      "inference_method": "explicit" | "topic_clustering" | "ai_knowledge"
     }
   ],
+  "overall_difficulty_mix": {
+    "easy": { "value": <number>, "confidence": <0.0-1.0> },
+    "medium": { "value": <number>, "confidence": <0.0-1.0> },
+    "hard": { "value": <number>, "confidence": <0.0-1.0> }
+  },
+  "raw_topics_by_section": { "<section_name>": ["topic1", "topic2", "topic3"] },
+  "difficulty_mix_by_section": { "<section_name>": { "easy": <number>, "medium": <number>, "hard": <number> } },
+  "question_families_by_section": { "<section_name>": ["direct_calculation", "word_problem"] },
   "parsing_status": "complete" | "incomplete_structure" | "inconsistent_data",
   "inconsistency_notes": ["<any issues found>"],
   "sources": [
-    { "name": "<source title>", "url": "<url>", "description": "<brief>", "evidence_snippet": "<key quote>" }
+    { "name": "<source title>", "url": "<url or 'uploaded_sample'>", "description": "<brief>", "evidence_snippet": "<key quote>" }
   ],
-  "raw_topics_by_section": { "<section_name>": ["topic1", "topic2"] },
-  "difficulty_mix_by_section": { "<section_name>": { "easy": 30, "medium": 50, "hard": 20 } }
+  "analysis_summary": "<2-3 sentence summary of what was found and how sections were determined>"
 }`;
 
-    console.log("[ai-sync-exam] Stage A: Fact extraction...");
+    console.log("[ai-sync-exam] Stage A: Deep structure extraction...");
     const stageAResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -280,7 +348,7 @@ Return ONLY this JSON (no extra text):
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: "You extract structured facts from text. Return ONLY valid JSON. Prioritize explicit numeric facts. Never invent data." },
+          { role: "system", content: "You are an expert exam structure analyst. Return ONLY valid JSON. Prioritize explicit facts from official sources. When official sources lack section details, infer sections by clustering question topics from uploaded samples. Never invent data." },
           { role: "user", content: stageAPrompt },
         ],
       }),
@@ -345,16 +413,42 @@ Return ONLY this JSON (no extra text):
       );
     }
 
+    // Compute overall difficulty mix from AI output or default
+    const overallDiffMix = parsed.overall_difficulty_mix
+      ? {
+          easy: parsed.overall_difficulty_mix.easy?.value ?? 30,
+          medium: parsed.overall_difficulty_mix.medium?.value ?? 50,
+          hard: parsed.overall_difficulty_mix.hard?.value ?? 20,
+        }
+      : { easy: 30, medium: 50, hard: 20 };
+
+    // Normalize overall difficulty to sum to 100
+    const diffSum = overallDiffMix.easy + overallDiffMix.medium + overallDiffMix.hard;
+    if (diffSum !== 100 && diffSum > 0) {
+      const scale = 100 / diffSum;
+      overallDiffMix.easy = Math.round(overallDiffMix.easy * scale);
+      overallDiffMix.medium = Math.round(overallDiffMix.medium * scale);
+      overallDiffMix.hard = 100 - overallDiffMix.easy - overallDiffMix.medium;
+    }
+
     // Build proposals from extracted facts
     const proposals = sections.length > 0
       ? sections.map((s, i) => {
           const sectionName = s.name?.value || `قسم ${i + 1}`;
           const topics = parsed.raw_topics_by_section?.[sectionName] || [];
-          const diffMix = parsed.difficulty_mix_by_section?.[sectionName] || { easy: 30, medium: 50, hard: 20 };
-          // If section count is null/0 but total is known and we have N sections, distribute evenly
+          const diffMix = parsed.difficulty_mix_by_section?.[sectionName] || overallDiffMix;
+          const questionFamilies = parsed.question_families_by_section?.[sectionName] || [];
+          const weightPct = s.weight_pct?.value ?? null;
+          const inferenceMethod = s.inference_method || "ai_knowledge";
+          // If section count is null/0 but total is known and we have N sections
           let qCount = s.question_count?.value;
           if ((!qCount || qCount <= 0) && totalQ && sections.length > 0) {
-            qCount = Math.round(totalQ / sections.length);
+            // Use weight if available, otherwise distribute evenly
+            if (weightPct && weightPct > 0) {
+              qCount = Math.round(totalQ * weightPct / 100);
+            } else {
+              qCount = Math.round(totalQ / sections.length);
+            }
           }
           return {
             name_ar: sectionName,
@@ -363,6 +457,9 @@ Return ONLY this JSON (no extra text):
             order: i + 1,
             difficulty_mix_json: diffMix,
             topic_filter_json: topics,
+            weight_pct: weightPct,
+            inference_method: inferenceMethod,
+            question_families: questionFamilies,
           };
         })
       : totalQ
@@ -371,8 +468,11 @@ Return ONLY this JSON (no extra text):
             question_count: totalQ,
             time_limit_sec: totalT ? totalT * 60 : null,
             order: 1,
-            difficulty_mix_json: { easy: 30, medium: 50, hard: 20 },
+            difficulty_mix_json: overallDiffMix,
             topic_filter_json: [],
+            weight_pct: 100,
+            inference_method: "ai_knowledge" as const,
+            question_families: [],
           }]
         : [];
 
@@ -396,15 +496,18 @@ Return ONLY this JSON (no extra text):
         }
         sourcesWithEvidence.push(evidence);
 
-        await supabase
-          .from("trusted_sources")
-          .upsert({
-            exam_template_id: examTemplateId,
-            source_name: src.name,
-            source_url: src.url || null,
-            description: src.description || null,
-            last_synced_at: new Date().toISOString(),
-          }, { onConflict: "exam_template_id,source_name", ignoreDuplicates: false });
+        // Only upsert web sources, not uploaded samples
+        if (src.url && src.url !== "uploaded_sample") {
+          await supabase
+            .from("trusted_sources")
+            .upsert({
+              exam_template_id: examTemplateId,
+              source_name: src.name,
+              source_url: src.url || null,
+              description: src.description || null,
+              last_synced_at: new Date().toISOString(),
+            }, { onConflict: "exam_template_id,source_name", ignoreDuplicates: false });
+        }
       }
     }
 
@@ -415,11 +518,15 @@ Return ONLY this JSON (no extra text):
       details: {
         tavily_used: tavilyUsed,
         tavily_results_count: tavilyResults.length,
+        uploaded_samples_used: uploadedSamplesUsed,
+        uploaded_samples_count: uploadedSources?.length || 0,
         proposals_count: proposals.length,
         suggested_total_questions: totalQ,
         suggested_total_time_minutes: totalT,
+        overall_difficulty_mix: overallDiffMix,
         parsing_status: parsingStatus,
         inconsistency_notes: inconsistencyNotes,
+        analysis_summary: parsed.analysis_summary || null,
       },
       performed_by: performedBy,
     });
@@ -430,20 +537,31 @@ Return ONLY this JSON (no extra text):
         proposals,
         totalQuestions: totalQ,
         totalTimeMinutes: totalT,
+        overallDifficultyMix: overallDiffMix,
         tavilyUsed,
+        uploadedSamplesUsed,
         sources: sourcesWithEvidence,
         storedStandards,
         confidence: {
           total_questions: parsed.total_questions?.confidence ?? 0,
           total_time: parsed.total_time_minutes?.confidence ?? 0,
+          overall_difficulty: parsed.overall_difficulty_mix ? {
+            easy: parsed.overall_difficulty_mix.easy?.confidence ?? 0,
+            medium: parsed.overall_difficulty_mix.medium?.confidence ?? 0,
+            hard: parsed.overall_difficulty_mix.hard?.confidence ?? 0,
+          } : null,
           sections: parsed.sections?.map(s => ({
             name: s.name?.value,
             name_confidence: s.name?.confidence ?? 0,
             count_confidence: s.question_count?.confidence ?? 0,
+            weight_confidence: s.weight_pct?.confidence ?? 0,
+            inference_method: s.inference_method || "ai_knowledge",
           })) || [],
         },
+        questionFamiliesBySection: parsed.question_families_by_section || {},
         parsingStatus,
         inconsistencyNotes,
+        analysisSummary: parsed.analysis_summary || null,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
