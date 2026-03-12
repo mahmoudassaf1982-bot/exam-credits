@@ -15,7 +15,7 @@ export default function AdaptiveTrainingSession() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const { user, refreshWallet } = useAuth();
-  const { setSessionActive, setSessionType, setExamContext } = useSmartCoach();
+  const { setSessionActive, setSessionType, setExamContext, setSessionId } = useSmartCoach();
 
   const [loading, setLoading] = useState(true);
 
@@ -23,12 +23,14 @@ export default function AdaptiveTrainingSession() {
   useEffect(() => {
     setSessionActive(true);
     setSessionType('adaptive_training');
+    if (sessionId) setSessionId(sessionId);
     return () => {
       setSessionActive(false);
       setSessionType('');
       setExamContext({});
+      setSessionId(null);
     };
-  }, [setSessionActive, setSessionType, setExamContext]);
+  }, [setSessionActive, setSessionType, setExamContext, setSessionId, sessionId]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [questionPool, setQuestionPool] = useState<STEQuestion[]>([]);
