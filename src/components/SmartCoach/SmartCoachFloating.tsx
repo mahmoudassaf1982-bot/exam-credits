@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, X, Lightbulb, MessageCircle, Minimize2, HelpCircle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,14 +21,29 @@ const TRAINING_POSITION = { bottom: 24, left: 16 };
 
 const WANDER_INTERVAL = 12_000;
 
+// Training-specific quick actions (shown during active session or intervention)
+const TRAINING_QUICK_ACTIONS = [
+  'أعطني تلميحاً',
+  'اشرح المفهوم',
+  'لماذا إجابتي خاطئة؟',
+];
+
+// Generic quick actions (shown outside training)
+const GENERIC_QUICK_ACTIONS = [
+  'أين أجد التدريب الذكي؟',
+  'كيف أحسن درجتي؟',
+  'اشرح لي الاختبار',
+];
+
 export default function SmartCoachFloating() {
   const {
     visualState, setVisualState,
     chatOpen, setChatOpen,
     messages, addMessage, updateLastCoachMessage,
     currentPage, sessionActive, sessionType, currentQuestion,
-    examContext,
+    examContext, sessionId,
     intervention, dismissIntervention,
+    isInterventionChat,
     visible, showIntro, setShowIntro,
     errorStreak, recentErrors,
   } = useSmartCoach();
@@ -87,12 +102,11 @@ export default function SmartCoachFloating() {
       currentPage,
       sessionActive,
       sessionType,
-      // Full exam context
+      sessionId,
       exam_template_id: examContext.exam_template_id,
       exam_name: examContext.exam_name,
       country_id: examContext.country_id,
       session_mode: examContext.session_mode || sessionType,
-      // Current question with full details
       currentQuestion: currentQuestion ? {
         id: currentQuestion.id,
         text_ar: currentQuestion.text_ar,
@@ -105,7 +119,6 @@ export default function SmartCoachFloating() {
         student_answer: currentQuestion.student_answer,
         explanation: currentQuestion.explanation,
       } : null,
-      // Student error tracking
       student_error_count: errorStreak,
       recent_error_topics: recentErrors.slice(-5).map(e => ({
         topic: e.topic,
@@ -114,14 +127,11 @@ export default function SmartCoachFloating() {
     };
   };
 
-  const handleSend = async () => {
-    const msg = input.trim();
+  const sendMessage = async (msg: string) => {
     if (!msg || loading) return;
-
-    setInput('');
+    
     addMessage({ role: 'user', content: msg });
     setLoading(true);
-
     addMessage({ role: 'coach', content: 'لحظة واحدة…' });
 
     try {
@@ -147,6 +157,13 @@ export default function SmartCoachFloating() {
     }
   };
 
+  const handleSend = async () => {
+    const msg = input.trim();
+    if (!msg || loading) return;
+    setInput('');
+    await sendMessage(msg);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -168,16 +185,34 @@ export default function SmartCoachFloating() {
       dismissIntervention();
       return;
     }
-    // Open chat with a contextual message
+
+    // Build a contextual first message from the intervention data
+    const interventionData = intervention;
     dismissIntervention();
+    
+    // Clear old messages and open fresh contextual chat
+    // (The context provider's isInterventionChat flag is set via the intervention flow)
     setChatOpen(true);
+
+    // Inject a contextual coach greeting based on the intervention
+    const contextGreeting = interventionData?.detectedSection
+      ? `لاحظت أنك تواجه صعوبة في قسم "${interventionData.detectedSection}"${interventionData.detectedTopic ? ` — موضوع "${interventionData.detectedTopic}"` : ''}. كيف أقدر أساعدك؟`
+      : `لاحظت أنك أخطأت في عدة أسئلة متتالية. أنا هنا لمساعدتك — اختر أحد الخيارات أدناه أو اكتب سؤالك.`;
+
+    // Add coach greeting first, then auto-send the user's action
+    addMessage({ role: 'coach', content: contextGreeting });
+
     if (action === 'hint') {
-      setInput('أعطني تلميح للسؤال الحالي');
-      setTimeout(() => handleSend(), 100);
+      setTimeout(() => sendMessage('أعطني تلميح للسؤال الحالي'), 300);
     } else if (action === 'retry_similar') {
-      setInput('اشرح لي المفهوم الذي أخطأت فيه');
-      setTimeout(() => handleSend(), 100);
+      setTimeout(() => sendMessage('اشرح لي المفهوم الذي أخطأت فيه'), 300);
     }
+  };
+
+  // Determine which quick actions to show
+  const getQuickActions = () => {
+    if (sessionActive) return TRAINING_QUICK_ACTIONS;
+    return GENERIC_QUICK_ACTIONS;
   };
 
   // Idle: gentle horizontal sway + float
@@ -233,7 +268,6 @@ export default function SmartCoachFloating() {
                     <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
                     <h3 className="font-bold text-foreground">SARIS — المدرب الذكي</h3>
                   </div>
-                  {/* Intervention title */}
                   {intervention.detectedSection && (
                     <p className="text-xs font-semibold text-primary">
                       {intervention.errorCount
@@ -242,11 +276,9 @@ export default function SmartCoachFloating() {
                       }
                     </p>
                   )}
-                  {/* Intervention body */}
                   <p className="text-sm text-foreground leading-relaxed">
                     {intervention.message}
                   </p>
-                  {/* Action buttons */}
                   <div className="flex gap-2 pt-1 flex-wrap">
                     {intervention.suggestedActions?.includes('retry_similar') && (
                       <Button size="sm" variant="outline" onClick={() => handleInterventionAction('retry_similar')}>
@@ -341,13 +373,13 @@ export default function SmartCoachFloating() {
                 <div className="text-center py-8">
                   <img src={coachImage} alt="SARIS" className="h-14 w-14 mx-auto mb-3 opacity-60" />
                   <p className="text-xs text-muted-foreground">
-                    مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟
+                    {sessionActive
+                      ? 'أنا هنا لمساعدتك أثناء التدريب. اسألني عن أي سؤال!'
+                      : 'مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟'
+                    }
                   </p>
                   <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-                    {(sessionActive
-                      ? ['اشرح لي هذا السؤال', 'أعطني تلميح', 'لماذا هذه الإجابة خاطئة؟']
-                      : ['أين أجد التدريب الذكي؟', 'كيف أحسن درجتي؟', 'اشرح لي الاختبار']
-                    ).map(q => (
+                    {getQuickActions().map(q => (
                       <button
                         key={q}
                         onClick={() => setInput(q)}
@@ -385,6 +417,21 @@ export default function SmartCoachFloating() {
               )}
               <div ref={chatEndRef} />
             </div>
+
+            {/* Quick actions bar during training (shown when messages exist) */}
+            {sessionActive && messages.length > 0 && !loading && (
+              <div className="px-3 pb-1 flex flex-wrap gap-1 border-t border-border pt-2">
+                {TRAINING_QUICK_ACTIONS.map(q => (
+                  <button
+                    key={q}
+                    onClick={() => { setInput(q); }}
+                    className="text-[10px] px-2 py-1 rounded-full bg-muted hover:bg-accent text-foreground transition-colors"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Input */}
             <div className="border-t border-border p-3">
