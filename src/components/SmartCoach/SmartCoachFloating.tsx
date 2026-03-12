@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, X, Lightbulb, MessageCircle, Minimize2 } from 'lucide-react';
+import { Send, X, Lightbulb, MessageCircle, Minimize2, HelpCircle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSmartCoach } from './SmartCoachContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,8 +27,10 @@ export default function SmartCoachFloating() {
     chatOpen, setChatOpen,
     messages, addMessage, updateLastCoachMessage,
     currentPage, sessionActive, sessionType, currentQuestion,
+    examContext,
     intervention, dismissIntervention,
     visible, showIntro, setShowIntro,
+    errorStreak, recentErrors,
   } = useSmartCoach();
   const { user } = useAuth();
 
@@ -56,7 +58,7 @@ export default function SmartCoachFloating() {
   useEffect(() => {
     if (!visible) return;
     const scheduleNextBlink = () => {
-      const delay = 3000 + Math.random() * 4000; // 3-7s between blinks
+      const delay = 3000 + Math.random() * 4000;
       return setTimeout(() => {
         setBlinking(true);
         setTimeout(() => setBlinking(false), 200);
@@ -79,6 +81,39 @@ export default function SmartCoachFloating() {
 
   if (!visible || !user) return null;
 
+  // Build full context payload for edge function
+  const buildFullContext = () => {
+    return {
+      currentPage,
+      sessionActive,
+      sessionType,
+      // Full exam context
+      exam_template_id: examContext.exam_template_id,
+      exam_name: examContext.exam_name,
+      country_id: examContext.country_id,
+      session_mode: examContext.session_mode || sessionType,
+      // Current question with full details
+      currentQuestion: currentQuestion ? {
+        id: currentQuestion.id,
+        text_ar: currentQuestion.text_ar,
+        topic: currentQuestion.topic,
+        difficulty: currentQuestion.difficulty,
+        section_id: currentQuestion.section_id,
+        section_name: currentQuestion.section_name,
+        options: currentQuestion.options,
+        correct_answer: currentQuestion.correct_answer,
+        student_answer: currentQuestion.student_answer,
+        explanation: currentQuestion.explanation,
+      } : null,
+      // Student error tracking
+      student_error_count: errorStreak,
+      recent_error_topics: recentErrors.slice(-5).map(e => ({
+        topic: e.topic,
+        section: e.sectionName,
+      })),
+    };
+  };
+
   const handleSend = async () => {
     const msg = input.trim();
     if (!msg || loading) return;
@@ -87,8 +122,6 @@ export default function SmartCoachFloating() {
     addMessage({ role: 'user', content: msg });
     setLoading(true);
 
-    // Show a seamless waiting message (never technical errors)
-    const waitingMsgId = Date.now();
     addMessage({ role: 'coach', content: 'لحظة واحدة…' });
 
     try {
@@ -96,20 +129,10 @@ export default function SmartCoachFloating() {
         body: {
           message: msg,
           conversation_history: messages.slice(-10),
-          context: {
-            currentPage,
-            sessionActive,
-            sessionType,
-            currentQuestion: currentQuestion ? {
-              topic: currentQuestion.topic,
-              difficulty: currentQuestion.difficulty,
-              section: currentQuestion.section_name,
-            } : null,
-          },
+          context: buildFullContext(),
         },
       });
 
-      // Replace the waiting message with actual reply
       const reply = data?.reply || 'عذراً، لم أتمكن من الإجابة الآن. حاول مرة أخرى.';
       updateLastCoachMessage(reply, data?.mode);
 
@@ -137,6 +160,23 @@ export default function SmartCoachFloating() {
       setChatOpen(false);
     } else {
       setChatOpen(true);
+    }
+  };
+
+  const handleInterventionAction = (action: 'retry_similar' | 'hint' | 'continue') => {
+    if (action === 'continue') {
+      dismissIntervention();
+      return;
+    }
+    // Open chat with a contextual message
+    dismissIntervention();
+    setChatOpen(true);
+    if (action === 'hint') {
+      setInput('أعطني تلميح للسؤال الحالي');
+      setTimeout(() => handleSend(), 100);
+    } else if (action === 'retry_similar') {
+      setInput('اشرح لي المفهوم الذي أخطأت فيه');
+      setTimeout(() => handleSend(), 100);
     }
   };
 
@@ -193,14 +233,34 @@ export default function SmartCoachFloating() {
                     <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
                     <h3 className="font-bold text-foreground">SARIS — المدرب الذكي</h3>
                   </div>
+                  {/* Intervention title */}
+                  {intervention.detectedSection && (
+                    <p className="text-xs font-semibold text-primary">
+                      {intervention.errorCount
+                        ? `لاحظنا أنك أخطأت في ${intervention.errorCount} أسئلة من قسم "${intervention.detectedSection}"`
+                        : `لاحظنا صعوبة في قسم "${intervention.detectedSection}"`
+                      }
+                    </p>
+                  )}
+                  {/* Intervention body */}
                   <p className="text-sm text-foreground leading-relaxed">
                     {intervention.message}
                   </p>
-                  <div className="flex gap-2 pt-1">
-                    <Button size="sm" onClick={dismissIntervention} className="gradient-gold text-gold-foreground">
-                      فهمت
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={dismissIntervention}>
+                  {/* Action buttons */}
+                  <div className="flex gap-2 pt-1 flex-wrap">
+                    {intervention.suggestedActions?.includes('retry_similar') && (
+                      <Button size="sm" variant="outline" onClick={() => handleInterventionAction('retry_similar')}>
+                        <RotateCcw className="h-3 w-3 ml-1" />
+                        اشرح المفهوم
+                      </Button>
+                    )}
+                    {intervention.suggestedActions?.includes('hint') && (
+                      <Button size="sm" onClick={() => handleInterventionAction('hint')} className="gradient-gold text-gold-foreground">
+                        <HelpCircle className="h-3 w-3 ml-1" />
+                        أعطني تلميح
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => handleInterventionAction('continue')}>
                       أكمل التدريب
                     </Button>
                   </div>
@@ -262,7 +322,12 @@ export default function SmartCoachFloating() {
                 <img src={coachImage} alt="SARIS" className="h-8 w-8" />
                 <div>
                   <h3 className="text-sm font-bold text-foreground">SARIS — المدرب الذكي</h3>
-                  <p className="text-[10px] text-muted-foreground">جاهز لمساعدتك</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {sessionActive && examContext.exam_name
+                      ? `${examContext.exam_name} — تدريب ذكي`
+                      : 'جاهز لمساعدتك'
+                    }
+                  </p>
                 </div>
               </div>
               <button onClick={() => setChatOpen(false)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
@@ -279,7 +344,10 @@ export default function SmartCoachFloating() {
                     مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟
                   </p>
                   <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-                    {['أين أجد التدريب الذكي؟', 'كيف أحسن درجتي؟', 'اشرح لي الاختبار'].map(q => (
+                    {(sessionActive
+                      ? ['اشرح لي هذا السؤال', 'أعطني تلميح', 'لماذا هذه الإجابة خاطئة؟']
+                      : ['أين أجد التدريب الذكي؟', 'كيف أحسن درجتي؟', 'اشرح لي الاختبار']
+                    ).map(q => (
                       <button
                         key={q}
                         onClick={() => setInput(q)}
@@ -406,7 +474,6 @@ export default function SmartCoachFloating() {
               ease: 'easeInOut',
             }}
           >
-            {/* Character image — free silhouette, no clipping */}
             <motion.img
               src={coachImage}
               alt="SARIS — المدرب الذكي"
@@ -443,15 +510,13 @@ export default function SmartCoachFloating() {
             </motion.div>
           )}
 
-          {/* ── Unread messages badge ── */}
-          {!chatOpen && messages.length > 0 && (
+          {/* ── Chat indicator ── */}
+          {chatOpen && (
             <motion.div
-              className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive flex items-center justify-center"
-              animate={{ scale: [1, 1.15, 1] }}
+              className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-primary border-2 border-card"
+              animate={{ scale: [1, 1.3, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
-            >
-              <MessageCircle className="h-2.5 w-2.5 text-destructive-foreground" />
-            </motion.div>
+            />
           )}
         </motion.button>
       </motion.div>

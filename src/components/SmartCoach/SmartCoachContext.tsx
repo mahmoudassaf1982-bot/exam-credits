@@ -11,9 +11,34 @@ interface ChatMessage {
   timestamp: number;
 }
 
-interface InterventionData {
+export interface InterventionData {
   message: string;
   type: 'weakness_streak' | 'slow_speed' | 'improvement' | 'ability_shift';
+  detectedConcept?: string;
+  detectedSection?: string;
+  detectedTopic?: string;
+  errorCount?: number;
+  suggestedActions?: ('retry_similar' | 'hint' | 'continue')[];
+}
+
+export interface ExamSessionContext {
+  exam_template_id?: string;
+  exam_name?: string;
+  country_id?: string;
+  session_mode?: 'smart_training' | 'practice' | 'simulation';
+}
+
+export interface QuestionContext {
+  id?: string;
+  text_ar?: string;
+  topic?: string;
+  difficulty?: string;
+  section_id?: string;
+  section_name?: string;
+  options?: { id: string; text: string }[];
+  correct_answer?: string;
+  student_answer?: string;
+  explanation?: string;
 }
 
 interface SmartCoachContextType {
@@ -36,8 +61,12 @@ interface SmartCoachContextType {
   setSessionActive: (active: boolean) => void;
   sessionType: string;
   setSessionType: (type: string) => void;
-  currentQuestion: any;
-  setCurrentQuestion: (q: any) => void;
+  currentQuestion: QuestionContext | null;
+  setCurrentQuestion: (q: QuestionContext | null) => void;
+  
+  // Exam session context
+  examContext: ExamSessionContext;
+  setExamContext: (ctx: ExamSessionContext) => void;
   
   // Interventions
   intervention: InterventionData | null;
@@ -47,7 +76,8 @@ interface SmartCoachContextType {
   
   // Error streak tracking
   errorStreak: number;
-  recordAnswerResult: (isCorrect: boolean) => void;
+  recentErrors: { topic?: string; sectionId?: string; sectionName?: string; concept?: string }[];
+  recordAnswerResult: (isCorrect: boolean, meta?: { topic?: string; sectionId?: string; sectionName?: string }) => void;
   resetErrorStreak: () => void;
   
   // Visibility
@@ -61,11 +91,57 @@ interface SmartCoachContextType {
 
 const SmartCoachContext = createContext<SmartCoachContextType | null>(null);
 
-const STREAK_ATTENTION_MESSAGES = [
-  'لاحظت أنك تواجه بعض الصعوبة… اضغط عليّ إذا احتجت مساعدة 💡',
-  'يبدو أن هذا الجزء يحتاج تركيزاً أكبر. أنا هنا لمساعدتك! 💡',
-  'لا تقلق، كل طالب يمر بلحظات صعبة. اضغط عليّ وسأساعدك في التفكير 💡',
-];
+/** Detect the dominant concept/topic from recent errors */
+function detectErrorPattern(errors: { topic?: string; sectionId?: string; sectionName?: string }[]): {
+  concept?: string; section?: string; topic?: string;
+} {
+  if (errors.length === 0) return {};
+  
+  // Count topic frequency
+  const topicCounts: Record<string, number> = {};
+  const sectionCounts: Record<string, { count: number; name?: string }> = {};
+  
+  for (const e of errors) {
+    if (e.topic) topicCounts[e.topic] = (topicCounts[e.topic] || 0) + 1;
+    if (e.sectionId) {
+      if (!sectionCounts[e.sectionId]) sectionCounts[e.sectionId] = { count: 0, name: e.sectionName };
+      sectionCounts[e.sectionId].count++;
+    }
+  }
+  
+  // Find most frequent
+  let topTopic: string | undefined;
+  let topTopicCount = 0;
+  for (const [t, c] of Object.entries(topicCounts)) {
+    if (c > topTopicCount) { topTopic = t; topTopicCount = c; }
+  }
+  
+  let topSection: string | undefined;
+  let topSectionName: string | undefined;
+  let topSectionCount = 0;
+  for (const [s, info] of Object.entries(sectionCounts)) {
+    if (info.count > topSectionCount) { topSection = s; topSectionName = info.name; topSectionCount = info.count; }
+  }
+  
+  return {
+    concept: topTopic,
+    section: topSectionName || topSection,
+    topic: topTopic,
+  };
+}
+
+function buildInterventionMessage(pattern: { concept?: string; section?: string; topic?: string }, errorCount: number): string {
+  if (pattern.section && pattern.topic) {
+    return `لاحظنا أنك أخطأت في ${errorCount} أسئلة من قسم "${pattern.section}" في موضوع "${pattern.topic}". دعني أساعدك في فهم المفهوم 💡`;
+  }
+  if (pattern.section) {
+    return `لاحظنا أنك تواجه صعوبة في قسم "${pattern.section}" — ${errorCount} أخطاء متتالية. اضغط عليّ لمساعدتك في فهم الأنماط 💡`;
+  }
+  if (pattern.topic) {
+    return `لاحظنا أنك أخطأت في عدة أسئلة حول "${pattern.topic}". يمكنني مساعدتك في فهم المفهوم 💡`;
+  }
+  return `لاحظنا أنك أخطأت في ${errorCount} أسئلة متتالية. اضغط عليّ وسأساعدك في التفكير بطريقة مختلفة 💡`;
+}
 
 export function SmartCoachProvider({ children }: { children: ReactNode }) {
   const [visualState, setVisualState] = useState<CoachVisualState>('idle');
@@ -74,13 +150,14 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
   const [currentPage, setCurrentPage] = useState('');
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionType, setSessionType] = useState('');
-  const [currentQuestion, setCurrentQuestion] = useState<any>(null);
+  const [currentQuestion, setCurrentQuestion] = useState<QuestionContext | null>(null);
+  const [examContext, setExamContext] = useState<ExamSessionContext>({});
   const [intervention, setIntervention] = useState<InterventionData | null>(null);
   const [interventionCount, setInterventionCount] = useState(0);
   const [visible, setVisible] = useState(true);
   const [showIntro, setShowIntro] = useState(false);
   const [errorStreak, setErrorStreak] = useState(0);
-  const interventionMsgIdx = useRef(0);
+  const [recentErrors, setRecentErrors] = useState<{ topic?: string; sectionId?: string; sectionName?: string }[]>([]);
   
   const addMessage = useCallback((msg: Omit<ChatMessage, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, {
@@ -119,28 +196,44 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
 
   const resetErrorStreak = useCallback(() => {
     setErrorStreak(0);
+    setRecentErrors([]);
   }, []);
 
-  const recordAnswerResult = useCallback((isCorrect: boolean) => {
+  const recordAnswerResult = useCallback((isCorrect: boolean, meta?: { topic?: string; sectionId?: string; sectionName?: string }) => {
     if (isCorrect) {
       setErrorStreak(0);
+      setRecentErrors([]);
       return;
     }
+
+    setRecentErrors(prev => [...prev.slice(-9), meta || {}]);
 
     setErrorStreak(prev => {
       const newStreak = prev + 1;
 
       if (newStreak === 2) {
-        // Subtle attention signal (light bulb glow)
         setVisualState('attention');
       } else if (newStreak >= 3) {
-        // Full intervention — only during smart training, max 3 per session
         if (interventionCount < 3) {
-          const msg = STREAK_ATTENTION_MESSAGES[interventionMsgIdx.current % STREAK_ATTENTION_MESSAGES.length];
-          interventionMsgIdx.current += 1;
-          setIntervention({ message: msg, type: 'weakness_streak' });
-          setInterventionCount(c => c + 1);
-          setVisualState('intervention');
+          // Detect error pattern from recent errors
+          setRecentErrors(currentErrors => {
+            const allErrors = [...currentErrors];
+            const pattern = detectErrorPattern(allErrors);
+            const msg = buildInterventionMessage(pattern, newStreak);
+            
+            setIntervention({
+              message: msg,
+              type: 'weakness_streak',
+              detectedConcept: pattern.concept,
+              detectedSection: pattern.section,
+              detectedTopic: pattern.topic,
+              errorCount: newStreak,
+              suggestedActions: ['retry_similar', 'hint', 'continue'],
+            });
+            setInterventionCount(c => c + 1);
+            setVisualState('intervention');
+            return allErrors;
+          });
         }
       }
 
@@ -157,8 +250,9 @@ export function SmartCoachProvider({ children }: { children: ReactNode }) {
       sessionActive, setSessionActive,
       sessionType, setSessionType,
       currentQuestion, setCurrentQuestion,
+      examContext, setExamContext,
       intervention, triggerIntervention, dismissIntervention, interventionCount,
-      errorStreak, recordAnswerResult, resetErrorStreak,
+      errorStreak, recentErrors, recordAnswerResult, resetErrorStreak,
       visible, setVisible,
       showIntro, setShowIntro,
     }}>
