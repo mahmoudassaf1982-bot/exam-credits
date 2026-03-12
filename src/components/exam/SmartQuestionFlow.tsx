@@ -93,6 +93,9 @@ export default function SmartQuestionFlow({
   const [feedbackCorrect, setFeedbackCorrect] = useState(false);
   const questionStartRef = useRef<number>(Date.now());
   const answersMapRef = useRef<Record<string, string>>({});
+  const [hintsMap, setHintsMap] = useState<Record<string, string>>({});
+  const [hintsUsedCount, setHintsUsedCount] = useState(0);
+  const MAX_HINTS = 5;
 
   // Sync current question to SmartCoach context
   useEffect(() => {
