@@ -29,6 +29,7 @@ import {
 } from '@/services/smartTrainingEngine';
 
 interface Props {
+  sessionId?: string;
   questionPool: STEQuestion[];
   answerKeys: Record<string, { correct_option_id: string; explanation?: string }>;
   maxQuestions?: number;
