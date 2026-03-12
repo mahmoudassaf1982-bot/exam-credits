@@ -6,6 +6,10 @@ interface StartTrainingResult {
   success: boolean;
   sessionId?: string;
   error?: string;
+  insufficientBalance?: {
+    required: number;
+    current: number;
+  };
   sessionConfig?: {
     max_questions: number;
     target_difficulty: string;
