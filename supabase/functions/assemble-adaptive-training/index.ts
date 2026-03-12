@@ -14,7 +14,7 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-const POOL_SIZE_PER_DIFFICULTY = 30;
+const POOL_SIZE_PER_DIFFICULTY = 100;
 const DEFAULT_MAX_QUESTIONS = 15;
 
 Deno.serve(async (req) => {
@@ -161,13 +161,15 @@ Deno.serve(async (req) => {
     }
 
     // 5. Exclude recently used questions
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: recentSessions } = await admin
       .from("exam_sessions")
       .select("questions_json")
       .eq("user_id", user.id)
       .eq("exam_template_id", exam_template_id)
+      .gte("created_at", sevenDaysAgo)
       .order("created_at", { ascending: false })
-      .limit(5);
+      .limit(3);
 
     const recentIds = new Set<string>();
     if (recentSessions) {
@@ -200,10 +202,11 @@ Deno.serve(async (req) => {
           .from("questions")
           .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
           .eq("is_approved", true)
+          .eq("status", "approved")
           .eq("country_id", template.country_id)
           .eq("difficulty", diff)
           .eq("exam_template_id", String(exam_template_id))
-          .in("section_id", weakSectionIds)
+          .in("section_id", weakSectionIds.map(String))
           .is("deleted_at", null)
           .limit(POOL_SIZE_PER_DIFFICULTY);
 
@@ -219,18 +222,23 @@ Deno.serve(async (req) => {
     }
 
     // Then: fill from all sections (must have a valid section_id)
-    const allSectionIds = sections.map((s: any) => s.id);
+    const allSectionIds = sections.map((s: any) => String(s.id));
+    console.log(`[assemble-smart] template=${exam_template_id}, country=${template.country_id}, sections=${JSON.stringify(allSectionIds)}`);
+    
     for (const diff of ["easy", "medium", "hard"]) {
-      const { data } = await admin
+      const { data, error: qErr } = await admin
         .from("questions")
         .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
         .eq("is_approved", true)
+        .eq("status", "approved")
         .eq("country_id", template.country_id)
         .eq("difficulty", diff)
         .eq("exam_template_id", String(exam_template_id))
         .in("section_id", allSectionIds)
         .is("deleted_at", null)
         .limit(POOL_SIZE_PER_DIFFICULTY);
+
+      console.log(`[assemble-smart] diff=${diff}: found=${data?.length ?? 0}, err=${qErr?.message || 'none'}`);
 
       if (data) {
         for (const q of data) {
@@ -246,6 +254,7 @@ Deno.serve(async (req) => {
     // All questions MUST belong to the correct exam template to prevent
     // cross-subject contamination (e.g. verbal questions in math training).
     // Orphan questions (exam_template_id IS NULL) are never served.
+    console.log(`[assemble-smart] pool.length=${pool.length}, recentIds.size=${recentIds.size}, existingIds.size=${existingIds.size}`);
 
     if (pool.length < 5) {
       // Refund
