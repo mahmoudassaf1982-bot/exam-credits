@@ -64,13 +64,17 @@ export default function SmartQuestionFlow({
   onComplete,
   onExit,
 }: Props) {
-  const { recordAnswerResult, resetErrorStreak, sessionActive } = useSmartCoach();
+  const { recordAnswerResult, resetErrorStreak, sessionActive, setCurrentQuestion: setCoachQuestion } = useSmartCoach();
 
   // Reset error streak when component mounts (new session)
   useEffect(() => {
     resetErrorStreak();
-    return () => resetErrorStreak();
-  }, [resetErrorStreak]);
+    return () => {
+      resetErrorStreak();
+      setCoachQuestion(null);
+    };
+  }, [resetErrorStreak, setCoachQuestion]);
+
   const [steState, setSteState] = useState<STESessionState>(() =>
     createSTESession(skillMemory, examDNA, previousAbility)
   );
@@ -86,6 +90,23 @@ export default function SmartQuestionFlow({
   const [feedbackCorrect, setFeedbackCorrect] = useState(false);
   const questionStartRef = useRef<number>(Date.now());
   const answersMapRef = useRef<Record<string, string>>({});
+
+  // Sync current question to SmartCoach context
+  useEffect(() => {
+    if (!currentQuestion) return;
+    const key = answerKeys[currentQuestion.id];
+    setCoachQuestion({
+      id: currentQuestion.id,
+      text_ar: currentQuestion.text_ar,
+      topic: currentQuestion.topic,
+      difficulty: currentQuestion.difficulty,
+      section_id: currentQuestion.sectionId,
+      section_name: currentQuestion.sectionName,
+      options: currentQuestion.options.map(o => ({ id: o.id, text: o.textAr })),
+      correct_answer: key?.correct_option_id,
+      explanation: key?.explanation,
+    });
+  }, [currentQuestion, answerKeys, setCoachQuestion]);
 
   const handleSelectOption = useCallback((optionId: string) => {
     if (showFeedback) return;
@@ -106,7 +127,29 @@ export default function SmartQuestionFlow({
 
     // Track streak for SARIS coach interventions (smart training only)
     if (sessionActive) {
-      recordAnswerResult(isCorrect);
+      recordAnswerResult(isCorrect, {
+        topic: currentQuestion.topic,
+        sectionId: currentQuestion.sectionId,
+        sectionName: currentQuestion.sectionName,
+      });
+    }
+
+    // Update coach with student's answer
+    // Update coach with student's answer - no callback form needed
+    if (currentQuestion) {
+      const key = answerKeys[currentQuestion.id];
+      setCoachQuestion({
+        id: currentQuestion.id,
+        text_ar: currentQuestion.text_ar,
+        topic: currentQuestion.topic,
+        difficulty: currentQuestion.difficulty,
+        section_id: currentQuestion.sectionId,
+        section_name: currentQuestion.sectionName,
+        options: currentQuestion.options.map(o => ({ id: o.id, text: o.textAr })),
+        correct_answer: key?.correct_option_id,
+        student_answer: selectedOption || undefined,
+        explanation: key?.explanation,
+      });
     }
     setTimeout(() => {
       const answer = {

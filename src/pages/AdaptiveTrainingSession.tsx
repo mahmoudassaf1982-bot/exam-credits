@@ -15,7 +15,7 @@ export default function AdaptiveTrainingSession() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const { user, refreshWallet } = useAuth();
-  const { setSessionActive, setSessionType } = useSmartCoach();
+  const { setSessionActive, setSessionType, setExamContext } = useSmartCoach();
 
   const [loading, setLoading] = useState(true);
 
@@ -26,8 +26,9 @@ export default function AdaptiveTrainingSession() {
     return () => {
       setSessionActive(false);
       setSessionType('');
+      setExamContext({});
     };
-  }, [setSessionActive, setSessionType]);
+  }, [setSessionActive, setSessionType, setExamContext]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [questionPool, setQuestionPool] = useState<STEQuestion[]>([]);
@@ -63,7 +64,16 @@ export default function AdaptiveTrainingSession() {
         }
 
         const snapshot = session.exam_snapshot as any;
-        setExamName(snapshot?.template?.name_ar || 'جلسة التدريب الذكي');
+        const templateName = snapshot?.template?.name_ar || 'جلسة التدريب الذكي';
+        setExamName(templateName);
+
+        // Pass full exam context to SmartCoach
+        setExamContext({
+          exam_template_id: snapshot?.template?.id || '',
+          exam_name: templateName,
+          country_id: snapshot?.template?.country_id || '',
+          session_mode: 'smart_training',
+        });
 
         // If already completed, show summary
         if (session.status === 'completed' || session.status === 'submitted') {
