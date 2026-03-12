@@ -190,6 +190,13 @@ export default function RecommendedTrainingCard({ recommendations, loading: exte
           );
         })}
       </div>
+
+      <InsufficientBalanceDialog
+        open={balanceDialog.open}
+        onOpenChange={(open) => setBalanceDialog(prev => ({ ...prev, open }))}
+        requiredPoints={balanceDialog.required}
+        currentBalance={balanceDialog.current}
+      />
     </motion.div>
   );
 }
