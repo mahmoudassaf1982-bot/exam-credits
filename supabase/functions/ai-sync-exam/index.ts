@@ -166,7 +166,7 @@ serve(async (req) => {
       );
     }
 
-    // ─── ACTION: fetch (default) — Tavily research + two-stage AI parsing ───
+    // ─── ACTION: fetch (default) — Tavily research + uploaded samples + AI parsing ───
     const { data: exam, error: examErr } = await supabase
       .from("exam_templates")
       .select("*, countries:country_id(name_ar, name)")
@@ -196,6 +196,23 @@ serve(async (req) => {
     };
 
     console.log(`[ai-sync-exam] Researching: ${examName} (${countryName})`);
+
+    // ─── Step 0: Fetch uploaded exam samples (extracted text from PDFs) ───
+    const { data: uploadedSources } = await supabase
+      .from("exam_profile_sources")
+      .select("file_name, extracted_text, notes")
+      .eq("exam_template_id", examTemplateId)
+      .not("extracted_text", "is", null);
+
+    let uploadedSamplesContext = "";
+    const uploadedSamplesUsed = uploadedSources && uploadedSources.length > 0;
+    if (uploadedSamplesUsed) {
+      uploadedSamplesContext = uploadedSources!.map((src, i) => {
+        const text = (src.extracted_text || "").substring(0, 8000); // cap per source
+        return `--- Uploaded Sample ${i + 1}: ${src.file_name} ---\n${src.notes ? `Admin Notes: ${src.notes}\n` : ""}Content:\n${text}\n`;
+      }).join("\n");
+      console.log(`[ai-sync-exam] Found ${uploadedSources!.length} uploaded exam samples with extracted text`);
+    }
 
     // ─── Step 1: Tavily web search ───
     const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
@@ -232,42 +249,84 @@ serve(async (req) => {
       console.warn("[ai-sync-exam] TAVILY_API_KEY not set, using AI-only mode");
     }
 
-    // ─── Step 2 — STAGE A: Structured fact extraction with confidence ───
+    // ─── Step 2 — STAGE A: Deep structure extraction with confidence ───
     const tavilyContext = tavilyUsed
-      ? tavilyResults.map((r, i) => `--- Source ${i + 1} ---\nTitle: ${r.title}\nURL: ${r.url}\nContent:\n${r.content}\n`).join("\n")
+      ? tavilyResults.map((r, i) => `--- Web Source ${i + 1} ---\nTitle: ${r.title}\nURL: ${r.url}\nContent:\n${r.content}\n`).join("\n")
       : "";
 
-    const stageAPrompt = `You are an expert exam structure analyst. Your ONLY job is to extract EXPLICIT NUMERIC FACTS from the provided source texts about the exam "${examName}" in ${countryName}${countryNameEn ? ` (${countryNameEn})` : ""}.
+    const hasAnySources = tavilyUsed || uploadedSamplesUsed;
 
-${tavilyUsed ? `Here are real web search results. Extract facts ONLY from these sources. Do NOT invent any information.\n\n${tavilyContext}` : "Use your internal knowledge. Mark all confidence scores as 0.5 or lower since this is not from verified sources."}
+    const stageAPrompt = `You are an expert exam structure analyst and psychometric researcher. Your job is to produce a COMPREHENSIVE structural analysis of the exam "${examName}" in ${countryName}${countryNameEn ? ` (${countryNameEn})` : ""}.
+
+You have TWO types of source material:
+
+${tavilyUsed ? `═══ WEB RESEARCH SOURCES ═══\nThese are web search results about the exam structure. Use them for official facts (total questions, duration, section names, weights).\n\n${tavilyContext}` : "No web research sources available."}
+
+${uploadedSamplesUsed ? `═══ UPLOADED EXAM SAMPLES ═══\nThese are actual exam papers or sample questions uploaded by the admin. Use them to:\n- INFER sections by clustering question topics if sections are not explicitly stated\n- Identify the main topics inside each section\n- Estimate difficulty distribution by analyzing question complexity\n- Identify question families (e.g., multiple choice, analogy, calculation, comprehension)\n\n${uploadedSamplesContext}` : "No uploaded exam samples available."}
+
+${!hasAnySources ? "No external sources available. Use your internal knowledge about this exam. Mark ALL confidence scores as 0.5 or lower." : ""}
+
+ANALYSIS INSTRUCTIONS:
+
+1. SECTIONS IDENTIFICATION (Priority Order):
+   a. If official sources EXPLICITLY name the sections → use them (confidence 0.8-1.0)
+   b. If NOT explicitly stated but uploaded samples exist → INFER sections by clustering the question topics you observe. Group related questions into logical sections (e.g., "Algebra", "Geometry", "Reading Comprehension"). Mark confidence 0.5-0.7 and set inference_method = "topic_clustering"
+   c. If neither → use your knowledge with confidence ≤ 0.5 and inference_method = "ai_knowledge"
+
+2. TOPICS PER SECTION:
+   - List the main topics observed or mentioned for each section
+   - If from uploaded samples: scan actual questions and identify recurring subject areas
+   - If from web sources: extract any topic lists mentioned
+
+3. SECTION WEIGHTS:
+   - Calculate each section's weight as a percentage of total questions
+   - If explicit counts exist: weight = section_count / total_count * 100
+   - If inferred from samples: estimate based on question frequency in the samples
+
+4. DIFFICULTY DISTRIBUTION:
+   a. Overall exam difficulty mix (easy / medium / hard as percentages summing to 100)
+   b. Per-section difficulty mix if inferable
+   - From uploaded samples: classify each question's apparent complexity
+   - From web sources: use any stated difficulty breakdowns
+   - If not determinable: use default { easy: 30, medium: 50, hard: 20 } with low confidence
+
+5. QUESTION FAMILIES:
+   - Identify the types/families of questions present (e.g., "direct_calculation", "word_problem", "analogy", "reading_comprehension", "grammar", "vocabulary")
+   - Map each family to its section
 
 CRITICAL RULES:
-1. Look for EXPLICIT numbers mentioned in the text: "85 questions", "60 minutes", "4 sections", etc.
-2. If a number is explicitly stated in an official source, confidence = 0.9-1.0
-3. If inferred or estimated, confidence = 0.3-0.6
-4. If NOT found at all, use null for value and confidence = 0.0
-5. For sections: only list sections that are EXPLICITLY named in the sources
-6. If sections are not explicitly detailed but total questions IS stated, set sections confidence low and note the gap
-7. NEVER invent section names or counts that aren't in the sources
-8. If total_questions is 85 from the source, do NOT return 20 — return 85
+- If a number is EXPLICITLY stated in an official source, confidence = 0.9-1.0
+- If INFERRED from sample analysis, confidence = 0.5-0.7
+- If NOT found at all, use null for value and confidence = 0.0
+- NEVER invent facts. Clearly distinguish between "found in source" vs "inferred from samples" vs "estimated"
+- If total_questions is 85 from the source, do NOT return 20 — return 85
 
 Return ONLY this JSON (no extra text):
 {
-  "total_questions": { "value": <number|null>, "confidence": <0.0-1.0>, "source_snippet": "<exact text from source>" },
+  "total_questions": { "value": <number|null>, "confidence": <0.0-1.0>, "source_snippet": "<exact text or 'inferred from N sample questions'>" },
   "total_time_minutes": { "value": <number|null>, "confidence": <0.0-1.0>, "source_snippet": "<exact text from source>" },
   "sections": [
     {
       "name": { "value": "<section name>", "confidence": <0.0-1.0> },
-      "question_count": { "value": <number|null>, "confidence": <0.0-1.0> }
+      "question_count": { "value": <number|null>, "confidence": <0.0-1.0> },
+      "weight_pct": { "value": <number|null>, "confidence": <0.0-1.0> },
+      "inference_method": "explicit" | "topic_clustering" | "ai_knowledge"
     }
   ],
+  "overall_difficulty_mix": {
+    "easy": { "value": <number>, "confidence": <0.0-1.0> },
+    "medium": { "value": <number>, "confidence": <0.0-1.0> },
+    "hard": { "value": <number>, "confidence": <0.0-1.0> }
+  },
+  "raw_topics_by_section": { "<section_name>": ["topic1", "topic2", "topic3"] },
+  "difficulty_mix_by_section": { "<section_name>": { "easy": <number>, "medium": <number>, "hard": <number> } },
+  "question_families_by_section": { "<section_name>": ["direct_calculation", "word_problem"] },
   "parsing_status": "complete" | "incomplete_structure" | "inconsistent_data",
   "inconsistency_notes": ["<any issues found>"],
   "sources": [
-    { "name": "<source title>", "url": "<url>", "description": "<brief>", "evidence_snippet": "<key quote>" }
+    { "name": "<source title>", "url": "<url or 'uploaded_sample'>", "description": "<brief>", "evidence_snippet": "<key quote>" }
   ],
-  "raw_topics_by_section": { "<section_name>": ["topic1", "topic2"] },
-  "difficulty_mix_by_section": { "<section_name>": { "easy": 30, "medium": 50, "hard": 20 } }
+  "analysis_summary": "<2-3 sentence summary of what was found and how sections were determined>"
 }`;
 
     console.log("[ai-sync-exam] Stage A: Fact extraction...");
