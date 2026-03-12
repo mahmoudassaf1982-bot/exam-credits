@@ -108,6 +108,7 @@ export default function SmartQuestionFlow({
     });
   }, [currentQuestion, answerKeys, setCoachQuestion]);
 
+  const handleSelectOption = useCallback((optionId: string) => {
     if (showFeedback) return;
     setSelectedOption(optionId);
   }, [showFeedback]);
