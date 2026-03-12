@@ -161,13 +161,15 @@ Deno.serve(async (req) => {
     }
 
     // 5. Exclude recently used questions
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: recentSessions } = await admin
       .from("exam_sessions")
       .select("questions_json")
       .eq("user_id", user.id)
       .eq("exam_template_id", exam_template_id)
+      .gte("created_at", sevenDaysAgo)
       .order("created_at", { ascending: false })
-      .limit(5);
+      .limit(3);
 
     const recentIds = new Set<string>();
     if (recentSessions) {
