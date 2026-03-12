@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.ai-provider-healthcheck]
 verify_jwt = false
+
+[functions.seed-test-users]
+verify_jwt = false
