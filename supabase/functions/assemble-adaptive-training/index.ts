@@ -14,7 +14,7 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-const POOL_SIZE_PER_DIFFICULTY = 30;
+const POOL_SIZE_PER_DIFFICULTY = 100;
 const DEFAULT_MAX_QUESTIONS = 15;
 
 Deno.serve(async (req) => {
