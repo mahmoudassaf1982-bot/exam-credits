@@ -219,18 +219,23 @@ Deno.serve(async (req) => {
     }
 
     // Then: fill from all sections (must have a valid section_id)
-    const allSectionIds = sections.map((s: any) => s.id);
+    const allSectionIds = sections.map((s: any) => String(s.id));
+    console.log(`[assemble-smart] template=${exam_template_id}, country=${template.country_id}, sections=${JSON.stringify(allSectionIds)}`);
+    
     for (const diff of ["easy", "medium", "hard"]) {
-      const { data } = await admin
+      const { data, error: qErr } = await admin
         .from("questions")
         .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
         .eq("is_approved", true)
+        .eq("status", "approved")
         .eq("country_id", template.country_id)
         .eq("difficulty", diff)
         .eq("exam_template_id", String(exam_template_id))
         .in("section_id", allSectionIds)
         .is("deleted_at", null)
         .limit(POOL_SIZE_PER_DIFFICULTY);
+
+      console.log(`[assemble-smart] diff=${diff}: found=${data?.length ?? 0}, err=${qErr?.message || 'none'}`);
 
       if (data) {
         for (const q of data) {
