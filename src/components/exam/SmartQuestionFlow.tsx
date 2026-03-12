@@ -134,7 +134,22 @@ export default function SmartQuestionFlow({
     }
 
     // Update coach with student's answer
-    setCoachQuestion(prev => prev ? { ...prev, student_answer: selectedOption } : null);
+    // Update coach with student's answer - no callback form needed
+    if (currentQuestion) {
+      const key = answerKeys[currentQuestion.id];
+      setCoachQuestion({
+        id: currentQuestion.id,
+        text_ar: currentQuestion.text_ar,
+        topic: currentQuestion.topic,
+        difficulty: currentQuestion.difficulty,
+        section_id: currentQuestion.sectionId,
+        section_name: currentQuestion.sectionName,
+        options: currentQuestion.options.map(o => ({ id: o.id, text: o.textAr })),
+        correct_answer: key?.correct_option_id,
+        student_answer: selectedOption || undefined,
+        explanation: key?.explanation,
+      });
+    }
     setTimeout(() => {
       const answer = {
         questionId: currentQuestion.id,
