@@ -103,15 +103,15 @@ export default function SarisCoachController({
 
   useEffect(() => {
     if (!visible) return;
-    // After walk-in, determine action
-    const timer = setTimeout(() => {
+    // Walk for a bit, then stop and settle
+    const walkTimer = setTimeout(() => {
+      setIsWalking(false);
       setEntered(true);
       setAction(determineAction());
-      // Show message bubble after settling
       setTimeout(() => setMessageVisible(true), 600);
-    }, 800);
+    }, 1200);
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(walkTimer);
   }, [visible, determineAction]);
 
   // Auto-hide message after duration
