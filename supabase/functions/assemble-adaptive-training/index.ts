@@ -202,19 +202,32 @@ Deno.serve(async (req) => {
     let recentIds = await getRecentIds(3, 7);
 
     // 6. Fetch question pool with progressive relaxation
+    // Determine which difficulties to fetch based on recommendation
+    const targetDifficulties: string[] = (target_difficulty && target_difficulty !== 'mixed')
+      ? [target_difficulty]
+      : ["easy", "medium", "hard"];
+
     const weakSectionIds = skillMemory
       .filter((s: any) => s.skill_score < 60)
       .map((s: any) => s.section_id);
 
-    const allSectionIds = sections.map((s: any) => String(s.id));
+    // If a specific section is targeted, restrict to that section only
+    const allSectionIds = target_section_id
+      ? [String(target_section_id)]
+      : sections.map((s: any) => String(s.id));
+
+    console.log(`[assemble-smart] target_difficulty=${target_difficulty || 'mixed'}, target_section_id=${target_section_id || 'all'}, recommendation_type=${recommendation_type || 'none'}`);
 
     async function buildPool(excludeIds: Set<string>) {
       const p: any[] = [];
       const seen = new Set<string>();
 
-      // First: weak sections
-      if (weakSectionIds.length > 0) {
-        for (const diff of ["easy", "medium", "hard"]) {
+      // If targeting a specific section, skip weak-section priority pass
+      const shouldPrioritizeWeak = !target_section_id && weakSectionIds.length > 0;
+
+      // First: weak sections (only if not targeting a specific section)
+      if (shouldPrioritizeWeak) {
+        for (const diff of targetDifficulties) {
           const { data } = await admin
             .from("questions")
             .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
@@ -234,8 +247,8 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Then: all sections
-      for (const diff of ["easy", "medium", "hard"]) {
+      // Then: target sections with target difficulties
+      for (const diff of targetDifficulties) {
         const { data, error: qErr } = await admin
           .from("questions")
           .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
