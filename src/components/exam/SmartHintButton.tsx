@@ -20,6 +20,7 @@ export default function SmartHintButton({
   sessionId,
   questionId,
   difficulty,
+  isAdaptiveSession = false,
   existingHint,
   hintsRemaining,
   maxHints,
@@ -28,8 +29,9 @@ export default function SmartHintButton({
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState<string | null>(existingHint || null);
 
-  // Only show for hard questions
-  if (difficulty !== 'hard') return null;
+  // Show for hard questions, or always show in adaptive sessions
+  const shouldShow = isAdaptiveSession || difficulty === 'hard';
+  if (!shouldShow) return null;
 
   const hintsExhausted = hintsRemaining <= 0 && !hint;
 
