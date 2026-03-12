@@ -26,8 +26,9 @@ export default function AdaptiveTrainingSession() {
     return () => {
       setSessionActive(false);
       setSessionType('');
+      setExamContext({});
     };
-  }, [setSessionActive, setSessionType]);
+  }, [setSessionActive, setSessionType, setExamContext]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [questionPool, setQuestionPool] = useState<STEQuestion[]>([]);
