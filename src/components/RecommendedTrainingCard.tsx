@@ -28,6 +28,9 @@ export default function RecommendedTrainingCard({ recommendations, loading: exte
   const navigate = useNavigate();
   const { refreshWallet } = useAuth();
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [balanceDialog, setBalanceDialog] = useState<{ open: boolean; required: number; current: number }>({
+    open: false, required: 0, current: 0,
+  });
 
   if (externalLoading) {
     return (
