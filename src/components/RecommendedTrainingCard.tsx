@@ -64,6 +64,12 @@ export default function RecommendedTrainingCard({ recommendations, loading: exte
         await refreshWallet();
         toast.success('تم بدء تدريب مخصص بناءً على نقاط ضعفك');
         navigate(`/app/exam-session/${result.sessionId}`);
+      } else if (result.insufficientBalance) {
+        setBalanceDialog({
+          open: true,
+          required: result.insufficientBalance.required,
+          current: result.insufficientBalance.current,
+        });
       } else {
         toast.error(result.error || 'فشل في بدء التدريب');
       }
