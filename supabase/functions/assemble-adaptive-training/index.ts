@@ -160,32 +160,39 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 5. Exclude recently used questions
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: recentSessions } = await admin
-      .from("exam_sessions")
-      .select("questions_json")
-      .eq("user_id", user.id)
-      .eq("exam_template_id", exam_template_id)
-      .gte("created_at", sevenDaysAgo)
-      .order("created_at", { ascending: false })
-      .limit(3);
+    // 5. Build recent question IDs (progressive relaxation)
+    // Try last 3 sessions in 7 days first; if pool too small, relax to last 1 session
+    async function getRecentIds(sessionLimit: number, daysBack: number): Promise<Set<string>> {
+      const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+      const { data: recentSessions } = await admin
+        .from("exam_sessions")
+        .select("questions_json")
+        .eq("user_id", user.id)
+        .eq("exam_template_id", exam_template_id)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(sessionLimit);
 
-    const recentIds = new Set<string>();
-    if (recentSessions) {
-      for (const s of recentSessions) {
-        const qJson = s.questions_json as Record<string, { id: string }[]> | null;
-        if (qJson && typeof qJson === "object") {
-          for (const sectionQs of Object.values(qJson)) {
-            if (Array.isArray(sectionQs)) {
-              for (const q of sectionQs) {
-                if (q?.id) recentIds.add(q.id);
+      const ids = new Set<string>();
+      if (recentSessions) {
+        for (const s of recentSessions) {
+          const qJson = s.questions_json as Record<string, { id: string }[]> | null;
+          if (qJson && typeof qJson === "object") {
+            for (const sectionQs of Object.values(qJson)) {
+              if (Array.isArray(sectionQs)) {
+                for (const q of sectionQs) {
+                  if (q?.id) ids.add(q.id);
+                }
               }
             }
           }
         }
       }
+      return ids;
     }
+
+    // Start with strictest filter
+    let recentIds = await getRecentIds(3, 7);
 
     // 6. Fetch question pool - prioritize weak sections
     const weakSectionIds = skillMemory
