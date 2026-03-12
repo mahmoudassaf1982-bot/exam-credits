@@ -18,6 +18,7 @@ import QuickAIActions from '@/components/QuickAIActions';
 import { getStudentMemory } from '@/services/studentMemory';
 import { useTrainingRecommendationsRealtime } from '@/hooks/useTrainingRecommendationsRealtime';
 import type { LearningDNA } from '@/services/learningDNAEngine';
+import { SarisCoachController } from '@/components/SarisCoach';
 
 interface ExamStats {
   totalSessions: number;
