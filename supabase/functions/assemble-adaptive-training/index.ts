@@ -160,45 +160,76 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 5. Exclude recently used questions
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: recentSessions } = await admin
-      .from("exam_sessions")
-      .select("questions_json")
-      .eq("user_id", user.id)
-      .eq("exam_template_id", exam_template_id)
-      .gte("created_at", sevenDaysAgo)
-      .order("created_at", { ascending: false })
-      .limit(3);
+    // 5. Build recent question IDs (progressive relaxation)
+    // Try last 3 sessions in 7 days first; if pool too small, relax to last 1 session
+    async function getRecentIds(sessionLimit: number, daysBack: number): Promise<Set<string>> {
+      const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+      const { data: recentSessions } = await admin
+        .from("exam_sessions")
+        .select("questions_json")
+        .eq("user_id", user.id)
+        .eq("exam_template_id", exam_template_id)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(sessionLimit);
 
-    const recentIds = new Set<string>();
-    if (recentSessions) {
-      for (const s of recentSessions) {
-        const qJson = s.questions_json as Record<string, { id: string }[]> | null;
-        if (qJson && typeof qJson === "object") {
-          for (const sectionQs of Object.values(qJson)) {
-            if (Array.isArray(sectionQs)) {
-              for (const q of sectionQs) {
-                if (q?.id) recentIds.add(q.id);
+      const ids = new Set<string>();
+      if (recentSessions) {
+        for (const s of recentSessions) {
+          const qJson = s.questions_json as Record<string, { id: string }[]> | null;
+          if (qJson && typeof qJson === "object") {
+            for (const sectionQs of Object.values(qJson)) {
+              if (Array.isArray(sectionQs)) {
+                for (const q of sectionQs) {
+                  if (q?.id) ids.add(q.id);
+                }
               }
             }
           }
         }
       }
+      return ids;
     }
 
-    // 6. Fetch question pool - prioritize weak sections
+    // Start with strictest filter
+    let recentIds = await getRecentIds(3, 7);
+
+    // 6. Fetch question pool with progressive relaxation
     const weakSectionIds = skillMemory
       .filter((s: any) => s.skill_score < 60)
       .map((s: any) => s.section_id);
 
-    const pool: any[] = [];
-    const existingIds = new Set<string>();
+    const allSectionIds = sections.map((s: any) => String(s.id));
 
-    // First: fetch from weak sections (higher pool)
-    if (weakSectionIds.length > 0) {
+    async function buildPool(excludeIds: Set<string>) {
+      const p: any[] = [];
+      const seen = new Set<string>();
+
+      // First: weak sections
+      if (weakSectionIds.length > 0) {
+        for (const diff of ["easy", "medium", "hard"]) {
+          const { data } = await admin
+            .from("questions")
+            .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
+            .eq("is_approved", true)
+            .eq("status", "approved")
+            .eq("country_id", template.country_id)
+            .eq("difficulty", diff)
+            .eq("exam_template_id", String(exam_template_id))
+            .in("section_id", weakSectionIds.map(String))
+            .is("deleted_at", null)
+            .limit(POOL_SIZE_PER_DIFFICULTY);
+          if (data) {
+            for (const q of data) {
+              if (!excludeIds.has(q.id) && !seen.has(q.id)) { p.push(q); seen.add(q.id); }
+            }
+          }
+        }
+      }
+
+      // Then: all sections
       for (const diff of ["easy", "medium", "hard"]) {
-        const { data } = await admin
+        const { data, error: qErr } = await admin
           .from("questions")
           .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
           .eq("is_approved", true)
@@ -206,55 +237,38 @@ Deno.serve(async (req) => {
           .eq("country_id", template.country_id)
           .eq("difficulty", diff)
           .eq("exam_template_id", String(exam_template_id))
-          .in("section_id", weakSectionIds.map(String))
+          .in("section_id", allSectionIds)
           .is("deleted_at", null)
           .limit(POOL_SIZE_PER_DIFFICULTY);
-
+        console.log(`[assemble-smart] diff=${diff}: found=${data?.length ?? 0}, err=${qErr?.message || 'none'}`);
         if (data) {
           for (const q of data) {
-            if (!recentIds.has(q.id) && !existingIds.has(q.id)) {
-              pool.push(q);
-              existingIds.add(q.id);
-            }
+            if (!excludeIds.has(q.id) && !seen.has(q.id)) { p.push(q); seen.add(q.id); }
           }
         }
       }
+      return p;
     }
 
-    // Then: fill from all sections (must have a valid section_id)
-    const allSectionIds = sections.map((s: any) => String(s.id));
     console.log(`[assemble-smart] template=${exam_template_id}, country=${template.country_id}, sections=${JSON.stringify(allSectionIds)}`);
-    
-    for (const diff of ["easy", "medium", "hard"]) {
-      const { data, error: qErr } = await admin
-        .from("questions")
-        .select("id, text_ar, options, difficulty, topic, section_id, correct_option_id, explanation")
-        .eq("is_approved", true)
-        .eq("status", "approved")
-        .eq("country_id", template.country_id)
-        .eq("difficulty", diff)
-        .eq("exam_template_id", String(exam_template_id))
-        .in("section_id", allSectionIds)
-        .is("deleted_at", null)
-        .limit(POOL_SIZE_PER_DIFFICULTY);
 
-      console.log(`[assemble-smart] diff=${diff}: found=${data?.length ?? 0}, err=${qErr?.message || 'none'}`);
+    let pool = await buildPool(recentIds);
+    console.log(`[assemble-smart] pool.length=${pool.length}, recentIds.size=${recentIds.size} (strict filter)`);
 
-      if (data) {
-        for (const q of data) {
-          if (!recentIds.has(q.id) && !existingIds.has(q.id)) {
-            pool.push(q);
-            existingIds.add(q.id);
-          }
-        }
-      }
+    // Progressive relaxation: if pool too small, try last 1 session only
+    if (pool.length < 5) {
+      console.log(`[assemble-smart] Relaxing to last 1 session / 3 days`);
+      recentIds = await getRecentIds(1, 3);
+      pool = await buildPool(recentIds);
+      console.log(`[assemble-smart] pool.length=${pool.length}, recentIds.size=${recentIds.size} (relaxed filter)`);
     }
 
-    // NOTE: No fallback without exam_template_id filter.
-    // All questions MUST belong to the correct exam template to prevent
-    // cross-subject contamination (e.g. verbal questions in math training).
-    // Orphan questions (exam_template_id IS NULL) are never served.
-    console.log(`[assemble-smart] pool.length=${pool.length}, recentIds.size=${recentIds.size}, existingIds.size=${existingIds.size}`);
+    // Final relaxation: allow all questions (no recency filter)
+    if (pool.length < 5) {
+      console.log(`[assemble-smart] Final relaxation: no recency filter`);
+      pool = await buildPool(new Set());
+      console.log(`[assemble-smart] pool.length=${pool.length} (no filter)`);
+    }
 
     if (pool.length < 5) {
       // Refund
