@@ -126,8 +126,15 @@ export default function SmartQuestionFlow({
 
     // Track streak for SARIS coach interventions (smart training only)
     if (sessionActive) {
-      recordAnswerResult(isCorrect);
+      recordAnswerResult(isCorrect, {
+        topic: currentQuestion.topic,
+        sectionId: currentQuestion.sectionId,
+        sectionName: currentQuestion.sectionName,
+      });
     }
+
+    // Update coach with student's answer
+    setCoachQuestion(prev => prev ? { ...prev, student_answer: selectedOption } : null);
     setTimeout(() => {
       const answer = {
         questionId: currentQuestion.id,
