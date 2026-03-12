@@ -9,6 +9,7 @@ import type { RecommendationRow } from '@/hooks/useTrainingRecommendationsRealti
 import type { TrainingRecommendation } from '@/services/trainingRecommendationEngine';
 import { startTrainingFromRecommendation } from '@/services/startTrainingFromRecommendation';
 import { useAuth } from '@/contexts/AuthContext';
+import { InsufficientBalanceDialog } from '@/components/InsufficientBalanceDialog';
 
 interface Props {
   recommendations: RecommendationRow[];
@@ -27,6 +28,9 @@ export default function RecommendedTrainingCard({ recommendations, loading: exte
   const navigate = useNavigate();
   const { refreshWallet } = useAuth();
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [balanceDialog, setBalanceDialog] = useState<{ open: boolean; required: number; current: number }>({
+    open: false, required: 0, current: 0,
+  });
 
   if (externalLoading) {
     return (
@@ -60,6 +64,12 @@ export default function RecommendedTrainingCard({ recommendations, loading: exte
         await refreshWallet();
         toast.success('تم بدء تدريب مخصص بناءً على نقاط ضعفك');
         navigate(`/app/exam-session/${result.sessionId}`);
+      } else if (result.insufficientBalance) {
+        setBalanceDialog({
+          open: true,
+          required: result.insufficientBalance.required,
+          current: result.insufficientBalance.current,
+        });
       } else {
         toast.error(result.error || 'فشل في بدء التدريب');
       }
@@ -180,6 +190,13 @@ export default function RecommendedTrainingCard({ recommendations, loading: exte
           );
         })}
       </div>
+
+      <InsufficientBalanceDialog
+        open={balanceDialog.open}
+        onOpenChange={(open) => setBalanceDialog(prev => ({ ...prev, open }))}
+        requiredPoints={balanceDialog.required}
+        currentBalance={balanceDialog.current}
+      />
     </motion.div>
   );
 }
