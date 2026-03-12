@@ -122,6 +122,8 @@ serve(async (req) => {
         adminClient.from("questions").select("topic, difficulty, section_id, explanation").eq("id", question_id).maybeSingle(),
       ]);
 
+      const storedExplanation = questionMeta?.explanation || targetQuestion.explanation || null;
+
       const systemPrompt = `You are the SARIS EXAMS Smart Hint Assistant.
 
 Your role is to generate ONE safe hint for a difficult exam question.
@@ -139,6 +141,12 @@ IMPORTANT RULES:
 10. The hint must be written in Arabic.
 11. If the provided SARIS data is insufficient, respond with:
 "هذه المعلومة غير متوفرة في بيانات الاختبار"
+
+CRITICAL ALIGNMENT RULE:
+12. If a stored explanation is provided below, your hint MUST follow the SAME reasoning path and method used in that explanation.
+13. The hint should guide the student toward the FIRST STEP of the explanation logic only.
+14. Do NOT introduce a different formula, method, or reasoning approach than what the explanation uses.
+15. The hint is a pedagogical nudge toward the explanation's logic, not an independent analysis.
 
 The hint must help the student start solving the question while preserving exam integrity.`;
 
@@ -164,6 +172,9 @@ Topic: ${questionMeta?.topic || targetQuestion.topic || "غير محدد"}
 Section: ${sectionName || "غير محدد"}
 Difficulty: ${targetQuestion.difficulty}
 
+${storedExplanation ? `Stored Explanation (ALIGN YOUR HINT WITH THIS LOGIC):
+${storedExplanation}` : "No stored explanation available."}
+
 Student Context:
 Weak Skills:
 ${weakSkills.length > 0 ? weakSkills.join("\n") : "لا توجد نقاط ضعف مسجلة"}
@@ -173,6 +184,7 @@ ${JSON.stringify(skillMemory || [], null, 2)}
 
 Instructions:
 Generate ONE safe hint that helps the student think about the problem.
+${storedExplanation ? "The hint MUST follow the same reasoning method used in the stored explanation above. Guide toward the first step only." : ""}
 Do NOT solve the question.
 Do NOT reveal the answer.`;
 

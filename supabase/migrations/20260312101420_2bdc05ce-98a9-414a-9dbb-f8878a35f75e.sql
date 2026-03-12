@@ -1,0 +1,1 @@
+UPDATE public.question_hints_cache SET is_active = false WHERE is_active = true;
