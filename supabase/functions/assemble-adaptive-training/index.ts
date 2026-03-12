@@ -47,7 +47,14 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
-    const { exam_template_id, max_questions = DEFAULT_MAX_QUESTIONS } = await req.json();
+    const {
+      exam_template_id,
+      max_questions = DEFAULT_MAX_QUESTIONS,
+      target_difficulty,        // 'easy' | 'medium' | 'hard' | 'mixed' | undefined
+      target_section_id,        // specific section UUID or undefined
+      time_limit_override_sec,  // explicit time limit from recommendation
+      recommendation_type,      // 'focused_skill' | 'accuracy_drill' | etc.
+    } = await req.json();
 
     if (!exam_template_id) {
       return new Response(
