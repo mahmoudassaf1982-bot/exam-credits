@@ -9,6 +9,7 @@ interface SmartHintButtonProps {
   sessionId: string;
   questionId: string;
   difficulty: string;
+  isAdaptiveSession?: boolean;
   existingHint?: string | null;
   hintsRemaining: number;
   maxHints: number;
