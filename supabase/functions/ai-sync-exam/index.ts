@@ -30,17 +30,26 @@ interface FieldConfidence {
 interface SectionConfidence {
   name: { value: string; confidence: number };
   question_count: { value: number | null; confidence: number };
+  weight_pct?: { value: number | null; confidence: number };
+  inference_method?: "explicit" | "topic_clustering" | "ai_knowledge";
 }
 
 interface ParsedResult {
   total_questions: FieldConfidence;
   total_time_minutes: FieldConfidence;
   sections: SectionConfidence[];
+  overall_difficulty_mix?: {
+    easy: { value: number; confidence: number };
+    medium: { value: number; confidence: number };
+    hard: { value: number; confidence: number };
+  };
   parsing_status: "complete" | "incomplete_structure" | "inconsistent_data";
   inconsistency_notes: string[];
   sources: { name: string; url: string; description: string; evidence_snippet: string }[];
   raw_topics_by_section?: Record<string, string[]>;
   difficulty_mix_by_section?: Record<string, { easy: number; medium: number; hard: number }>;
+  question_families_by_section?: Record<string, string[]>;
+  analysis_summary?: string;
 }
 
 async function searchTavily(query: string, apiKey: string): Promise<TavilyResult[]> {
