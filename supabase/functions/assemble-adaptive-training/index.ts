@@ -252,6 +252,7 @@ Deno.serve(async (req) => {
     // All questions MUST belong to the correct exam template to prevent
     // cross-subject contamination (e.g. verbal questions in math training).
     // Orphan questions (exam_template_id IS NULL) are never served.
+    console.log(`[assemble-smart] pool.length=${pool.length}, recentIds.size=${recentIds.size}, existingIds.size=${existingIds.size}`);
 
     if (pool.length < 5) {
       // Refund
