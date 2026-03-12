@@ -38,7 +38,7 @@ serve(async (req) => {
 
     if (sessErr || !session) return errorRes(404, "الجلسة غير موجودة");
     if (session.user_id !== user.id) return errorRes(403, "ليس لديك صلاحية");
-    if (session.status !== "in_progress") return errorRes(400, "الجلسة ليست نشطة");
+    if (session.status !== "in_progress" && session.status !== "started") return errorRes(400, "الجلسة ليست نشطة");
 
     // 2. Find the question in the session
     const questionsJson = session.questions_json as Record<string, any[]>;
