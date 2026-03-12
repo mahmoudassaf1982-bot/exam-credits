@@ -413,16 +413,42 @@ Return ONLY this JSON (no extra text):
       );
     }
 
+    // Compute overall difficulty mix from AI output or default
+    const overallDiffMix = parsed.overall_difficulty_mix
+      ? {
+          easy: parsed.overall_difficulty_mix.easy?.value ?? 30,
+          medium: parsed.overall_difficulty_mix.medium?.value ?? 50,
+          hard: parsed.overall_difficulty_mix.hard?.value ?? 20,
+        }
+      : { easy: 30, medium: 50, hard: 20 };
+
+    // Normalize overall difficulty to sum to 100
+    const diffSum = overallDiffMix.easy + overallDiffMix.medium + overallDiffMix.hard;
+    if (diffSum !== 100 && diffSum > 0) {
+      const scale = 100 / diffSum;
+      overallDiffMix.easy = Math.round(overallDiffMix.easy * scale);
+      overallDiffMix.medium = Math.round(overallDiffMix.medium * scale);
+      overallDiffMix.hard = 100 - overallDiffMix.easy - overallDiffMix.medium;
+    }
+
     // Build proposals from extracted facts
     const proposals = sections.length > 0
       ? sections.map((s, i) => {
           const sectionName = s.name?.value || `قسم ${i + 1}`;
           const topics = parsed.raw_topics_by_section?.[sectionName] || [];
-          const diffMix = parsed.difficulty_mix_by_section?.[sectionName] || { easy: 30, medium: 50, hard: 20 };
-          // If section count is null/0 but total is known and we have N sections, distribute evenly
+          const diffMix = parsed.difficulty_mix_by_section?.[sectionName] || overallDiffMix;
+          const questionFamilies = parsed.question_families_by_section?.[sectionName] || [];
+          const weightPct = s.weight_pct?.value ?? null;
+          const inferenceMethod = s.inference_method || "ai_knowledge";
+          // If section count is null/0 but total is known and we have N sections
           let qCount = s.question_count?.value;
           if ((!qCount || qCount <= 0) && totalQ && sections.length > 0) {
-            qCount = Math.round(totalQ / sections.length);
+            // Use weight if available, otherwise distribute evenly
+            if (weightPct && weightPct > 0) {
+              qCount = Math.round(totalQ * weightPct / 100);
+            } else {
+              qCount = Math.round(totalQ / sections.length);
+            }
           }
           return {
             name_ar: sectionName,
@@ -431,6 +457,9 @@ Return ONLY this JSON (no extra text):
             order: i + 1,
             difficulty_mix_json: diffMix,
             topic_filter_json: topics,
+            weight_pct: weightPct,
+            inference_method: inferenceMethod,
+            question_families: questionFamilies,
           };
         })
       : totalQ
@@ -439,8 +468,11 @@ Return ONLY this JSON (no extra text):
             question_count: totalQ,
             time_limit_sec: totalT ? totalT * 60 : null,
             order: 1,
-            difficulty_mix_json: { easy: 30, medium: 50, hard: 20 },
+            difficulty_mix_json: overallDiffMix,
             topic_filter_json: [],
+            weight_pct: 100,
+            inference_method: "ai_knowledge" as const,
+            question_families: [],
           }]
         : [];
 
@@ -464,15 +496,18 @@ Return ONLY this JSON (no extra text):
         }
         sourcesWithEvidence.push(evidence);
 
-        await supabase
-          .from("trusted_sources")
-          .upsert({
-            exam_template_id: examTemplateId,
-            source_name: src.name,
-            source_url: src.url || null,
-            description: src.description || null,
-            last_synced_at: new Date().toISOString(),
-          }, { onConflict: "exam_template_id,source_name", ignoreDuplicates: false });
+        // Only upsert web sources, not uploaded samples
+        if (src.url && src.url !== "uploaded_sample") {
+          await supabase
+            .from("trusted_sources")
+            .upsert({
+              exam_template_id: examTemplateId,
+              source_name: src.name,
+              source_url: src.url || null,
+              description: src.description || null,
+              last_synced_at: new Date().toISOString(),
+            }, { onConflict: "exam_template_id,source_name", ignoreDuplicates: false });
+        }
       }
     }
 
@@ -483,11 +518,15 @@ Return ONLY this JSON (no extra text):
       details: {
         tavily_used: tavilyUsed,
         tavily_results_count: tavilyResults.length,
+        uploaded_samples_used: uploadedSamplesUsed,
+        uploaded_samples_count: uploadedSources?.length || 0,
         proposals_count: proposals.length,
         suggested_total_questions: totalQ,
         suggested_total_time_minutes: totalT,
+        overall_difficulty_mix: overallDiffMix,
         parsing_status: parsingStatus,
         inconsistency_notes: inconsistencyNotes,
+        analysis_summary: parsed.analysis_summary || null,
       },
       performed_by: performedBy,
     });
@@ -498,20 +537,31 @@ Return ONLY this JSON (no extra text):
         proposals,
         totalQuestions: totalQ,
         totalTimeMinutes: totalT,
+        overallDifficultyMix: overallDiffMix,
         tavilyUsed,
+        uploadedSamplesUsed,
         sources: sourcesWithEvidence,
         storedStandards,
         confidence: {
           total_questions: parsed.total_questions?.confidence ?? 0,
           total_time: parsed.total_time_minutes?.confidence ?? 0,
+          overall_difficulty: parsed.overall_difficulty_mix ? {
+            easy: parsed.overall_difficulty_mix.easy?.confidence ?? 0,
+            medium: parsed.overall_difficulty_mix.medium?.confidence ?? 0,
+            hard: parsed.overall_difficulty_mix.hard?.confidence ?? 0,
+          } : null,
           sections: parsed.sections?.map(s => ({
             name: s.name?.value,
             name_confidence: s.name?.confidence ?? 0,
             count_confidence: s.question_count?.confidence ?? 0,
+            weight_confidence: s.weight_pct?.confidence ?? 0,
+            inference_method: s.inference_method || "ai_knowledge",
           })) || [],
         },
+        questionFamiliesBySection: parsed.question_families_by_section || {},
         parsingStatus,
         inconsistencyNotes,
+        analysisSummary: parsed.analysis_summary || null,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
