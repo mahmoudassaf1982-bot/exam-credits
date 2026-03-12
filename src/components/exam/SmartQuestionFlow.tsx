@@ -69,8 +69,28 @@ export default function SmartQuestionFlow({
   // Reset error streak when component mounts (new session)
   useEffect(() => {
     resetErrorStreak();
-    return () => resetErrorStreak();
-  }, [resetErrorStreak]);
+    return () => {
+      resetErrorStreak();
+      setCoachQuestion(null);
+    };
+  }, [resetErrorStreak, setCoachQuestion]);
+
+  // Sync current question to SmartCoach context
+  useEffect(() => {
+    if (!currentQuestion) return;
+    const key = answerKeys[currentQuestion.id];
+    setCoachQuestion({
+      id: currentQuestion.id,
+      text_ar: currentQuestion.text_ar,
+      topic: currentQuestion.topic,
+      difficulty: currentQuestion.difficulty,
+      section_id: currentQuestion.sectionId,
+      section_name: currentQuestion.sectionName,
+      options: currentQuestion.options.map(o => ({ id: o.id, text: o.textAr })),
+      correct_answer: key?.correct_option_id,
+      explanation: key?.explanation,
+    });
+  }, [currentQuestion, answerKeys, setCoachQuestion]);
   const [steState, setSteState] = useState<STESessionState>(() =>
     createSTESession(skillMemory, examDNA, previousAbility)
   );
