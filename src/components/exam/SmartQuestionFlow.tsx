@@ -327,6 +327,22 @@ export default function SmartQuestionFlow({
             })}
           </div>
 
+          {/* Smart Hint - only during solving, not during feedback */}
+          {sessionId && !showFeedback && (
+            <SmartHintButton
+              sessionId={sessionId}
+              questionId={currentQuestion.id}
+              difficulty={currentQuestion.difficulty}
+              existingHint={hintsMap[currentQuestion.id] || null}
+              hintsRemaining={MAX_HINTS - hintsUsedCount}
+              maxHints={MAX_HINTS}
+              onHintReceived={(qId, text, remaining) => {
+                setHintsMap(prev => ({ ...prev, [qId]: text }));
+                setHintsUsedCount(MAX_HINTS - remaining);
+              }}
+            />
+          )}
+
           {/* Feedback */}
           {showFeedback && (
             <motion.div
