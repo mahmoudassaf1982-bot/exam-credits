@@ -38,7 +38,8 @@ serve(async (req) => {
 
     if (sessErr || !session) return errorRes(404, "الجلسة غير موجودة");
     if (session.user_id !== user.id) return errorRes(403, "ليس لديك صلاحية");
-    if (session.status !== "in_progress" && session.status !== "started") return errorRes(400, "الجلسة ليست نشطة");
+    const activeStatuses = ["in_progress", "started", "not_started"];
+    if (!activeStatuses.includes(session.status)) return errorRes(400, "الجلسة ليست نشطة");
 
     // 2. Find the question in the session (supports both exam and adaptive training formats)
     const questionsJson = session.questions_json;
