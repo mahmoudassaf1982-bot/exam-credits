@@ -9,6 +9,7 @@ import type { RecommendationRow } from '@/hooks/useTrainingRecommendationsRealti
 import type { TrainingRecommendation } from '@/services/trainingRecommendationEngine';
 import { startTrainingFromRecommendation } from '@/services/startTrainingFromRecommendation';
 import { useAuth } from '@/contexts/AuthContext';
+import { InsufficientBalanceDialog } from '@/components/InsufficientBalanceDialog';
 
 interface Props {
   recommendations: RecommendationRow[];
