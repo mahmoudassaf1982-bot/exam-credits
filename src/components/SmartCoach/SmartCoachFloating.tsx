@@ -79,7 +79,7 @@ export default function SmartCoachFloating() {
   // ── Walking entrance animation ──
   useEffect(() => {
     if (!visible || hasEntered) return;
-    setAnimState('walking');
+    setAnimState('waving');
     const timer = setTimeout(() => {
       setAnimState('idle');
       setHasEntered(true);
