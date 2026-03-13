@@ -8,8 +8,6 @@ import { supabase } from '@/integrations/supabase/client';
 import SarisCoachAvatar, { type CoachAnimState } from './SarisCoachAvatar';
 import { pickRandom, trainingStartMessages, idleGreetings, type CoachMessage } from './coachMessages';
 
-// Walking: full screen width traversal duration (seconds)
-const WALK_DURATION = 18;
 // Training mode: stationary position  
 const TRAINING_POSITION = { bottom: 24, left: 16 };
 
