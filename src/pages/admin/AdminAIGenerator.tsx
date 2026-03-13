@@ -34,13 +34,15 @@ export default function AdminAIGenerator() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const [cRes, eRes] = await Promise.all([
+      const [cRes, eRes, sRes] = await Promise.all([
         supabase.from('countries').select('id, name_ar, flag').eq('is_active', true).order('created_at'),
         supabase.from('exam_templates').select('id, country_id, name_ar').eq('is_active', true).order('created_at'),
+        supabase.from('exam_sections').select('id, exam_template_id, name_ar, order').order('order'),
       ]);
       const countriesList = cRes.data || [];
       setCountries(countriesList);
       setExams(eRes.data || []);
+      setSections((sRes.data || []) as ExamSection[]);
       if (countriesList.length > 0 && !country) setCountry(countriesList[0].id);
     };
     fetchData();
