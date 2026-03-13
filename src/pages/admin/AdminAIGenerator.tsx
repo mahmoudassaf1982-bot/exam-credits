@@ -26,6 +26,7 @@ export default function AdminAIGenerator() {
 
   const [country, setCountry] = useState('');
   const [examTemplateId, setExamTemplateId] = useState('');
+  const [sectionId, setSectionId] = useState('');
   const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
   const [contentLang, setContentLang] = useState<'auto' | 'en' | 'ar'>('auto');
