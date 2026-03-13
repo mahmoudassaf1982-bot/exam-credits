@@ -529,38 +529,18 @@ export default function SmartCoachFloating() {
               ease: 'easeInOut',
             }}
           >
-            {/* Pointing hand gestures */}
-            <AnimatePresence>
-              {visualState === 'attention' && !chatOpen && (
-                <CoachPointingHand direction="right" />
-              )}
-            </AnimatePresence>
-
-            {/* Upper body - existing coach PNG */}
+            {/* Full-body coach image */}
             <motion.img
               src={coachImage}
               alt="SARIS — المدرب الذكي"
-              className="h-20 w-20 object-contain drop-shadow-lg"
-              animate={{ scale: [1, 1.02, 1] }}
-              transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+              className="h-28 w-28 object-contain drop-shadow-lg"
+              animate={isWalking ? { rotate: [-2, 2, -2] } : { scale: [1, 1.02, 1] }}
+              transition={isWalking
+                ? { duration: 0.35, repeat: Infinity, ease: 'easeInOut' }
+                : { duration: 3.5, repeat: Infinity, ease: 'easeInOut' }
+              }
               style={{ filter: 'drop-shadow(0 4px 12px hsl(var(--gold) / 0.2))' }}
             />
-
-            {/* Blink overlay */}
-            <AnimatePresence>
-              {blinking && (
-                <motion.div
-                  initial={{ scaleY: 0 }}
-                  animate={{ scaleY: 1 }}
-                  exit={{ scaleY: 0 }}
-                  transition={{ duration: 0.1 }}
-                  className="absolute top-[28%] left-[28%] w-[44%] h-[10%] bg-card rounded-full origin-top"
-                />
-              )}
-            </AnimatePresence>
-
-            {/* Legs (SVG) */}
-            <CoachLegs isWalking={isWalking} />
           </motion.div>
 
           {/* ── Attention lightbulb badge ── */}
