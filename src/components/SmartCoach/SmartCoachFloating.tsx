@@ -99,30 +99,31 @@ export default function SmartCoachFloating() {
     }
   }, [sessionActive, hasEntered]);
 
-  // Continuous walking animation — right to left, looping
+  // Continuous walking animation — right to left, looping via RAF + controls.set
   useEffect(() => {
     if (chatOpen || !visible || sessionActive) {
-      if (walkRef.current) cancelAnimationFrame(walkRef.current);
+      if (walkRafRef.current) cancelAnimationFrame(walkRafRef.current);
       return;
     }
-    const speed = 1.2; // pixels per frame (~72px/s at 60fps)
+    const speed = 1.5;
     let lastTime = 0;
     const step = (time: number) => {
       if (lastTime) {
-        const dt = Math.min(time - lastTime, 50); // cap delta
-        setWalkX(prev => {
-          const next = prev - speed * (dt / 16.67);
-          // When fully off-screen left, reset to right
-          if (next < -130) return window.innerWidth + 120;
-          return next;
-        });
+        const dt = Math.min(time - lastTime, 50);
+        walkXRef.current -= speed * (dt / 16.67);
+        if (walkXRef.current < -120) {
+          walkXRef.current = window.innerWidth;
+        }
+        walkControls.set({ x: walkXRef.current });
       }
       lastTime = time;
-      walkRef.current = requestAnimationFrame(step);
+      walkRafRef.current = requestAnimationFrame(step);
     };
-    walkRef.current = requestAnimationFrame(step);
-    return () => { if (walkRef.current) cancelAnimationFrame(walkRef.current); };
-  }, [chatOpen, visible, sessionActive]);
+    // Init position before first frame
+    walkControls.set({ x: walkXRef.current });
+    walkRafRef.current = requestAnimationFrame(step);
+    return () => { if (walkRafRef.current) cancelAnimationFrame(walkRafRef.current); };
+  }, [chatOpen, visible, sessionActive, walkControls]);
 
   // Auto scroll chat
   useEffect(() => {
