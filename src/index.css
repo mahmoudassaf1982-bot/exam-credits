@@ -203,16 +203,6 @@ iframe[src*="lovable"] {
   50%      { transform: scaleX(1.0) scaleY(1.0); opacity: 0.35; }
 }
 
-/* ── Walking sprite animation ── */
-.saris-walk-sprite {
-  background: url('/saris-coach-walk.png') 0% 0% / 600% 100% no-repeat;
-  animation: walkCycle 0.6s steps(6) infinite;
-}
-
-@keyframes walkCycle {
-  from { background-position: 0% 0%; }
-  to   { background-position: 100% 0%; }
-}
 
 .character-ground-shadow {
   width: 55px;
