@@ -49,12 +49,18 @@ export default function AdminAIGenerator() {
   }, []);
 
   const filteredExams = exams.filter(e => e.country_id === country);
+  const filteredSections = sections.filter(s => s.exam_template_id === examTemplateId);
 
   useEffect(() => {
     if (!filteredExams.find(e => e.id === examTemplateId)) {
       setExamTemplateId('');
     }
+    setSectionId('');
   }, [country]);
+
+  useEffect(() => {
+    setSectionId('');
+  }, [examTemplateId]);
 
   const handleGenerate = async () => {
     if (!country) { toast({ title: 'يرجى اختيار الدولة', variant: 'destructive' }); return; }
