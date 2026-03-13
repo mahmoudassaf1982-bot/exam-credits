@@ -474,10 +474,13 @@ export default function SmartCoachFloating() {
           style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 50 }}
         >
           <motion.div
+            ref={characterRef}
             drag
             dragConstraints={constraintsRef}
             dragElastic={0.08}
             whileDrag={{ scale: 1.05 }}
+            onDrag={updateCharPos}
+            onDragEnd={updateCharPos}
             animate={{ y: [0, -8, 0] }}
             transition={{ y: { duration: 2.5, repeat: Infinity, ease: 'easeInOut' } }}
             style={{
