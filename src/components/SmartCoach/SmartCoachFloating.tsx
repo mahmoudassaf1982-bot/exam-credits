@@ -59,14 +59,16 @@ export default function SmartCoachFloating() {
     }
     if (loading) {
       setAnimState('thinking');
+    } else if (chatOpen) {
+      setAnimState('idle');
     } else if (visualState === 'attention' || visualState === 'intervention') {
       setAnimState('pointing');
     } else if (sessionActive) {
       setAnimState('guiding');
     } else {
-      setAnimState('idle');
+      setAnimState('walking');
     }
-  }, [hasEntered, loading, visualState, sessionActive]);
+  }, [hasEntered, loading, visualState, sessionActive, chatOpen]);
 
   // ── Walking entrance animation ──
   useEffect(() => {
