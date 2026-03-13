@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 
 interface Country { id: string; name_ar: string; flag: string; }
 interface ExamTemplate { id: string; country_id: string; name_ar: string; }
+interface ExamSection { id: string; exam_template_id: string; name_ar: string; order: number; }
 
 export default function AdminAIGenerator() {
   const { toast } = useToast();
@@ -21,9 +22,11 @@ export default function AdminAIGenerator() {
   const [loading, setLoading] = useState(false);
   const [countries, setCountries] = useState<Country[]>([]);
   const [exams, setExams] = useState<ExamTemplate[]>([]);
+  const [sections, setSections] = useState<ExamSection[]>([]);
 
   const [country, setCountry] = useState('');
   const [examTemplateId, setExamTemplateId] = useState('');
+  const [sectionId, setSectionId] = useState('');
   const [numberOfQuestions, setNumberOfQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
   const [contentLang, setContentLang] = useState<'auto' | 'en' | 'ar'>('auto');
@@ -31,25 +34,33 @@ export default function AdminAIGenerator() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const [cRes, eRes] = await Promise.all([
+      const [cRes, eRes, sRes] = await Promise.all([
         supabase.from('countries').select('id, name_ar, flag').eq('is_active', true).order('created_at'),
         supabase.from('exam_templates').select('id, country_id, name_ar').eq('is_active', true).order('created_at'),
+        supabase.from('exam_sections').select('id, exam_template_id, name_ar, order').order('order'),
       ]);
       const countriesList = cRes.data || [];
       setCountries(countriesList);
       setExams(eRes.data || []);
+      setSections((sRes.data || []) as ExamSection[]);
       if (countriesList.length > 0 && !country) setCountry(countriesList[0].id);
     };
     fetchData();
   }, []);
 
   const filteredExams = exams.filter(e => e.country_id === country);
+  const filteredSections = sections.filter(s => s.exam_template_id === examTemplateId);
 
   useEffect(() => {
     if (!filteredExams.find(e => e.id === examTemplateId)) {
       setExamTemplateId('');
     }
+    setSectionId('');
   }, [country]);
+
+  useEffect(() => {
+    setSectionId('');
+  }, [examTemplateId]);
 
   const handleGenerate = async () => {
     if (!country) { toast({ title: 'يرجى اختيار الدولة', variant: 'destructive' }); return; }
@@ -60,6 +71,7 @@ export default function AdminAIGenerator() {
       const params: any = {
         country_id: country,
         exam_template_id: examTemplateId || null,
+        section_id: sectionId || null,
         difficulty,
         count: numberOfQuestions,
       };
@@ -128,8 +140,19 @@ export default function AdminAIGenerator() {
                   </SelectContent>
                 </Select>
               </div>
+              {examTemplateId && examTemplateId !== 'none' && filteredSections.length > 0 && (
+                <div className="space-y-2">
+                  <Label>القسم</Label>
+                  <Select value={sectionId || 'all'} onValueChange={(v) => setSectionId(v === 'all' ? '' : v)}>
+                    <SelectTrigger><SelectValue placeholder="جميع الأقسام" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">جميع الأقسام</SelectItem>
+                      {filteredSections.map(s => <SelectItem key={s.id} value={s.id}>{s.name_ar}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
-                <Label>عدد الأسئلة</Label>
                 <Input type="number" min={1} max={50} value={numberOfQuestions}
                   onChange={(e) => setNumberOfQuestions(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} />
               </div>
