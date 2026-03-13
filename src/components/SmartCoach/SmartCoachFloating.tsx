@@ -43,11 +43,11 @@ export default function SmartCoachFloating() {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [wanderIdx, setWanderIdx] = useState(0);
   const [animState, setAnimState] = useState<CoachAnimState>('idle');
   const [hasEntered, setHasEntered] = useState(false);
   const [coachBubble, setCoachBubble] = useState<CoachMessage | null>(null);
-  const [isWalkingIn, setIsWalkingIn] = useState(false);
+  const [walkX, setWalkX] = useState(typeof window !== 'undefined' ? window.innerWidth + 120 : 800);
+  const walkRef = useRef<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
