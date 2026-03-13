@@ -182,30 +182,53 @@ iframe[src*="lovable"] {
   }
 }
 
-/* ── Character Walking Animations ── */
-@keyframes walkBodyBob {
-  0%   { transform: translateY(0px)   rotate(0deg)   scaleY(1.00); }
-  15%  { transform: translateY(-6px)  rotate(-1.5deg) scaleY(1.02); }
-  30%  { transform: translateY(-2px)  rotate(0deg)   scaleY(0.99); }
-  45%  { transform: translateY(-6px)  rotate(1.5deg)  scaleY(1.02); }
-  60%  { transform: translateY(-2px)  rotate(0deg)   scaleY(0.99); }
-  75%  { transform: translateY(-6px)  rotate(-1.5deg) scaleY(1.02); }
-  90%  { transform: translateY(-2px)  rotate(0deg)   scaleY(0.99); }
-  100% { transform: translateY(0px)   rotate(0deg)   scaleY(1.00); }
+/* ── Character Walking & Idle Animations ── */
+@keyframes bodyBobWalk {
+  0%   { transform: translateY(0px)  rotate(0deg);    }
+  20%  { transform: translateY(-7px) rotate(-1.8deg); }
+  40%  { transform: translateY(-1px) rotate(0.3deg);  }
+  60%  { transform: translateY(-7px) rotate(1.8deg);  }
+  80%  { transform: translateY(-1px) rotate(-0.3deg); }
+  100% { transform: translateY(0px)  rotate(0deg);    }
 }
 
-@keyframes walkShadow {
-  0%, 100% { transform: scaleX(1.0);  opacity: 0.3; }
-  25%, 75% { transform: scaleX(0.85); opacity: 0.2; }
-  50%      { transform: scaleX(1.0);  opacity: 0.3; }
+@keyframes gentleFloat {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-5px); }
 }
 
-.character-walking {
-  animation: walkBodyBob 0.55s ease-in-out infinite;
+@keyframes shadowPulse {
+  0%, 100% { transform: scaleX(1.0) scaleY(1.0); opacity: 0.35; }
+  30%, 70% { transform: scaleX(0.8) scaleY(0.7); opacity: 0.20; }
+  50%      { transform: scaleX(1.0) scaleY(1.0); opacity: 0.35; }
 }
 
-.character-shadow-walking {
-  animation: walkShadow 0.55s ease-in-out infinite;
+.is-walking .character-body {
+  animation: bodyBobWalk 0.52s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  transform-origin: bottom center;
+}
+
+.is-idle .character-body {
+  animation: gentleFloat 2.8s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+
+.character-ground-shadow {
+  width: 55px;
+  height: 9px;
+  background: radial-gradient(ellipse, hsl(var(--foreground) / 0.35) 0%, transparent 70%);
+  border-radius: 50%;
+  margin: -3px auto 0;
+}
+
+.is-walking .character-ground-shadow {
+  animation: shadowPulse 0.52s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+
+.is-idle .character-ground-shadow {
+  animation: none;
+  opacity: 0.25;
+  transform: scaleX(1);
 }
 
 /* ── Mobile responsive overrides ── */
