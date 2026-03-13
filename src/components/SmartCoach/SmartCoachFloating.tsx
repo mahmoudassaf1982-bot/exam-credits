@@ -96,18 +96,30 @@ export default function SmartCoachFloating() {
     }
   }, [sessionActive, hasEntered]);
 
-  // Wandering movement cycle — only when not in training
+  // Continuous walking animation — right to left, looping
   useEffect(() => {
-    if (chatOpen || !visible || sessionActive) return;
-    const timer = setInterval(() => {
-      setWanderIdx(prev => (prev + 1) % WANDER_POSITIONS.length);
-    }, WANDER_INTERVAL);
-    return () => clearInterval(timer);
+    if (chatOpen || !visible || sessionActive) {
+      if (walkRef.current) cancelAnimationFrame(walkRef.current);
+      return;
+    }
+    const speed = 1.2; // pixels per frame (~72px/s at 60fps)
+    let lastTime = 0;
+    const step = (time: number) => {
+      if (lastTime) {
+        const dt = Math.min(time - lastTime, 50); // cap delta
+        setWalkX(prev => {
+          const next = prev - speed * (dt / 16.67);
+          // When fully off-screen left, reset to right
+          if (next < -130) return window.innerWidth + 120;
+          return next;
+        });
+      }
+      lastTime = time;
+      walkRef.current = requestAnimationFrame(step);
+    };
+    walkRef.current = requestAnimationFrame(step);
+    return () => { if (walkRef.current) cancelAnimationFrame(walkRef.current); };
   }, [chatOpen, visible, sessionActive]);
-
-  useEffect(() => {
-    if (chatOpen) setWanderIdx(0);
-  }, [chatOpen]);
 
   // Auto scroll chat
   useEffect(() => {
