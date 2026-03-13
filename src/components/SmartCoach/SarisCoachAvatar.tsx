@@ -3,8 +3,10 @@ import coachPointing from '@/assets/saris-coach-fullbody.png';
 import coachIdle from '@/assets/saris-coach-idle.png';
 import coachSpeaking from '@/assets/saris-coach-speaking.png';
 import coachCelebrating from '@/assets/saris-coach-celebrating.png';
+import coachThinking from '@/assets/saris-coach-thinking.png';
+import coachWaving from '@/assets/saris-coach-waving.png';
 
-export type CoachAnimState = 'idle' | 'walking' | 'speaking' | 'pointing' | 'celebrating' | 'guiding';
+export type CoachAnimState = 'idle' | 'walking' | 'speaking' | 'pointing' | 'celebrating' | 'guiding' | 'thinking' | 'waving';
 
 interface SarisCoachAvatarProps {
   state: CoachAnimState;
@@ -14,56 +16,56 @@ interface SarisCoachAvatarProps {
 
 const stateToImage: Record<CoachAnimState, string> = {
   idle: coachIdle,
-  walking: coachPointing, // walking uses pointing pose with motion
+  walking: coachWaving,
   speaking: coachSpeaking,
   pointing: coachPointing,
   celebrating: coachCelebrating,
   guiding: coachSpeaking,
+  thinking: coachThinking,
+  waving: coachWaving,
 };
 
-/**
- * Animated SARIS Coach avatar using multiple pose images
- * with framer-motion transitions between states.
- */
 export default function SarisCoachAvatar({ state, size = 120, className = '' }: SarisCoachAvatarProps) {
   const imgSrc = stateToImage[state];
 
-  // Per-state motion animations applied to the image
   const bodyMotion = {
-    idle: { y: [0, -3, 0], rotate: [0, 0.5, 0, -0.5, 0], scale: [1, 1.01, 1] },
-    walking: { y: [0, -5, 0, -5, 0], rotate: [-2, 2, -2], x: [0, 2, 0, -2, 0] },
+    idle: { y: [0, -4, 0], scale: [1, 1.01, 1] },
+    walking: { y: [0, -5, 0, -5, 0], x: [0, 3, 0, -3, 0] },
     speaking: { y: [0, -2, 0], scale: [1, 1.02, 1] },
     pointing: { y: [0, -2, 0], rotate: [0, -1, 0, 1, 0] },
-    celebrating: { y: [0, -10, 0, -7, 0], scale: [1, 1.06, 1, 1.04, 1], rotate: [0, 2, -2, 0] },
-    guiding: { y: [0, -2, 0], x: [0, 3, 0, -3, 0] },
+    celebrating: { y: [0, -12, 0, -8, 0], scale: [1, 1.08, 1, 1.05, 1], rotate: [0, 3, -3, 0] },
+    guiding: { y: [0, -2, 0], x: [0, 2, 0, -2, 0] },
+    thinking: { y: [0, -2, 0], rotate: [0, -2, 0] },
+    waving: { y: [0, -3, 0], rotate: [0, 2, -2, 0] },
   };
 
-  const transitionConfig = {
-    idle: { duration: 4, repeat: Infinity, ease: 'easeInOut' as const },
-    walking: { duration: 0.5, repeat: Infinity, ease: 'easeInOut' as const },
+  const transitionConfig: Record<CoachAnimState, object> = {
+    idle: { duration: 3, repeat: Infinity, ease: 'easeInOut' as const },
+    walking: { duration: 0.6, repeat: Infinity, ease: 'easeInOut' as const },
     speaking: { duration: 1.5, repeat: Infinity, ease: 'easeInOut' as const },
     pointing: { duration: 3, repeat: Infinity, ease: 'easeInOut' as const },
-    celebrating: { duration: 0.8, repeat: Infinity, ease: 'easeInOut' as const },
+    celebrating: { duration: 0.7, repeat: Infinity, ease: 'easeInOut' as const },
     guiding: { duration: 3, repeat: Infinity, ease: 'easeInOut' as const },
+    thinking: { duration: 2.5, repeat: Infinity, ease: 'easeInOut' as const },
+    waving: { duration: 0.8, repeat: Infinity, ease: 'easeInOut' as const },
   };
 
   return (
-    <div className={`relative ${className}`} style={{ width: size, height: size * 1.2 }}>
+    <div className={`relative ${className}`} style={{ width: size, height: size * 1.3 }}>
       {/* Ground shadow */}
       <motion.div
         className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded-full bg-foreground/10"
         style={{ width: size * 0.5, height: size * 0.06 }}
         animate={
-          state === 'walking'
-            ? { scaleX: [1, 0.7, 1], opacity: [0.1, 0.06, 0.1] }
-            : state === 'celebrating'
-              ? { scaleX: [1, 0.6, 1], opacity: [0.1, 0.04, 0.1] }
+          state === 'celebrating'
+            ? { scaleX: [1, 0.6, 1], opacity: [0.1, 0.04, 0.1] }
+            : state === 'walking'
+              ? { scaleX: [1, 0.7, 1], opacity: [0.1, 0.06, 0.1] }
               : {}
         }
         transition={transitionConfig[state]}
       />
 
-      {/* Character image with pose switching */}
       <AnimatePresence mode="wait">
         <motion.img
           key={state}
@@ -71,13 +73,9 @@ export default function SarisCoachAvatar({ state, size = 120, className = '' }: 
           alt="SARIS Coach"
           className="absolute inset-0 w-full h-full object-contain"
           style={{ filter: 'drop-shadow(0 6px 16px hsl(38 92% 50% / 0.15))' }}
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{
-            opacity: 1,
-            scale: 1,
-            ...bodyMotion[state],
-          }}
-          exit={{ opacity: 0, scale: 0.95 }}
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1, ...bodyMotion[state] }}
+          exit={{ opacity: 0, scale: 0.92 }}
           transition={transitionConfig[state]}
         />
       </AnimatePresence>
@@ -101,20 +99,10 @@ export default function SarisCoachAvatar({ state, size = 120, className = '' }: 
                 top: p.top,
                 backgroundColor: i % 2 === 0 ? 'hsl(var(--gold))' : 'hsl(var(--primary))',
               }}
-              animate={{
-                y: [0, -20, -35],
-                opacity: [1, 0.7, 0],
-                scale: [1, 1.3, 0.5],
-              }}
-              transition={{
-                duration: 1.2,
-                repeat: Infinity,
-                delay: p.delay,
-                ease: 'easeOut',
-              }}
+              animate={{ y: [0, -20, -35], opacity: [1, 0.7, 0], scale: [1, 1.3, 0.5] }}
+              transition={{ duration: 1.2, repeat: Infinity, delay: p.delay, ease: 'easeOut' }}
             />
           ))}
-          {/* Stars */}
           {[
             { left: '15%', top: '20%', delay: 0.15 },
             { left: '75%', top: '25%', delay: 0.35 },
@@ -123,16 +111,8 @@ export default function SarisCoachAvatar({ state, size = 120, className = '' }: 
               key={`star-${i}`}
               className="absolute text-[hsl(var(--gold))] text-sm"
               style={{ left: s.left, top: s.top }}
-              animate={{
-                y: [0, -25],
-                opacity: [1, 0],
-                rotate: [0, 180],
-              }}
-              transition={{
-                duration: 1,
-                repeat: Infinity,
-                delay: s.delay,
-              }}
+              animate={{ y: [0, -25], opacity: [1, 0], rotate: [0, 180] }}
+              transition={{ duration: 1, repeat: Infinity, delay: s.delay }}
             >
               ★
             </motion.span>
@@ -147,6 +127,20 @@ export default function SarisCoachAvatar({ state, size = 120, className = '' }: 
           animate={{ opacity: [0, 1, 0], scale: [0.5, 1.2, 0.5] }}
           transition={{ duration: 1.5, repeat: Infinity }}
         />
+      )}
+
+      {/* Thinking dots */}
+      {state === 'thinking' && (
+        <div className="absolute -top-2 right-0 flex gap-1">
+          {[0, 0.3, 0.6].map((delay, i) => (
+            <motion.div
+              key={i}
+              className="w-1.5 h-1.5 rounded-full bg-primary"
+              animate={{ opacity: [0.3, 1, 0.3], y: [0, -4, 0] }}
+              transition={{ duration: 1, repeat: Infinity, delay }}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
