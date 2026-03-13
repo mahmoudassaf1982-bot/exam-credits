@@ -97,31 +97,6 @@ export default function SmartCoachFloating() {
     }
   }, [sessionActive, hasEntered]);
 
-  // Continuous walking animation — right to left, looping via RAF + controls.set
-  useEffect(() => {
-    if (chatOpen || !visible || sessionActive) {
-      if (walkRafRef.current) cancelAnimationFrame(walkRafRef.current);
-      return;
-    }
-    const speed = 1.5;
-    let lastTime = 0;
-    const step = (time: number) => {
-      if (lastTime) {
-        const dt = Math.min(time - lastTime, 50);
-        walkXRef.current -= speed * (dt / 16.67);
-        if (walkXRef.current < -120) {
-          walkXRef.current = window.innerWidth;
-        }
-        walkControls.set({ x: walkXRef.current });
-      }
-      lastTime = time;
-      walkRafRef.current = requestAnimationFrame(step);
-    };
-    // Init position before first frame
-    walkControls.set({ x: walkXRef.current });
-    walkRafRef.current = requestAnimationFrame(step);
-    return () => { if (walkRafRef.current) cancelAnimationFrame(walkRafRef.current); };
-  }, [chatOpen, visible, sessionActive, walkControls]);
 
   // Auto scroll chat
   useEffect(() => {
