@@ -121,7 +121,6 @@ const App = () => (
 function SmartCoachGlobal() {
   const { pathname } = useLocation();
   if (pathname.includes('/exam-session/')) return null;
-  if (['/', '/auth', '/auth/login', '/auth/register', '/choose-country'].includes(pathname)) return null;
   return <SmartCoachFloating />;
 }
 
