@@ -47,6 +47,22 @@ export default function SmartCoachFloating() {
   const constraintsRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const characterRef = useRef<HTMLDivElement>(null);
+  const [charPos, setCharPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Track character position for bubble placement
+  const updateCharPos = () => {
+    if (characterRef.current) {
+      const rect = characterRef.current.getBoundingClientRect();
+      setCharPos({ x: rect.left + rect.width / 2, y: rect.top });
+    }
+  };
+
+  useEffect(() => {
+    updateCharPos();
+    window.addEventListener('resize', updateCharPos);
+    return () => window.removeEventListener('resize', updateCharPos);
+  }, []);
 
   // ── Derive animation state from context ──
   useEffect(() => {
@@ -311,12 +327,17 @@ export default function SmartCoachFloating() {
       )}
 
       {/* ─── Contextual Speech Bubble ─── */}
-      {coachBubble && !chatOpen && !showIntro && (
+      {coachBubble && !chatOpen && !showIntro && charPos && (
         <div
-          className="fixed bottom-44 left-4 z-[89] max-w-[240px] rounded-xl bg-card border border-border px-3 py-2.5 shadow-lg"
+          className="fixed z-[89] max-w-[240px] rounded-xl bg-card border border-border px-3 py-2.5 shadow-lg"
           dir="rtl"
+          style={{
+            left: charPos.x,
+            top: charPos.y - 12,
+            transform: 'translate(-50%, -100%)',
+          }}
         >
-          <div className="absolute -bottom-2 left-8 w-4 h-4 bg-card border-b border-r border-border rotate-45" />
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-card border-b border-r border-border rotate-45" />
           <p className="text-xs font-medium text-foreground leading-relaxed">{coachBubble.ar}</p>
           <p className="text-[10px] text-muted-foreground/70 mt-0.5 italic" dir="ltr">{coachBubble.en}</p>
         </div>
@@ -453,10 +474,13 @@ export default function SmartCoachFloating() {
           style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 50 }}
         >
           <motion.div
+            ref={characterRef}
             drag
             dragConstraints={constraintsRef}
             dragElastic={0.08}
             whileDrag={{ scale: 1.05 }}
+            onDrag={updateCharPos}
+            onDragEnd={updateCharPos}
             animate={{ y: [0, -8, 0] }}
             transition={{ y: { duration: 2.5, repeat: Infinity, ease: 'easeInOut' } }}
             style={{
