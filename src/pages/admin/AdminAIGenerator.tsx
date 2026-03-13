@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 
 interface Country { id: string; name_ar: string; flag: string; }
 interface ExamTemplate { id: string; country_id: string; name_ar: string; }
+interface ExamSection { id: string; exam_template_id: string; name_ar: string; order: number; }
 
 export default function AdminAIGenerator() {
   const { toast } = useToast();
