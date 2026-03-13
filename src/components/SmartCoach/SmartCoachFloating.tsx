@@ -8,19 +8,10 @@ import { supabase } from '@/integrations/supabase/client';
 import SarisCoachAvatar, { type CoachAnimState } from './SarisCoachAvatar';
 import { pickRandom, trainingStartMessages, idleGreetings, type CoachMessage } from './coachMessages';
 
-// Horizontal drift positions for non-training mode
-const WANDER_POSITIONS = [
-  { bottom: 24, left: 16 },
-  { bottom: 28, left: 50 },
-  { bottom: 20, left: 80 },
-  { bottom: 26, left: 40 },
-  { bottom: 24, left: 16 },
-] as const;
-
-// Training mode: stationary position
+// Walking: full screen width traversal duration (seconds)
+const WALK_DURATION = 18;
+// Training mode: stationary position  
 const TRAINING_POSITION = { bottom: 24, left: 16 };
-
-const WANDER_INTERVAL = 12_000;
 
 // Training-specific quick actions (shown during active session or intervention)
 const TRAINING_QUICK_ACTIONS = [
