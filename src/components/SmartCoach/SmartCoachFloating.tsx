@@ -127,7 +127,7 @@ export default function SmartCoachFloating() {
     if (chatOpen) setTimeout(() => inputRef.current?.focus(), 300);
   }, [chatOpen]);
 
-  if (!visible || !user) return null;
+  if (!user) return null;
 
   // Build full context payload for edge function
   const buildFullContext = () => {
