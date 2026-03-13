@@ -50,12 +50,17 @@ export default function SarisCoachAvatar({ state, size = 120, className = '' }: 
     waving: { duration: 0.8, repeat: Infinity, ease: 'easeInOut' as const },
   };
 
+  const isWalking = state === 'walking';
+  const legWidth = size * 0.09;
+  const legHeight = size * 0.22;
+  const legOffsetX = size * 0.16; // distance from center for each leg
+
   return (
-    <div className={`relative ${className}`} style={{ width: size, height: size * 1.3 }}>
+    <div className={`relative ${className}`} style={{ width: size, height: size * 1.3 + (isWalking ? legHeight * 0.5 : 0) }}>
       {/* Ground shadow */}
       <motion.div
-        className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded-full bg-foreground/10"
-        style={{ width: size * 0.5, height: size * 0.06 }}
+        className="absolute left-1/2 -translate-x-1/2 rounded-full bg-foreground/10"
+        style={{ width: size * 0.5, height: size * 0.06, bottom: 0 }}
         animate={
           state === 'celebrating'
             ? { scaleX: [1, 0.6, 1], opacity: [0.1, 0.04, 0.1] }
@@ -66,14 +71,51 @@ export default function SarisCoachAvatar({ state, size = 120, className = '' }: 
         transition={transitionConfig[state]}
       />
 
+      {/* Character body image */}
       <motion.img
         src={imgSrc}
         alt="SARIS Coach"
-        className="absolute inset-0 w-full h-full object-contain"
-        style={{ filter: 'drop-shadow(0 6px 16px hsl(38 92% 50% / 0.15))' }}
+        className="absolute inset-0 w-full object-contain"
+        style={{
+          filter: 'drop-shadow(0 6px 16px hsl(38 92% 50% / 0.15))',
+          height: size * 1.1,
+        }}
         animate={{ ...bodyMotion[state] }}
         transition={transitionConfig[state]}
       />
+
+      {/* ── Walking Legs ── */}
+      {isWalking && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 flex justify-center"
+          style={{ bottom: size * 0.06, width: size * 0.6, gap: legOffsetX * 0.4 }}
+        >
+          {/* Left leg */}
+          <motion.div
+            style={{
+              width: legWidth,
+              height: legHeight,
+              borderRadius: legWidth / 2,
+              backgroundColor: 'hsl(var(--foreground) / 0.25)',
+              transformOrigin: 'top center',
+            }}
+            animate={{ rotate: [20, -20, 20] }}
+            transition={{ duration: 0.4, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }}
+          />
+          {/* Right leg */}
+          <motion.div
+            style={{
+              width: legWidth,
+              height: legHeight,
+              borderRadius: legWidth / 2,
+              backgroundColor: 'hsl(var(--foreground) / 0.25)',
+              transformOrigin: 'top center',
+            }}
+            animate={{ rotate: [-20, 20, -20] }}
+            transition={{ duration: 0.4, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }}
+          />
+        </div>
+      )}
 
       {/* Celebration particles */}
       {state === 'celebrating' && (
