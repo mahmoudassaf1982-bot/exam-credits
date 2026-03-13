@@ -71,6 +71,7 @@ export default function AdminAIGenerator() {
       const params: any = {
         country_id: country,
         exam_template_id: examTemplateId || null,
+        section_id: sectionId || null,
         difficulty,
         count: numberOfQuestions,
       };
