@@ -8,19 +8,10 @@ import { supabase } from '@/integrations/supabase/client';
 import SarisCoachAvatar, { type CoachAnimState } from './SarisCoachAvatar';
 import { pickRandom, trainingStartMessages, idleGreetings, type CoachMessage } from './coachMessages';
 
-// Horizontal drift positions for non-training mode
-const WANDER_POSITIONS = [
-  { bottom: 24, left: 16 },
-  { bottom: 28, left: 50 },
-  { bottom: 20, left: 80 },
-  { bottom: 26, left: 40 },
-  { bottom: 24, left: 16 },
-] as const;
-
-// Training mode: stationary position
+// Walking: full screen width traversal duration (seconds)
+const WALK_DURATION = 18;
+// Training mode: stationary position  
 const TRAINING_POSITION = { bottom: 24, left: 16 };
-
-const WANDER_INTERVAL = 12_000;
 
 // Training-specific quick actions (shown during active session or intervention)
 const TRAINING_QUICK_ACTIONS = [
@@ -52,11 +43,11 @@ export default function SmartCoachFloating() {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [wanderIdx, setWanderIdx] = useState(0);
   const [animState, setAnimState] = useState<CoachAnimState>('idle');
   const [hasEntered, setHasEntered] = useState(false);
   const [coachBubble, setCoachBubble] = useState<CoachMessage | null>(null);
-  const [isWalkingIn, setIsWalkingIn] = useState(false);
+  const [walkX, setWalkX] = useState(typeof window !== 'undefined' ? window.innerWidth + 120 : 800);
+  const walkRef = useRef<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -68,14 +59,16 @@ export default function SmartCoachFloating() {
     }
     if (loading) {
       setAnimState('thinking');
+    } else if (chatOpen) {
+      setAnimState('idle');
     } else if (visualState === 'attention' || visualState === 'intervention') {
       setAnimState('pointing');
     } else if (sessionActive) {
       setAnimState('guiding');
     } else {
-      setAnimState('idle');
+      setAnimState('walking');
     }
-  }, [hasEntered, loading, visualState, sessionActive]);
+  }, [hasEntered, loading, visualState, sessionActive, chatOpen]);
 
   // ── Walking entrance animation ──
   useEffect(() => {
@@ -105,18 +98,30 @@ export default function SmartCoachFloating() {
     }
   }, [sessionActive, hasEntered]);
 
-  // Wandering movement cycle — only when not in training
+  // Continuous walking animation — right to left, looping
   useEffect(() => {
-    if (chatOpen || !visible || sessionActive) return;
-    const timer = setInterval(() => {
-      setWanderIdx(prev => (prev + 1) % WANDER_POSITIONS.length);
-    }, WANDER_INTERVAL);
-    return () => clearInterval(timer);
+    if (chatOpen || !visible || sessionActive) {
+      if (walkRef.current) cancelAnimationFrame(walkRef.current);
+      return;
+    }
+    const speed = 1.2; // pixels per frame (~72px/s at 60fps)
+    let lastTime = 0;
+    const step = (time: number) => {
+      if (lastTime) {
+        const dt = Math.min(time - lastTime, 50); // cap delta
+        setWalkX(prev => {
+          const next = prev - speed * (dt / 16.67);
+          // When fully off-screen left, reset to right
+          if (next < -130) return window.innerWidth + 120;
+          return next;
+        });
+      }
+      lastTime = time;
+      walkRef.current = requestAnimationFrame(step);
+    };
+    walkRef.current = requestAnimationFrame(step);
+    return () => { if (walkRef.current) cancelAnimationFrame(walkRef.current); };
   }, [chatOpen, visible, sessionActive]);
-
-  useEffect(() => {
-    if (chatOpen) setWanderIdx(0);
-  }, [chatOpen]);
 
   // Auto scroll chat
   useEffect(() => {
@@ -499,18 +504,13 @@ export default function SmartCoachFloating() {
         <motion.div
           key="saris-coach-container"
           className="fixed z-[90]"
-          initial={false}
-          animate={{
+          style={{
             bottom: chatOpen ? 24
               : visualState === 'intervention' ? 80
-              : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
+              : sessionActive ? TRAINING_POSITION.bottom : 24,
             left: chatOpen ? 16
               : visualState === 'intervention' ? '50%'
-              : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
-          }}
-          transition={{
-            bottom: { type: 'spring', stiffness: 30, damping: 18 },
-            left: { type: 'spring', stiffness: 30, damping: 18 },
+              : sessionActive ? TRAINING_POSITION.left : walkX,
           }}
         >
           <div className="is-idle">
