@@ -62,11 +62,11 @@ export default function SmartCoachFloating() {
   // ── Derive animation state from context ──
   useEffect(() => {
     if (!hasEntered) {
-      setAnimState('walking');
+      setAnimState('waving');
       return;
     }
     if (loading) {
-      setAnimState('speaking');
+      setAnimState('thinking');
     } else if (visualState === 'attention' || visualState === 'intervention') {
       setAnimState('pointing');
     } else if (sessionActive) {
