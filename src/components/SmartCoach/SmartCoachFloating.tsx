@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { useSmartCoach } from './SmartCoachContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import coachImage from '@/assets/smart-coach.png';
-
+import SarisCoachAvatar, { type CoachAnimState } from './SarisCoachAvatar';
+import { pickRandom, trainingStartMessages, idleGreetings, type CoachMessage } from './coachMessages';
 
 // Horizontal drift positions for non-training mode
 const WANDER_POSITIONS = [
@@ -52,12 +52,57 @@ export default function SmartCoachFloating() {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [_blinking, setBlinking] = useState(false);
   const [wanderIdx, setWanderIdx] = useState(0);
-  const [isWalking, setIsWalking] = useState(false);
+  const [animState, setAnimState] = useState<CoachAnimState>('idle');
   const [hasEntered, setHasEntered] = useState(false);
+  const [coachBubble, setCoachBubble] = useState<CoachMessage | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // ── Derive animation state from context ──
+  useEffect(() => {
+    if (!hasEntered) {
+      setAnimState('walking');
+      return;
+    }
+    if (loading) {
+      setAnimState('speaking');
+    } else if (visualState === 'attention' || visualState === 'intervention') {
+      setAnimState('pointing');
+    } else if (sessionActive) {
+      setAnimState('guiding');
+    } else {
+      setAnimState('idle');
+    }
+  }, [hasEntered, loading, visualState, sessionActive]);
+
+  // ── Walking entrance animation ──
+  useEffect(() => {
+    if (!visible || hasEntered) return;
+    setAnimState('walking');
+    const timer = setTimeout(() => {
+      setAnimState('idle');
+      setHasEntered(true);
+      // Show greeting bubble
+      const greeting = pickRandom(idleGreetings);
+      setCoachBubble(greeting);
+      setTimeout(() => setCoachBubble(null), 5000);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [visible, hasEntered]);
+
+  // ── Training start announcement ──
+  useEffect(() => {
+    if (sessionActive && hasEntered) {
+      setAnimState('celebrating');
+      const msg = pickRandom(trainingStartMessages);
+      setCoachBubble(msg);
+      setTimeout(() => {
+        setAnimState('guiding');
+        setCoachBubble(null);
+      }, 3000);
+    }
+  }, [sessionActive, hasEntered]);
 
   // Wandering movement cycle — only when not in training
   useEffect(() => {
@@ -67,36 +112,10 @@ export default function SmartCoachFloating() {
     }, WANDER_INTERVAL);
     return () => clearInterval(timer);
   }, [chatOpen, visible, sessionActive]);
-  // Reset to home when chat opens
+
   useEffect(() => {
     if (chatOpen) setWanderIdx(0);
   }, [chatOpen]);
-
-  // Blink cycle
-  useEffect(() => {
-    if (!visible) return;
-    const scheduleNextBlink = () => {
-      const delay = 3000 + Math.random() * 4000;
-      return setTimeout(() => {
-        setBlinking(true);
-        setTimeout(() => setBlinking(false), 200);
-        blinkTimer = scheduleNextBlink();
-      }, delay);
-    };
-    let blinkTimer = scheduleNextBlink();
-    return () => clearTimeout(blinkTimer);
-  }, [visible]);
-
-  // Walking entrance animation
-  useEffect(() => {
-    if (!visible || hasEntered) return;
-    setIsWalking(true);
-    const timer = setTimeout(() => {
-      setIsWalking(false);
-      setHasEntered(true);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [visible, hasEntered]);
 
   // Auto scroll chat
   useEffect(() => {
@@ -146,6 +165,7 @@ export default function SmartCoachFloating() {
     
     addMessage({ role: 'user', content: msg });
     setLoading(true);
+    setAnimState('speaking');
     addMessage({ role: 'coach', content: 'لحظة واحدة…' });
 
     try {
@@ -200,20 +220,15 @@ export default function SmartCoachFloating() {
       return;
     }
 
-    // Build a contextual first message from the intervention data
     const interventionData = intervention;
     dismissIntervention();
     
-    // Clear old messages and open fresh contextual chat
-    // (The context provider's isInterventionChat flag is set via the intervention flow)
     setChatOpen(true);
 
-    // Inject a contextual coach greeting based on the intervention
     const contextGreeting = interventionData?.detectedSection
       ? `لاحظت أنك تواجه صعوبة في قسم "${interventionData.detectedSection}"${interventionData.detectedTopic ? ` — موضوع "${interventionData.detectedTopic}"` : ''}. كيف أقدر أساعدك؟`
       : `لاحظت أنك أخطأت في عدة أسئلة متتالية. أنا هنا لمساعدتك — اختر أحد الخيارات أدناه أو اكتب سؤالك.`;
 
-    // Add coach greeting first, then auto-send the user's action
     addMessage({ role: 'coach', content: contextGreeting });
 
     if (action === 'hint') {
@@ -223,29 +238,9 @@ export default function SmartCoachFloating() {
     }
   };
 
-  // Determine which quick actions to show
   const getQuickActions = () => {
     if (sessionActive) return TRAINING_QUICK_ACTIONS;
     return GENERIC_QUICK_ACTIONS;
-  };
-
-  // Idle: gentle horizontal sway + float
-  const idleFloat = {
-    y: [0, -6, 0, -3, 0],
-    x: [0, 3, 0, -2, 0],
-    rotate: [0, 1, 0, -0.5, 0],
-  };
-
-  // Training: very calm, minimal breathing only
-  const trainingFloat = {
-    y: [0, -2, 0],
-    scale: [1, 1.01, 1],
-  };
-
-  const attentionFloat = {
-    y: [0, -10, 0, -6, 0],
-    x: [0, 20, 0],
-    scale: [1, 1.06, 1, 1.04, 1],
   };
 
   return (
@@ -270,13 +265,9 @@ export default function SmartCoachFloating() {
               dir="rtl"
             >
               <div className="flex items-start gap-4">
-                <motion.img
-                  src={coachImage}
-                  alt="SARIS"
-                  className="h-20 w-20 flex-shrink-0 drop-shadow-lg"
-                  animate={{ y: [0, -4, 0] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                />
+                <div className="flex-shrink-0">
+                  <SarisCoachAvatar state="pointing" size={80} />
+                </div>
                 <div className="flex-1 space-y-3">
                   <div className="flex items-center gap-2">
                     <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
@@ -324,20 +315,23 @@ export default function SmartCoachFloating() {
             initial={{ opacity: 0, y: 20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="fixed bottom-28 left-4 z-[90] w-72 rounded-2xl bg-card border border-border p-4 shadow-xl"
+            className="fixed bottom-40 left-4 z-[90] w-72 rounded-2xl bg-card border border-border p-4 shadow-xl"
             dir="rtl"
           >
             <button onClick={() => setShowIntro(false)} className="absolute top-2 left-2 p-1 rounded-full hover:bg-muted">
               <X className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
             <div className="flex items-center gap-3 mb-3">
-              <img src={coachImage} alt="SARIS" className="h-10 w-10 drop-shadow" />
+              <SarisCoachAvatar state="speaking" size={44} />
               <span className="font-bold text-sm text-foreground">SARIS — المدرب الذكي</span>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+            <p className="text-xs text-muted-foreground leading-relaxed mb-1">
               مرحباً، أنا SARIS.
               مدربك الذكي في منصة SARIS EXAMS.
               سأساعدك في التدريب، فهم الأسئلة، والتنقل داخل المنصة.
+            </p>
+            <p className="text-[10px] text-muted-foreground/70 mb-3 italic">
+              Hi! I'm SARIS, your smart training coach.
             </p>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => handleQuickAction('train')} className="text-xs gradient-gold text-gold-foreground">
@@ -351,6 +345,24 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
+      {/* ─── Contextual Speech Bubble ─── */}
+      <AnimatePresence>
+        {coachBubble && !chatOpen && !showIntro && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 5, scale: 0.95 }}
+            className="fixed bottom-44 left-4 z-[89] max-w-[240px] rounded-xl bg-card border border-border px-3 py-2.5 shadow-lg"
+            dir="rtl"
+          >
+            {/* Speech bubble arrow */}
+            <div className="absolute -bottom-2 left-8 w-4 h-4 bg-card border-b border-r border-border rotate-45" />
+            <p className="text-xs font-medium text-foreground leading-relaxed">{coachBubble.ar}</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-0.5 italic" dir="ltr">{coachBubble.en}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ─── Chat Panel ─── */}
       <AnimatePresence>
         {chatOpen && (
@@ -359,13 +371,13 @@ export default function SmartCoachFloating() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ type: 'spring', damping: 25 }}
-            className="fixed bottom-28 left-4 z-[90] w-80 sm:w-96 max-h-[70vh] flex flex-col rounded-2xl bg-card border border-border shadow-2xl overflow-hidden"
+            className="fixed bottom-40 left-4 z-[90] w-80 sm:w-96 max-h-[70vh] flex flex-col rounded-2xl bg-card border border-border shadow-2xl overflow-hidden"
             dir="rtl"
           >
             {/* Chat Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
               <div className="flex items-center gap-2">
-                <img src={coachImage} alt="SARIS" className="h-8 w-8" />
+                <SarisCoachAvatar state={loading ? 'speaking' : 'idle'} size={36} />
                 <div>
                   <h3 className="text-sm font-bold text-foreground">SARIS — المدرب الذكي</h3>
                   <p className="text-[10px] text-muted-foreground">
@@ -385,11 +397,19 @@ export default function SmartCoachFloating() {
             <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-[200px] max-h-[50vh]">
               {messages.length === 0 && (
                 <div className="text-center py-8">
-                  <img src={coachImage} alt="SARIS" className="h-14 w-14 mx-auto mb-3 opacity-60" />
+                  <div className="flex justify-center mb-3">
+                    <SarisCoachAvatar state="idle" size={56} />
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {sessionActive
                       ? 'أنا هنا لمساعدتك أثناء التدريب. اسألني عن أي سؤال!'
                       : 'مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟'
+                    }
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1 italic">
+                    {sessionActive
+                      ? "I'm here to help during training. Ask me anything!"
+                      : "Hello! I'm SARIS. How can I help?"
                     }
                   </p>
                   <div className="mt-3 flex flex-wrap justify-center gap-1.5">
@@ -432,7 +452,7 @@ export default function SmartCoachFloating() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Quick actions bar during training (shown when messages exist) */}
+            {/* Quick actions bar during training */}
             {sessionActive && messages.length > 0 && !loading && (
               <div className="px-3 pb-1 flex flex-wrap gap-1 border-t border-border pt-2">
                 {TRAINING_QUICK_ACTIONS.map(q => (
@@ -473,7 +493,7 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
-      {/* ─── Free-Standing Coach Character (Full Body) ─── */}
+      {/* ─── Free-Standing Animated Coach Character ─── */}
       <motion.div
         className="fixed z-[90]"
         initial={{ x: -120, opacity: 0 }}
@@ -492,6 +512,7 @@ export default function SmartCoachFloating() {
         <motion.button
           onClick={() => {
             if (showIntro) setShowIntro(false);
+            if (coachBubble) setCoachBubble(null);
             setChatOpen(!chatOpen);
             if (visualState === 'attention') setVisualState('idle');
           }}
@@ -502,7 +523,7 @@ export default function SmartCoachFloating() {
           {/* ── Attention outer glow ── */}
           {(visualState === 'attention' || visualState === 'intervention') && (
             <motion.div
-              className="absolute inset-[-12px] rounded-full pointer-events-none"
+              className="absolute inset-[-16px] rounded-full pointer-events-none"
               style={{
                 background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
               }}
@@ -511,37 +532,8 @@ export default function SmartCoachFloating() {
             />
           )}
 
-          {/* ── Full body character ── */}
-          <motion.div
-            className="relative flex flex-col items-center"
-            animate={
-              isWalking
-                ? { y: [0, -3, 0, -3, 0] }
-                : visualState === 'attention' || visualState === 'intervention'
-                  ? attentionFloat
-                  : sessionActive
-                    ? trainingFloat
-                    : idleFloat
-            }
-            transition={{
-              duration: isWalking ? 0.35 : visualState === 'attention' || visualState === 'intervention' ? 2 : sessionActive ? 4 : 5,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
-          >
-            {/* Full-body coach image */}
-            <motion.img
-              src={coachImage}
-              alt="SARIS — المدرب الذكي"
-              className="h-28 w-28 object-contain drop-shadow-lg"
-              animate={isWalking ? { rotate: [-2, 2, -2] } : { scale: [1, 1.02, 1] }}
-              transition={isWalking
-                ? { duration: 0.35, repeat: Infinity, ease: 'easeInOut' }
-                : { duration: 3.5, repeat: Infinity, ease: 'easeInOut' }
-              }
-              style={{ filter: 'drop-shadow(0 4px 12px hsl(var(--gold) / 0.2))' }}
-            />
-          </motion.div>
+          {/* ── Animated Avatar ── */}
+          <SarisCoachAvatar state={animState} size={110} />
 
           {/* ── Attention lightbulb badge ── */}
           {(visualState === 'attention' || visualState === 'intervention') && (
