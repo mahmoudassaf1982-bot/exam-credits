@@ -160,6 +160,17 @@ export default function SmartCoachFloating() {
     return () => clearTimeout(blinkTimer);
   }, [visible]);
 
+  // Walking entrance animation
+  useEffect(() => {
+    if (!visible || hasEntered) return;
+    setIsWalking(true);
+    const timer = setTimeout(() => {
+      setIsWalking(false);
+      setHasEntered(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [visible, hasEntered]);
+
   // Auto scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
