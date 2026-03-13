@@ -222,6 +222,20 @@ iframe[src*="lovable"] {
   transform: scaleX(1);
 }
 
+/* ── SARIS Walk Spritesheet ── */
+@keyframes sarisWalk {
+  0%   { background-position: 0% 0%;   }
+  16%  { background-position: 20% 0%;  }
+  33%  { background-position: 40% 0%;  }
+  50%  { background-position: 60% 0%;  }
+  66%  { background-position: 80% 0%;  }
+  83%  { background-position: 100% 0%; }
+  100% { background-position: 0% 0%;   }
+}
+.saris-sprite {
+  animation: sarisWalk 0.6s steps(1, end) infinite;
+}
+
 /* ── Mobile responsive overrides ── */
 @media (max-width: 768px) {
   body, html {

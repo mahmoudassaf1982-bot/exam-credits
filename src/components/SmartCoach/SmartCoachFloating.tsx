@@ -507,13 +507,17 @@ export default function SmartCoachFloating() {
               />
             )}
 
-            {/* ── Character with walking tilt ── */}
-            <motion.div
-              animate={{ rotate: [-3, 3, -3] }}
-              transition={{ duration: 0.5, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }}
-            >
-              <SarisCoachAvatar state={animState} size={80} />
-            </motion.div>
+            {/* ── Character sprite ── */}
+            <div
+              className="saris-sprite"
+              style={{
+                width: 80,
+                height: 120,
+                backgroundImage: "url('/saris-walk.png')",
+                backgroundSize: '600% 100%',
+                backgroundRepeat: 'no-repeat',
+              }}
+            />
 
             {/* ── Ground shadow ── */}
             <div className="character-ground-shadow" />
