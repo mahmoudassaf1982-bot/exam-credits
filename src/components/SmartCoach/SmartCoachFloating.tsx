@@ -127,6 +127,8 @@ export default function SmartCoachFloating() {
   const [loading, setLoading] = useState(false);
   const [blinking, setBlinking] = useState(false);
   const [wanderIdx, setWanderIdx] = useState(0);
+  const [isWalking, setIsWalking] = useState(false);
+  const [hasEntered, setHasEntered] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
