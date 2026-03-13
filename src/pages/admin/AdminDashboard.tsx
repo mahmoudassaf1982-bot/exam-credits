@@ -51,15 +51,8 @@ export default function AdminDashboard() {
     // Fetch live stats from edge function
     const fetchLive = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-        const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/admin-stats`,
-          { headers: { Authorization: `Bearer ${session.access_token}` } }
-        );
-        if (!res.ok) return;
-        const json = await res.json();
+        const { data: json, error: fnError } = await supabase.functions.invoke('admin-stats');
+        if (fnError || !json) return;
         setLiveStats({
           totalUsers: json.summary.totalUsers,
           totalSalesUSD: json.summary.totalSalesUSD,
