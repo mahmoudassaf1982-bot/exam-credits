@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import coachPointing from '@/assets/saris-coach-fullbody.png';
 import coachIdle from '@/assets/saris-coach-idle.png';
 import coachSpeaking from '@/assets/saris-coach-speaking.png';
