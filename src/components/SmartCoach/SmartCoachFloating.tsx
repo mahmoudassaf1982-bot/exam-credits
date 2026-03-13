@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { motion, useAnimationControls } from 'framer-motion';
+import { useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { Send, X, Lightbulb, MessageCircle, Minimize2, HelpCircle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSmartCoach } from './SmartCoachContext';
