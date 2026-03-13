@@ -546,19 +546,21 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
-      {/* ─── Free-Standing Coach Character ─── */}
+      {/* ─── Free-Standing Coach Character (Full Body) ─── */}
       <motion.div
         className="fixed z-[90]"
+        initial={{ x: -120, opacity: 0 }}
         animate={{
+          x: 0,
+          opacity: 1,
           bottom: chatOpen ? 24
             : visualState === 'intervention' ? 80
             : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
           left: chatOpen ? 16
             : visualState === 'intervention' ? '50%'
             : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
-          x: visualState === 'intervention' && !chatOpen ? '-50%' : '0%',
         }}
-        transition={{ type: 'spring', stiffness: 25, damping: 18 }}
+        transition={{ type: 'spring', stiffness: 30, damping: 18 }}
       >
         <motion.button
           onClick={() => {
@@ -582,39 +584,37 @@ export default function SmartCoachFloating() {
             />
           )}
 
-          {/* ── Ambient ground glow ── */}
+          {/* ── Full body character ── */}
           <motion.div
-            className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-14 h-3 rounded-full pointer-events-none"
-            style={{
-              background: 'radial-gradient(ellipse, hsl(var(--gold) / 0.15) 0%, transparent 80%)',
-            }}
-            animate={{ opacity: [0.3, 0.6, 0.3], scaleX: [0.9, 1.1, 0.9] }}
-            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-          />
-
-          {/* ── Free character (no circle container) ── */}
-          <motion.div
-            className="relative"
+            className="relative flex flex-col items-center"
             animate={
-              visualState === 'attention' || visualState === 'intervention'
-                ? attentionFloat
-                : sessionActive
-                  ? trainingFloat
-                  : idleFloat
+              isWalking
+                ? { y: [0, -3, 0, -3, 0] }
+                : visualState === 'attention' || visualState === 'intervention'
+                  ? attentionFloat
+                  : sessionActive
+                    ? trainingFloat
+                    : idleFloat
             }
             transition={{
-              duration: visualState === 'attention' || visualState === 'intervention' ? 2 : sessionActive ? 4 : 5,
+              duration: isWalking ? 0.35 : visualState === 'attention' || visualState === 'intervention' ? 2 : sessionActive ? 4 : 5,
               repeat: Infinity,
               ease: 'easeInOut',
             }}
           >
+            {/* Pointing hand gestures */}
+            <AnimatePresence>
+              {visualState === 'attention' && !chatOpen && (
+                <CoachPointingHand direction="right" />
+              )}
+            </AnimatePresence>
+
+            {/* Upper body - existing coach PNG */}
             <motion.img
               src={coachImage}
               alt="SARIS — المدرب الذكي"
               className="h-20 w-20 object-contain drop-shadow-lg"
-              animate={{
-                scale: [1, 1.02, 1],
-              }}
+              animate={{ scale: [1, 1.02, 1] }}
               transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
               style={{ filter: 'drop-shadow(0 4px 12px hsl(var(--gold) / 0.2))' }}
             />
@@ -631,6 +631,9 @@ export default function SmartCoachFloating() {
                 />
               )}
             </AnimatePresence>
+
+            {/* Legs (SVG) */}
+            <CoachLegs isWalking={isWalking} />
           </motion.div>
 
           {/* ── Attention lightbulb badge ── */}
