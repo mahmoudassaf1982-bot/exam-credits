@@ -140,8 +140,19 @@ export default function AdminAIGenerator() {
                   </SelectContent>
                 </Select>
               </div>
+              {examTemplateId && examTemplateId !== 'none' && filteredSections.length > 0 && (
+                <div className="space-y-2">
+                  <Label>القسم</Label>
+                  <Select value={sectionId || 'all'} onValueChange={(v) => setSectionId(v === 'all' ? '' : v)}>
+                    <SelectTrigger><SelectValue placeholder="جميع الأقسام" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">جميع الأقسام</SelectItem>
+                      {filteredSections.map(s => <SelectItem key={s.id} value={s.id}>{s.name_ar}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
-                <Label>عدد الأسئلة</Label>
                 <Input type="number" min={1} max={50} value={numberOfQuestions}
                   onChange={(e) => setNumberOfQuestions(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))} />
               </div>
