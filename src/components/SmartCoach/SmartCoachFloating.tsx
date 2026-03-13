@@ -47,6 +47,22 @@ export default function SmartCoachFloating() {
   const constraintsRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const characterRef = useRef<HTMLDivElement>(null);
+  const [charPos, setCharPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Track character position for bubble placement
+  const updateCharPos = () => {
+    if (characterRef.current) {
+      const rect = characterRef.current.getBoundingClientRect();
+      setCharPos({ x: rect.left + rect.width / 2, y: rect.top });
+    }
+  };
+
+  useEffect(() => {
+    updateCharPos();
+    window.addEventListener('resize', updateCharPos);
+    return () => window.removeEventListener('resize', updateCharPos);
+  }, []);
 
   // ── Derive animation state from context ──
   useEffect(() => {
