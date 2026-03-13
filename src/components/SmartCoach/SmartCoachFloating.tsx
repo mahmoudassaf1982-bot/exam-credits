@@ -486,7 +486,7 @@ export default function SmartCoachFloating() {
         >
           {/* Layer 2 (inner): body-bob ONLY */}
           <motion.div
-            animate={{ y: [0, -2, 0] }}
+            animate={{ rotate: [-3, 3, -3] }}
             transition={{ duration: 0.5, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }}
           >
             <motion.button
