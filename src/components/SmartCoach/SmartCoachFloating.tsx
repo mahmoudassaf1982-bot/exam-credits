@@ -7,79 +7,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import coachImage from '@/assets/smart-coach.png';
 
-/** SVG legs + shoes rendered below the coach PNG image */
-function CoachLegs({ isWalking }: { isWalking: boolean }) {
-  const legTransition = isWalking
-    ? { duration: 0.35, repeat: Infinity, ease: 'easeInOut' as const }
-    : { duration: 2, repeat: Infinity, ease: 'easeInOut' as const };
-
-  return (
-    <svg
-      viewBox="0 0 80 44"
-      width="80"
-      height="44"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="mx-auto -mt-1"
-    >
-      {/* Shadow */}
-      <motion.ellipse
-        cx="40" cy="42" rx="18" ry="2.5"
-        fill="hsl(215 20% 50% / 0.2)"
-        animate={isWalking ? { rx: [18, 14, 18], opacity: [0.2, 0.12, 0.2] } : {}}
-        transition={isWalking ? { duration: 0.35, repeat: Infinity } : {}}
-      />
-
-      {/* Left leg */}
-      <motion.g
-        style={{ originX: '32px', originY: '0px' }}
-        animate={isWalking ? { rotate: [12, -12, 12] } : { rotate: 0 }}
-        transition={legTransition}
-      >
-        <rect x="27" y="0" width="8" height="26" rx="4" fill="hsl(215, 30%, 35%)" />
-        <path d="M25 24 Q25 32 32 32 L37 32 Q39 32 39 28 L39 24 Z" fill="hsl(215, 50%, 22%)" />
-      </motion.g>
-
-      {/* Right leg */}
-      <motion.g
-        style={{ originX: '48px', originY: '0px' }}
-        animate={isWalking ? { rotate: [-12, 12, -12] } : { rotate: 0 }}
-        transition={legTransition}
-      >
-        <rect x="45" y="0" width="8" height="26" rx="4" fill="hsl(215, 30%, 35%)" />
-        <path d="M43 24 Q43 32 50 32 L55 32 Q57 32 57 28 L57 24 Z" fill="hsl(215, 50%, 22%)" />
-      </motion.g>
-    </svg>
-  );
-}
-
-/** Pointing hand SVG overlay */
-function CoachPointingHand({ direction }: { direction: 'left' | 'right' }) {
-  const isRight = direction === 'right';
-  return (
-    <motion.div
-      className={`absolute top-[45%] ${isRight ? '-right-5' : '-left-5'}`}
-      initial={{ opacity: 0, x: isRight ? -8 : 8 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.4 }}
-    >
-      <motion.svg
-        viewBox="0 0 24 16"
-        width="24"
-        height="16"
-        fill="none"
-        style={{ transform: isRight ? 'none' : 'scaleX(-1)' }}
-        animate={{ x: [0, 3, 0] }}
-        transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <rect x="0" y="4" width="16" height="8" rx="4" fill="hsl(25, 50%, 70%)" />
-        <circle cx="19" cy="8" r="3" fill="hsl(25, 50%, 70%)" />
-        <circle cx="22" cy="8" r="2" fill="hsl(25, 50%, 65%)" />
-      </motion.svg>
-    </motion.div>
-  );
-}
 
 // Horizontal drift positions for non-training mode
 const WANDER_POSITIONS = [
@@ -125,7 +52,7 @@ export default function SmartCoachFloating() {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [blinking, setBlinking] = useState(false);
+  const [_blinking, setBlinking] = useState(false);
   const [wanderIdx, setWanderIdx] = useState(0);
   const [isWalking, setIsWalking] = useState(false);
   const [hasEntered, setHasEntered] = useState(false);
@@ -602,38 +529,18 @@ export default function SmartCoachFloating() {
               ease: 'easeInOut',
             }}
           >
-            {/* Pointing hand gestures */}
-            <AnimatePresence>
-              {visualState === 'attention' && !chatOpen && (
-                <CoachPointingHand direction="right" />
-              )}
-            </AnimatePresence>
-
-            {/* Upper body - existing coach PNG */}
+            {/* Full-body coach image */}
             <motion.img
               src={coachImage}
               alt="SARIS — المدرب الذكي"
-              className="h-20 w-20 object-contain drop-shadow-lg"
-              animate={{ scale: [1, 1.02, 1] }}
-              transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+              className="h-28 w-28 object-contain drop-shadow-lg"
+              animate={isWalking ? { rotate: [-2, 2, -2] } : { scale: [1, 1.02, 1] }}
+              transition={isWalking
+                ? { duration: 0.35, repeat: Infinity, ease: 'easeInOut' }
+                : { duration: 3.5, repeat: Infinity, ease: 'easeInOut' }
+              }
               style={{ filter: 'drop-shadow(0 4px 12px hsl(var(--gold) / 0.2))' }}
             />
-
-            {/* Blink overlay */}
-            <AnimatePresence>
-              {blinking && (
-                <motion.div
-                  initial={{ scaleY: 0 }}
-                  animate={{ scaleY: 1 }}
-                  exit={{ scaleY: 0 }}
-                  transition={{ duration: 0.1 }}
-                  className="absolute top-[28%] left-[28%] w-[44%] h-[10%] bg-card rounded-full origin-top"
-                />
-              )}
-            </AnimatePresence>
-
-            {/* Legs (SVG) */}
-            <CoachLegs isWalking={isWalking} />
           </motion.div>
 
           {/* ── Attention lightbulb badge ── */}
