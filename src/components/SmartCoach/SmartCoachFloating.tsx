@@ -494,97 +494,80 @@ export default function SmartCoachFloating() {
         )}
       </AnimatePresence>
 
-      {/* ─── Free-Standing Animated Coach Character ─── */}
-      <AnimatePresence>
-        {visible && user && (
-          <motion.div
-            key="saris-coach-container"
-            className="fixed z-[90]"
-            initial={{ x: 160, opacity: 0 }}
-            animate={{
-              x: 0,
-              opacity: 1,
-              bottom: chatOpen ? 24
-                : visualState === 'intervention' ? 80
-                : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
-              left: chatOpen ? 16
-                : visualState === 'intervention' ? '50%'
-                : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
-            }}
-            exit={{ x: 160, opacity: 0 }}
-            transition={{
-              x: { type: 'tween', duration: 1.1, ease: [0.25, 0.46, 0.45, 0.94] },
-              opacity: { type: 'tween', duration: 0.5, ease: 'easeInOut' },
-              bottom: { type: 'spring', stiffness: 30, damping: 18 },
-              left: { type: 'spring', stiffness: 30, damping: 18 },
-            }}
-            onAnimationStart={() => {
-              setIsWalkingIn(true);
-            }}
-            onAnimationComplete={(definition) => {
-              if (definition === 'animate') {
-                setIsWalkingIn(false);
-                if (!hasEntered) setHasEntered(true);
-              }
-            }}
-          >
-            {/* Walk vs Idle CSS class wrapper */}
-            <div className={isWalkingIn ? 'is-walking' : 'is-idle'}>
-              <motion.button
-                onClick={() => {
-                  if (showIntro) setShowIntro(false);
-                  if (coachBubble) setCoachBubble(null);
-                  setChatOpen(!chatOpen);
-                  if (visualState === 'attention') setVisualState('idle');
-                }}
-                className="relative group focus:outline-none"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                {/* ── Attention outer glow ── */}
-                {(visualState === 'attention' || visualState === 'intervention') && (
-                  <motion.div
-                    className="absolute inset-[-16px] rounded-full pointer-events-none"
-                    style={{
-                      background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
-                    }}
-                    animate={{ scale: [1, 1.6, 1], opacity: [0.5, 0, 0.5] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  />
-                )}
+      {/* ─── Free-Standing Animated Coach Character (always visible) ─── */}
+      {user && (
+        <motion.div
+          key="saris-coach-container"
+          className="fixed z-[90]"
+          initial={false}
+          animate={{
+            bottom: chatOpen ? 24
+              : visualState === 'intervention' ? 80
+              : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
+            left: chatOpen ? 16
+              : visualState === 'intervention' ? '50%'
+              : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
+          }}
+          transition={{
+            bottom: { type: 'spring', stiffness: 30, damping: 18 },
+            left: { type: 'spring', stiffness: 30, damping: 18 },
+          }}
+        >
+          <div className="is-idle">
+            <motion.button
+              onClick={() => {
+                if (showIntro) setShowIntro(false);
+                if (coachBubble) setCoachBubble(null);
+                setChatOpen(!chatOpen);
+                if (visualState === 'attention') setVisualState('idle');
+              }}
+              className="relative group focus:outline-none"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              {/* ── Attention outer glow ── */}
+              {(visualState === 'attention' || visualState === 'intervention') && (
+                <motion.div
+                  className="absolute inset-[-16px] rounded-full pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
+                  }}
+                  animate={{ scale: [1, 1.6, 1], opacity: [0.5, 0, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              )}
 
-                {/* ── Character body (bob applied via CSS parent class) ── */}
-                <div className="character-body">
-                  <SarisCoachAvatar state={animState} size={110} />
-                </div>
+              {/* ── Character body ── */}
+              <div className="character-body">
+                <SarisCoachAvatar state={animState} size={110} />
+              </div>
 
-                {/* ── Ground shadow ── */}
-                <div className="character-ground-shadow" />
+              {/* ── Ground shadow ── */}
+              <div className="character-ground-shadow" />
 
-                {/* ── Attention lightbulb badge ── */}
-                {(visualState === 'attention' || visualState === 'intervention') && (
-                  <motion.div
-                    className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
-                    animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
-                    transition={{ duration: 1.2, repeat: Infinity }}
-                  >
-                    <Lightbulb className="h-4 w-4 text-[hsl(var(--gold-foreground))]" />
-                  </motion.div>
-                )}
+              {/* ── Attention lightbulb badge ── */}
+              {(visualState === 'attention' || visualState === 'intervention') && (
+                <motion.div
+                  className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
+                  animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
+                  transition={{ duration: 1.2, repeat: Infinity }}
+                >
+                  <Lightbulb className="h-4 w-4 text-[hsl(var(--gold-foreground))]" />
+                </motion.div>
+              )}
 
-                {/* ── Chat indicator ── */}
-                {chatOpen && (
-                  <motion.div
-                    className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-primary border-2 border-card"
-                    animate={{ scale: [1, 1.3, 1] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  />
-                )}
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              {/* ── Chat indicator ── */}
+              {chatOpen && (
+                <motion.div
+                  className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-primary border-2 border-card"
+                  animate={{ scale: [1, 1.3, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+              )}
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
     </>
   );
 }
