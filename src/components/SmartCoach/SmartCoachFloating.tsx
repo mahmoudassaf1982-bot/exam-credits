@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { motion, useAnimationControls } from 'framer-motion';
+import { useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { Send, X, Lightbulb, MessageCircle, Minimize2, HelpCircle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSmartCoach } from './SmartCoachContext';
@@ -8,8 +8,6 @@ import { supabase } from '@/integrations/supabase/client';
 import SarisCoachAvatar, { type CoachAnimState } from './SarisCoachAvatar';
 import { pickRandom, trainingStartMessages, idleGreetings, type CoachMessage } from './coachMessages';
 
-// Walking: full screen width traversal duration (seconds)
-const WALK_DURATION = 18;
 // Training mode: stationary position  
 const TRAINING_POSITION = { bottom: 24, left: 16 };
 
@@ -46,9 +44,7 @@ export default function SmartCoachFloating() {
   const [animState, setAnimState] = useState<CoachAnimState>('idle');
   const [hasEntered, setHasEntered] = useState(false);
   const [coachBubble, setCoachBubble] = useState<CoachMessage | null>(null);
-  const walkXRef = useRef<number>(typeof window !== 'undefined' ? window.innerWidth : 800);
-  const walkRafRef = useRef<number | null>(null);
-  const walkControls = useAnimationControls();
+  const constraintsRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -99,31 +95,6 @@ export default function SmartCoachFloating() {
     }
   }, [sessionActive, hasEntered]);
 
-  // Continuous walking animation — right to left, looping via RAF + controls.set
-  useEffect(() => {
-    if (chatOpen || !visible || sessionActive) {
-      if (walkRafRef.current) cancelAnimationFrame(walkRafRef.current);
-      return;
-    }
-    const speed = 1.5;
-    let lastTime = 0;
-    const step = (time: number) => {
-      if (lastTime) {
-        const dt = Math.min(time - lastTime, 50);
-        walkXRef.current -= speed * (dt / 16.67);
-        if (walkXRef.current < -120) {
-          walkXRef.current = window.innerWidth;
-        }
-        walkControls.set({ x: walkXRef.current });
-      }
-      lastTime = time;
-      walkRafRef.current = requestAnimationFrame(step);
-    };
-    // Init position before first frame
-    walkControls.set({ x: walkXRef.current });
-    walkRafRef.current = requestAnimationFrame(step);
-    return () => { if (walkRafRef.current) cancelAnimationFrame(walkRafRef.current); };
-  }, [chatOpen, visible, sessionActive, walkControls]);
 
   // Auto scroll chat
   useEffect(() => {
@@ -475,74 +446,85 @@ export default function SmartCoachFloating() {
         </div>
       )}
 
-      {/* ─── Free-Standing Animated Coach Character ─── */}
-      {/* Layer 1 (outer): x position via controls.set — NO animate prop */}
+      {/* ─── Draggable Floating Coach Character ─── */}
       {user && (
-        <motion.div
-          key="saris-walk-outer"
-          animate={walkControls}
-          className="fixed z-50"
-          style={{ bottom: 60, left: 0 }}
+        <div
+          ref={constraintsRef}
+          style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 50 }}
         >
-          <motion.button
-            onClick={() => {
-              if (showIntro) setShowIntro(false);
-              if (coachBubble) setCoachBubble(null);
-              setChatOpen(!chatOpen);
-              if (visualState === 'attention') setVisualState('idle');
+          <motion.div
+            drag
+            dragConstraints={constraintsRef}
+            dragElastic={0.08}
+            whileDrag={{ scale: 1.05 }}
+            animate={{ y: [0, -8, 0] }}
+            transition={{ y: { duration: 2.5, repeat: Infinity, ease: 'easeInOut' } }}
+            style={{
+              position: 'absolute',
+              bottom: 20,
+              right: 30,
+              cursor: 'grab',
+              pointerEvents: 'auto',
+              filter: 'drop-shadow(0px 15px 10px rgba(0,0,0,0.3))',
             }}
-            className="relative group focus:outline-none"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
           >
-            {/* ── Attention outer glow ── */}
-            {(visualState === 'attention' || visualState === 'intervention') && (
-              <motion.div
-                className="absolute inset-[-16px] rounded-full pointer-events-none"
-                style={{
-                  background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
-                }}
-                animate={{ scale: [1, 1.6, 1] }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              />
-            )}
-
-            {/* ── Character sprite ── */}
-            <div
-              className="saris-sprite"
-              style={{
-                width: 80,
-                height: 120,
-                backgroundImage: "url('/saris-walk.png')",
-                backgroundSize: '600% 100%',
-                backgroundRepeat: 'no-repeat',
+            <motion.button
+              onClick={() => {
+                if (showIntro) setShowIntro(false);
+                if (coachBubble) setCoachBubble(null);
+                setChatOpen(!chatOpen);
+                if (visualState === 'attention') setVisualState('idle');
               }}
-            />
+              className="relative group focus:outline-none"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              {/* ── Attention outer glow ── */}
+              {(visualState === 'attention' || visualState === 'intervention') && (
+                <motion.div
+                  className="absolute inset-[-16px] rounded-full pointer-events-none"
+                  style={{
+                    background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
+                  }}
+                  animate={{ scale: [1, 1.6, 1] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              )}
 
-            {/* ── Ground shadow ── */}
-            <div className="character-ground-shadow" />
-
-            {/* ── Attention lightbulb badge ── */}
-            {(visualState === 'attention' || visualState === 'intervention') && (
-              <motion.div
-                className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
-                animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
-                transition={{ duration: 1.2, repeat: Infinity }}
-              >
-                <Lightbulb className="h-4 w-4 text-[hsl(var(--gold-foreground))]" />
-              </motion.div>
-            )}
-
-            {/* ── Chat indicator ── */}
-            {chatOpen && (
-              <motion.div
-                className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-primary border-2 border-card"
-                animate={{ scale: [1, 1.3, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
+              {/* ── Character image ── */}
+              <img
+                src="/saris-coach.png"
+                alt="SARIS Coach"
+                draggable={false}
+                style={{
+                  width: '150px',
+                  height: 'auto',
+                  mixBlendMode: 'multiply',
+                }}
               />
-            )}
-          </motion.button>
-        </motion.div>
+
+              {/* ── Attention lightbulb badge ── */}
+              {(visualState === 'attention' || visualState === 'intervention') && (
+                <motion.div
+                  className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
+                  animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
+                  transition={{ duration: 1.2, repeat: Infinity }}
+                >
+                  <Lightbulb className="h-4 w-4 text-[hsl(var(--gold-foreground))]" />
+                </motion.div>
+              )}
+
+              {/* ── Chat indicator ── */}
+              {chatOpen && (
+                <motion.div
+                  className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-primary border-2 border-card"
+                  animate={{ scale: [1, 1.3, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+              )}
+            </motion.button>
+          </motion.div>
+        </div>
       )}
     </>
   );
