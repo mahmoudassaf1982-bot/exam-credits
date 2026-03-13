@@ -24,10 +24,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<PointsWallet | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const clearAuthState = () => {
+    setUser(null);
+    setWallet(null);
+    setSession(null);
+  };
+
   // Validate that the stored session user matches the current user
   const validateSessionUser = async (sessionUserId: string): Promise<boolean> => {
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
-    return currentUser?.id === sessionUserId;
+    try {
+      const { data: { user: currentUser }, error } = await supabase.auth.getUser();
+      if (error) return false;
+      return currentUser?.id === sessionUserId;
+    } catch (error) {
+      console.error('[Auth] validateSessionUser failed:', error);
+      return false;
+    }
   };
 
   // Fetch profile + wallet + role for a given user id
@@ -61,64 +73,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let initialSessionHandled = false;
+    let isUnmounted = false;
+
+    const finishLoading = () => {
+      if (!isUnmounted) setLoading(false);
+    };
+
+    const hydrateAuthenticatedSession = async (event: string, newSession: Session) => {
+      try {
+        if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+          const valid = await validateSessionUser(newSession.user.id);
+          if (!valid) {
+            await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
+            clearAuthState();
+            return;
+          }
+        }
+
+        await fetchUserData(newSession.user.id);
+      } catch (e) {
+        console.error('[Auth] Failed to hydrate authenticated session:', e);
+        clearAuthState();
+      } finally {
+        finishLoading();
+      }
+    };
 
     // Set up auth listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        setSession(newSession);
-        if (newSession?.user) {
-          try {
-            // On every INITIAL_SESSION / TOKEN_REFRESHED, re-validate UUID against server
-            if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
-              const valid = await validateSessionUser(newSession.user.id);
-              if (!valid) {
-                await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
-                setUser(null);
-                setWallet(null);
-                setSession(null);
-                setLoading(false);
-                return;
-              }
-            }
-            // Await fetchUserData BEFORE setting loading=false
-            // Use setTimeout to avoid Supabase client deadlocks, but track completion
-            setTimeout(async () => {
-              try {
-                await fetchUserData(newSession.user.id);
-              } catch (e) {
-                console.error('[Auth] fetchUserData failed:', e);
-              } finally {
-                setLoading(false);
-              }
-            }, 0);
-          } catch (e) {
-            console.error('[Auth] Session validation failed:', e);
-            setUser(null);
-            setWallet(null);
-            setSession(null);
-            setLoading(false);
-          }
-        } else {
-          setUser(null);
-          setWallet(null);
-          setLoading(false);
-        }
-        // Mark that onAuthStateChange handled the initial session
-        initialSessionHandled = true;
-      }
-    );
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      initialSessionHandled = true;
 
-    // Fallback: check existing session (only set loading=false if onAuthStateChange hasn't fired yet)
-    supabase.auth.getSession().then(async ({ data: { session: existingSession } }) => {
-      if (initialSessionHandled) return; // onAuthStateChange already handled it
-      setSession(existingSession);
-      if (existingSession?.user) {
-        await fetchUserData(existingSession.user.id);
+      if (isUnmounted) return;
+
+      setSession(newSession);
+
+      if (!newSession?.user) {
+        clearAuthState();
+        finishLoading();
+        return;
       }
-      setLoading(false);
+
+      // Don't await inside onAuthStateChange callback
+      void hydrateAuthenticatedSession(event, newSession);
     });
 
-    return () => subscription.unsubscribe();
+    // Fallback: check existing session if auth callback didn't fire
+    void (async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+
+        if (initialSessionHandled || isUnmounted) return;
+
+        if (error) {
+          console.error('[Auth] getSession failed:', error);
+          clearAuthState();
+          return;
+        }
+
+        setSession(data.session);
+
+        if (data.session?.user) {
+          await fetchUserData(data.session.user.id);
+        } else {
+          clearAuthState();
+        }
+      } catch (e) {
+        console.error('[Auth] Initial session restore failed:', e);
+        clearAuthState();
+      } finally {
+        if (!initialSessionHandled) finishLoading();
+      }
+    })();
+
+    return () => {
+      isUnmounted = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
