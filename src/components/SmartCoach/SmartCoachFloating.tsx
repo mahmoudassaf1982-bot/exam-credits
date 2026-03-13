@@ -502,18 +502,13 @@ export default function SmartCoachFloating() {
         <motion.div
           key="saris-coach-container"
           className="fixed z-[90]"
-          initial={false}
-          animate={{
+          style={{
             bottom: chatOpen ? 24
               : visualState === 'intervention' ? 80
-              : sessionActive ? TRAINING_POSITION.bottom : WANDER_POSITIONS[wanderIdx].bottom,
+              : sessionActive ? TRAINING_POSITION.bottom : 24,
             left: chatOpen ? 16
               : visualState === 'intervention' ? '50%'
-              : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
-          }}
-          transition={{
-            bottom: { type: 'spring', stiffness: 30, damping: 18 },
-            left: { type: 'spring', stiffness: 30, damping: 18 },
+              : sessionActive ? TRAINING_POSITION.left : walkX,
           }}
         >
           <div className="is-idle">
