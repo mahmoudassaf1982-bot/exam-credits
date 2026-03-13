@@ -254,262 +254,241 @@ export default function SmartCoachFloating() {
   return (
     <>
       {/* ─── Intervention Overlay ─── */}
-        {intervention && (
-          <motion.div
-            className="fixed inset-0 z-[100] flex items-end justify-center bg-foreground/40 backdrop-blur-sm"
-            onClick={dismissIntervention}
+      {intervention && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-foreground/40 backdrop-blur-sm"
+          onClick={dismissIntervention}
+        >
+          <div
+            className="w-full max-w-lg rounded-t-3xl bg-card border-t border-x border-border p-6 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+            dir="rtl"
           >
-            <motion.div
-              animate={{ y: 0 }}
-              transition={{ type: 'spring', damping: 25 }}
-              className="w-full max-w-lg rounded-t-3xl bg-card border-t border-x border-border p-6 shadow-2xl"
-              onClick={e => e.stopPropagation()}
-              dir="rtl"
-            >
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0">
-                  <SarisCoachAvatar state="pointing" size={80} />
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <SarisCoachAvatar state="pointing" size={80} />
+              </div>
+              <div className="flex-1 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
+                  <h3 className="font-bold text-foreground">SARIS — المدرب الذكي</h3>
                 </div>
-                <div className="flex-1 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Lightbulb className="h-5 w-5 text-[hsl(var(--gold))]" />
-                    <h3 className="font-bold text-foreground">SARIS — المدرب الذكي</h3>
-                  </div>
-                  {intervention.detectedSection && (
-                    <p className="text-xs font-semibold text-primary">
-                      {intervention.errorCount
-                        ? `لاحظنا أنك أخطأت في ${intervention.errorCount} أسئلة من قسم "${intervention.detectedSection}"`
-                        : `لاحظنا صعوبة في قسم "${intervention.detectedSection}"`
-                      }
-                    </p>
-                  )}
-                  <p className="text-sm text-foreground leading-relaxed">
-                    {intervention.message}
+                {intervention.detectedSection && (
+                  <p className="text-xs font-semibold text-primary">
+                    {intervention.errorCount
+                      ? `لاحظنا أنك أخطأت في ${intervention.errorCount} أسئلة من قسم "${intervention.detectedSection}"`
+                      : `لاحظنا صعوبة في قسم "${intervention.detectedSection}"`
+                    }
                   </p>
-                  <div className="flex gap-2 pt-1 flex-wrap">
-                    {intervention.suggestedActions?.includes('retry_similar') && (
-                      <Button size="sm" variant="outline" onClick={() => handleInterventionAction('retry_similar')}>
-                        <RotateCcw className="h-3 w-3 ml-1" />
-                        اشرح المفهوم
-                      </Button>
-                    )}
-                    {intervention.suggestedActions?.includes('hint') && (
-                      <Button size="sm" onClick={() => handleInterventionAction('hint')} className="gradient-gold text-gold-foreground">
-                        <HelpCircle className="h-3 w-3 ml-1" />
-                        أعطني تلميح
-                      </Button>
-                    )}
-                    <Button size="sm" variant="ghost" onClick={() => handleInterventionAction('continue')}>
-                      أكمل التدريب
+                )}
+                <p className="text-sm text-foreground leading-relaxed">
+                  {intervention.message}
+                </p>
+                <div className="flex gap-2 pt-1 flex-wrap">
+                  {intervention.suggestedActions?.includes('retry_similar') && (
+                    <Button size="sm" variant="outline" onClick={() => handleInterventionAction('retry_similar')}>
+                      <RotateCcw className="h-3 w-3 ml-1" />
+                      اشرح المفهوم
                     </Button>
-                  </div>
+                  )}
+                  {intervention.suggestedActions?.includes('hint') && (
+                    <Button size="sm" onClick={() => handleInterventionAction('hint')} className="gradient-gold text-gold-foreground">
+                      <HelpCircle className="h-3 w-3 ml-1" />
+                      أعطني تلميح
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => handleInterventionAction('continue')}>
+                    أكمل التدريب
+                  </Button>
                 </div>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Welcome Intro Bubble ─── */}
-      <AnimatePresence>
-        {showIntro && !chatOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="fixed bottom-40 left-4 z-[90] w-72 rounded-2xl bg-card border border-border p-4 shadow-xl"
-            dir="rtl"
-          >
-            <button onClick={() => setShowIntro(false)} className="absolute top-2 left-2 p-1 rounded-full hover:bg-muted">
-              <X className="h-3.5 w-3.5 text-muted-foreground" />
-            </button>
-            <div className="flex items-center gap-3 mb-3">
-              <SarisCoachAvatar state="speaking" size={44} />
-              <span className="font-bold text-sm text-foreground">SARIS — المدرب الذكي</span>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed mb-1">
-              مرحباً، أنا SARIS.
-              مدربك الذكي في منصة SARIS EXAMS.
-              سأساعدك في التدريب، فهم الأسئلة، والتنقل داخل المنصة.
-            </p>
-            <p className="text-[10px] text-muted-foreground/70 mb-3 italic">
-              Hi! I'm SARIS, your smart training coach.
-            </p>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => handleQuickAction('train')} className="text-xs gradient-gold text-gold-foreground">
-                ابدأ التدريب
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleQuickAction('ask')} className="text-xs">
-                اسألني أي شيء
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {showIntro && !chatOpen && (
+        <div
+          className="fixed bottom-40 left-4 z-[90] w-72 rounded-2xl bg-card border border-border p-4 shadow-xl"
+          dir="rtl"
+        >
+          <button onClick={() => setShowIntro(false)} className="absolute top-2 left-2 p-1 rounded-full hover:bg-muted">
+            <X className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+          <div className="flex items-center gap-3 mb-3">
+            <SarisCoachAvatar state="speaking" size={44} />
+            <span className="font-bold text-sm text-foreground">SARIS — المدرب الذكي</span>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed mb-1">
+            مرحباً، أنا SARIS.
+            مدربك الذكي في منصة SARIS EXAMS.
+            سأساعدك في التدريب، فهم الأسئلة، والتنقل داخل المنصة.
+          </p>
+          <p className="text-[10px] text-muted-foreground/70 mb-3 italic">
+            Hi! I'm SARIS, your smart training coach.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => handleQuickAction('train')} className="text-xs gradient-gold text-gold-foreground">
+              ابدأ التدريب
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => handleQuickAction('ask')} className="text-xs">
+              اسألني أي شيء
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ─── Contextual Speech Bubble ─── */}
-      <AnimatePresence>
-        {coachBubble && !chatOpen && !showIntro && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 5, scale: 0.95 }}
-            className="fixed bottom-44 left-4 z-[89] max-w-[240px] rounded-xl bg-card border border-border px-3 py-2.5 shadow-lg"
-            dir="rtl"
-          >
-            {/* Speech bubble arrow */}
-            <div className="absolute -bottom-2 left-8 w-4 h-4 bg-card border-b border-r border-border rotate-45" />
-            <p className="text-xs font-medium text-foreground leading-relaxed">{coachBubble.ar}</p>
-            <p className="text-[10px] text-muted-foreground/70 mt-0.5 italic" dir="ltr">{coachBubble.en}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {coachBubble && !chatOpen && !showIntro && (
+        <div
+          className="fixed bottom-44 left-4 z-[89] max-w-[240px] rounded-xl bg-card border border-border px-3 py-2.5 shadow-lg"
+          dir="rtl"
+        >
+          <div className="absolute -bottom-2 left-8 w-4 h-4 bg-card border-b border-r border-border rotate-45" />
+          <p className="text-xs font-medium text-foreground leading-relaxed">{coachBubble.ar}</p>
+          <p className="text-[10px] text-muted-foreground/70 mt-0.5 italic" dir="ltr">{coachBubble.en}</p>
+        </div>
+      )}
 
       {/* ─── Chat Panel ─── */}
-      <AnimatePresence>
-        {chatOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            transition={{ type: 'spring', damping: 25 }}
-            className="fixed bottom-40 left-4 z-[90] w-80 sm:w-96 max-h-[70vh] flex flex-col rounded-2xl bg-card border border-border shadow-2xl overflow-hidden"
-            dir="rtl"
-          >
-            {/* Chat Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
-              <div className="flex items-center gap-2">
-                <SarisCoachAvatar state={loading ? 'speaking' : 'idle'} size={36} />
-                <div>
-                  <h3 className="text-sm font-bold text-foreground">SARIS — المدرب الذكي</h3>
-                  <p className="text-[10px] text-muted-foreground">
-                    {sessionActive && examContext.exam_name
-                      ? `${examContext.exam_name} — تدريب ذكي`
-                      : 'جاهز لمساعدتك'
-                    }
-                  </p>
-                </div>
+      {chatOpen && (
+        <div
+          className="fixed bottom-40 left-4 z-[90] w-80 sm:w-96 max-h-[70vh] flex flex-col rounded-2xl bg-card border border-border shadow-2xl overflow-hidden"
+          dir="rtl"
+        >
+          {/* Chat Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+            <div className="flex items-center gap-2">
+              <SarisCoachAvatar state={loading ? 'speaking' : 'idle'} size={36} />
+              <div>
+                <h3 className="text-sm font-bold text-foreground">SARIS — المدرب الذكي</h3>
+                <p className="text-[10px] text-muted-foreground">
+                  {sessionActive && examContext.exam_name
+                    ? `${examContext.exam_name} — تدريب ذكي`
+                    : 'جاهز لمساعدتك'
+                  }
+                </p>
               </div>
-              <button onClick={() => setChatOpen(false)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-                <Minimize2 className="h-4 w-4 text-muted-foreground" />
-              </button>
             </div>
+            <button onClick={() => setChatOpen(false)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+              <Minimize2 className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-[200px] max-h-[50vh]">
-              {messages.length === 0 && (
-                <div className="text-center py-8">
-                  <div className="flex justify-center mb-3">
-                    <SarisCoachAvatar state="idle" size={56} />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {sessionActive
-                      ? 'أنا هنا لمساعدتك أثناء التدريب. اسألني عن أي سؤال!'
-                      : 'مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟'
-                    }
-                  </p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-1 italic">
-                    {sessionActive
-                      ? "I'm here to help during training. Ask me anything!"
-                      : "Hello! I'm SARIS. How can I help?"
-                    }
-                  </p>
-                  <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-                    {getQuickActions().map(q => (
-                      <button
-                        key={q}
-                        onClick={() => setInput(q)}
-                        className="text-[10px] px-2.5 py-1.5 rounded-full bg-muted hover:bg-accent text-foreground transition-colors"
-                      >
-                        {q}
-                      </button>
-                    ))}
-                  </div>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-[200px] max-h-[50vh]">
+            {messages.length === 0 && (
+              <div className="text-center py-8">
+                <div className="flex justify-center mb-3">
+                  <SarisCoachAvatar state="idle" size={56} />
                 </div>
-              )}
-
-              {messages.map(msg => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-primary text-primary-foreground rounded-br-sm'
-                      : 'bg-muted text-foreground rounded-bl-sm'
-                  }`}>
-                    {msg.content}
-                  </div>
+                <p className="text-xs text-muted-foreground">
+                  {sessionActive
+                    ? 'أنا هنا لمساعدتك أثناء التدريب. اسألني عن أي سؤال!'
+                    : 'مرحباً! أنا SARIS. كيف يمكنني مساعدتك؟'
+                  }
+                </p>
+                <p className="text-[10px] text-muted-foreground/60 mt-1 italic">
+                  {sessionActive
+                    ? "I'm here to help during training. Ask me anything!"
+                    : "Hello! I'm SARIS. How can I help?"
+                  }
+                </p>
+                <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+                  {getQuickActions().map(q => (
+                    <button
+                      key={q}
+                      onClick={() => setInput(q)}
+                      className="text-[10px] px-2.5 py-1.5 rounded-full bg-muted hover:bg-accent text-foreground transition-colors"
+                    >
+                      {q}
+                    </button>
+                  ))}
                 </div>
-              ))}
-
-              {loading && (
-                <div className="flex justify-end">
-                  <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-2.5">
-                    <div className="flex gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Quick actions bar during training */}
-            {sessionActive && messages.length > 0 && !loading && (
-              <div className="px-3 pb-1 flex flex-wrap gap-1 border-t border-border pt-2">
-                {TRAINING_QUICK_ACTIONS.map(q => (
-                  <button
-                    key={q}
-                    onClick={() => { setInput(q); }}
-                    className="text-[10px] px-2 py-1 rounded-full bg-muted hover:bg-accent text-foreground transition-colors"
-                  >
-                    {q}
-                  </button>
-                ))}
               </div>
             )}
 
-            {/* Input */}
-            <div className="border-t border-border p-3">
-              <div className="flex gap-2">
-                <input
-                  ref={inputRef}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="اكتب رسالتك..."
-                  className="flex-1 rounded-xl border border-input bg-background px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                  disabled={loading}
-                />
-                <Button
-                  size="icon"
-                  onClick={handleSend}
-                  disabled={!input.trim() || loading}
-                  className="h-9 w-9 rounded-xl gradient-gold text-gold-foreground"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </Button>
+            {messages.map(msg => (
+              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-primary text-primary-foreground rounded-br-sm'
+                    : 'bg-muted text-foreground rounded-bl-sm'
+                }`}>
+                  {msg.content}
+                </div>
               </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            ))}
 
-      {/* ─── Free-Standing Animated Coach Character (always visible) ─── */}
+            {loading && (
+              <div className="flex justify-end">
+                <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-2.5">
+                  <div className="flex gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Quick actions bar during training */}
+          {sessionActive && messages.length > 0 && !loading && (
+            <div className="px-3 pb-1 flex flex-wrap gap-1 border-t border-border pt-2">
+              {TRAINING_QUICK_ACTIONS.map(q => (
+                <button
+                  key={q}
+                  onClick={() => { setInput(q); }}
+                  className="text-[10px] px-2 py-1 rounded-full bg-muted hover:bg-accent text-foreground transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="border-t border-border p-3">
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="اكتب رسالتك..."
+                className="flex-1 rounded-xl border border-input bg-background px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                disabled={loading}
+              />
+              <Button
+                size="icon"
+                onClick={handleSend}
+                disabled={!input.trim() || loading}
+                className="h-9 w-9 rounded-xl gradient-gold text-gold-foreground"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Free-Standing Animated Coach Character ─── */}
+      {/* Layer 1 (outer): x position via controls.set — NO animate prop */}
       {user && (
         <motion.div
-          key="saris-coach-container"
-          className="fixed z-[90]"
-          style={{
-            bottom: chatOpen ? 24
-              : visualState === 'intervention' ? 80
-              : sessionActive ? TRAINING_POSITION.bottom : 24,
-            left: chatOpen ? 16
-              : visualState === 'intervention' ? '50%'
-              : sessionActive ? TRAINING_POSITION.left : walkX,
-          }}
+          key="saris-walk-outer"
+          animate={walkControls}
+          className="fixed z-50"
+          style={{ bottom: 60, left: 0 }}
         >
-          <div className="is-idle">
+          {/* Layer 2 (inner): body-bob ONLY */}
+          <motion.div
+            animate={{ y: [0, -3, 0], rotate: [-1, 1, -1] }}
+            transition={{ duration: 0.4, repeat: Infinity, ease: 'easeInOut' }}
+          >
             <motion.button
               onClick={() => {
                 if (showIntro) setShowIntro(false);
@@ -528,7 +507,7 @@ export default function SmartCoachFloating() {
                   style={{
                     background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
                   }}
-                  animate={{ scale: [1, 1.6, 1], opacity: [0.5, 0, 0.5] }}
+                  animate={{ scale: [1, 1.6, 1] }}
                   transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                 />
               )}
@@ -561,7 +540,7 @@ export default function SmartCoachFloating() {
                 />
               )}
             </motion.button>
-          </div>
+          </motion.div>
         </motion.div>
       )}
     </>
