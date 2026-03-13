@@ -327,12 +327,17 @@ export default function SmartCoachFloating() {
       )}
 
       {/* ─── Contextual Speech Bubble ─── */}
-      {coachBubble && !chatOpen && !showIntro && (
+      {coachBubble && !chatOpen && !showIntro && charPos && (
         <div
-          className="fixed bottom-44 left-4 z-[89] max-w-[240px] rounded-xl bg-card border border-border px-3 py-2.5 shadow-lg"
+          className="fixed z-[89] max-w-[240px] rounded-xl bg-card border border-border px-3 py-2.5 shadow-lg"
           dir="rtl"
+          style={{
+            left: charPos.x,
+            top: charPos.y - 12,
+            transform: 'translate(-50%, -100%)',
+          }}
         >
-          <div className="absolute -bottom-2 left-8 w-4 h-4 bg-card border-b border-r border-border rotate-45" />
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-card border-b border-r border-border rotate-45" />
           <p className="text-xs font-medium text-foreground leading-relaxed">{coachBubble.ar}</p>
           <p className="text-[10px] text-muted-foreground/70 mt-0.5 italic" dir="ltr">{coachBubble.en}</p>
         </div>
