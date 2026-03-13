@@ -67,24 +67,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, newSession) => {
         setSession(newSession);
         if (newSession?.user) {
-          // On every INITIAL_SESSION / TOKEN_REFRESHED, re-validate UUID against server
-          if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
-            const valid = await validateSessionUser(newSession.user.id);
-            if (!valid) {
-              await supabase.auth.signOut({ scope: 'global' });
-              setUser(null);
-              setWallet(null);
-              setSession(null);
-              setLoading(false);
-              return;
+          try {
+            // On every INITIAL_SESSION / TOKEN_REFRESHED, re-validate UUID against server
+            if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+              const valid = await validateSessionUser(newSession.user.id);
+              if (!valid) {
+                await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
+                setUser(null);
+                setWallet(null);
+                setSession(null);
+                setLoading(false);
+                return;
+              }
             }
-          }
-          // Await fetchUserData BEFORE setting loading=false
-          // Use setTimeout to avoid Supabase client deadlocks, but track completion
-          setTimeout(async () => {
-            await fetchUserData(newSession.user.id);
+            // Await fetchUserData BEFORE setting loading=false
+            // Use setTimeout to avoid Supabase client deadlocks, but track completion
+            setTimeout(async () => {
+              try {
+                await fetchUserData(newSession.user.id);
+              } catch (e) {
+                console.error('[Auth] fetchUserData failed:', e);
+              } finally {
+                setLoading(false);
+              }
+            }, 0);
+          } catch (e) {
+            console.error('[Auth] Session validation failed:', e);
+            setUser(null);
+            setWallet(null);
+            setSession(null);
             setLoading(false);
-          }, 0);
+          }
         } else {
           setUser(null);
           setWallet(null);
