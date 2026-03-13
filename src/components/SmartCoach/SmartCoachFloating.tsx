@@ -254,19 +254,13 @@ export default function SmartCoachFloating() {
   return (
     <>
       {/* ─── Intervention Overlay ─── */}
-      <AnimatePresence>
         {intervention && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
             className="fixed inset-0 z-[100] flex items-end justify-center bg-foreground/40 backdrop-blur-sm"
             onClick={dismissIntervention}
           >
             <motion.div
-              initial={{ y: '100%' }}
               animate={{ y: 0 }}
-              exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25 }}
               className="w-full max-w-lg rounded-t-3xl bg-card border-t border-x border-border p-6 shadow-2xl"
               onClick={e => e.stopPropagation()}
