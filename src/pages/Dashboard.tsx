@@ -18,7 +18,7 @@ import QuickAIActions from '@/components/QuickAIActions';
 import { getStudentMemory } from '@/services/studentMemory';
 import { useTrainingRecommendationsRealtime } from '@/hooks/useTrainingRecommendationsRealtime';
 import type { LearningDNA } from '@/services/learningDNAEngine';
-import { SarisCoachController } from '@/components/SarisCoach';
+
 
 interface ExamStats {
   totalSessions: number;
@@ -327,14 +327,6 @@ export default function Dashboard() {
         </Link>
       </motion.div>
 
-      {/* SARIS Coach - AI Trainer Character */}
-      <SarisCoachController
-        avgPercentage={examStats.avgPercentage}
-        completedSessions={examStats.completedSessions}
-        hasWeakSkills={!!memoryProfile && Object.keys(memoryProfile.weakness_map).length > 0}
-        hasRecommendations={recommendations.length > 0}
-        dnaType={dna?.dna_type}
-      />
     </div>
   );
 }
