@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import coachPointing from '@/assets/saris-coach-fullbody.png';
 import coachIdle from '@/assets/saris-coach-idle.png';
 import coachSpeaking from '@/assets/saris-coach-speaking.png';
@@ -66,19 +66,14 @@ export default function SarisCoachAvatar({ state, size = 120, className = '' }: 
         transition={transitionConfig[state]}
       />
 
-      <AnimatePresence mode="wait">
-        <motion.img
-          key={state}
-          src={imgSrc}
-          alt="SARIS Coach"
-          className="absolute inset-0 w-full h-full object-contain"
-          style={{ filter: 'drop-shadow(0 6px 16px hsl(38 92% 50% / 0.15))' }}
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1, ...bodyMotion[state] }}
-          exit={{ opacity: 0, scale: 0.92 }}
-          transition={transitionConfig[state]}
-        />
-      </AnimatePresence>
+      <motion.img
+        src={imgSrc}
+        alt="SARIS Coach"
+        className="absolute inset-0 w-full h-full object-contain"
+        style={{ filter: 'drop-shadow(0 6px 16px hsl(38 92% 50% / 0.15))' }}
+        animate={{ ...bodyMotion[state] }}
+        transition={transitionConfig[state]}
+      />
 
       {/* Celebration particles */}
       {state === 'celebrating' && (
