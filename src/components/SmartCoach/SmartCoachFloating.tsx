@@ -499,7 +499,7 @@ export default function SmartCoachFloating() {
           <motion.div
             key="saris-coach-container"
             className="fixed z-[90]"
-            initial={{ x: 250, opacity: 0 }}
+            initial={{ x: 160, opacity: 0 }}
             animate={{
               x: 0,
               opacity: 1,
@@ -510,22 +510,25 @@ export default function SmartCoachFloating() {
                 : visualState === 'intervention' ? '50%'
                 : sessionActive ? TRAINING_POSITION.left : WANDER_POSITIONS[wanderIdx].left,
             }}
-            exit={{ x: 250, opacity: 0 }}
+            exit={{ x: 160, opacity: 0 }}
             transition={{
-              x: { type: 'tween', duration: 1.2, ease: [0.25, 0.46, 0.45, 0.94] },
-              opacity: { type: 'tween', duration: 0.6, ease: 'easeInOut' },
+              x: { type: 'tween', duration: 1.1, ease: [0.25, 0.46, 0.45, 0.94] },
+              opacity: { type: 'tween', duration: 0.5, ease: 'easeInOut' },
               bottom: { type: 'spring', stiffness: 30, damping: 18 },
               left: { type: 'spring', stiffness: 30, damping: 18 },
             }}
+            onAnimationStart={() => {
+              setIsWalkingIn(true);
+            }}
             onAnimationComplete={(definition) => {
-              if (definition === 'animate' && !hasEntered) {
-                // Entry walk complete → switch to idle
-                setHasEntered(true);
+              if (definition === 'animate') {
+                setIsWalkingIn(false);
+                if (!hasEntered) setHasEntered(true);
               }
             }}
           >
-            {/* Walking body-bob container — applies CSS walking animation during entry */}
-            <div className={!hasEntered ? 'character-walking' : ''}>
+            {/* Walk vs Idle CSS class wrapper */}
+            <div className={isWalkingIn ? 'is-walking' : 'is-idle'}>
               <motion.button
                 onClick={() => {
                   if (showIntro) setShowIntro(false);
@@ -549,14 +552,13 @@ export default function SmartCoachFloating() {
                   />
                 )}
 
-                {/* ── Animated Avatar ── */}
-                <SarisCoachAvatar state={animState} size={110} />
+                {/* ── Character body (bob applied via CSS parent class) ── */}
+                <div className="character-body">
+                  <SarisCoachAvatar state={animState} size={110} />
+                </div>
 
-                {/* ── Walking shadow ── */}
-                <div
-                  className={`mx-auto mt-[-4px] rounded-[50%] bg-foreground/20 ${!hasEntered ? 'character-shadow-walking' : ''}`}
-                  style={{ width: 60, height: 10 }}
-                />
+                {/* ── Ground shadow ── */}
+                <div className="character-ground-shadow" />
 
                 {/* ── Attention lightbulb badge ── */}
                 {(visualState === 'attention' || visualState === 'intervention') && (
