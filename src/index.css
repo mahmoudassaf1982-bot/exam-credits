@@ -203,14 +203,15 @@ iframe[src*="lovable"] {
   50%      { transform: scaleX(1.0) scaleY(1.0); opacity: 0.35; }
 }
 
-.is-walking .character-body {
-  animation: bodyBobWalk 0.52s cubic-bezier(0.37, 0, 0.63, 1) infinite;
-  transform-origin: bottom center;
+/* ── Walking sprite animation ── */
+.saris-walk-sprite {
+  background: url('/saris-coach-walk.png') 0% 0% / 600% 100% no-repeat;
+  animation: walkCycle 0.6s steps(6) infinite;
 }
 
-.is-idle .character-body {
-  animation: gentleFloat 2.8s ease-in-out infinite;
-  transform-origin: bottom center;
+@keyframes walkCycle {
+  from { background-position: 0% 0%; }
+  to   { background-position: 100% 0%; }
 }
 
 .character-ground-shadow {
