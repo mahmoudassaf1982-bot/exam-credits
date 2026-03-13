@@ -22,6 +22,7 @@ export default function AdminAIGenerator() {
   const [loading, setLoading] = useState(false);
   const [countries, setCountries] = useState<Country[]>([]);
   const [exams, setExams] = useState<ExamTemplate[]>([]);
+  const [sections, setSections] = useState<ExamSection[]>([]);
 
   const [country, setCountry] = useState('');
   const [examTemplateId, setExamTemplateId] = useState('');
