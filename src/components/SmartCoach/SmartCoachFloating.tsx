@@ -484,63 +484,58 @@ export default function SmartCoachFloating() {
           className="fixed z-50"
           style={{ bottom: 60, left: 0 }}
         >
-          {/* Layer 2 (inner): body-bob ONLY */}
-          <motion.div
-            animate={{ rotate: [-3, 3, -3] }}
-            transition={{ duration: 0.5, repeat: Infinity, ease: 'easeInOut', repeatType: 'loop' }}
+          <motion.button
+            onClick={() => {
+              if (showIntro) setShowIntro(false);
+              if (coachBubble) setCoachBubble(null);
+              setChatOpen(!chatOpen);
+              if (visualState === 'attention') setVisualState('idle');
+            }}
+            className="relative group focus:outline-none"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
           >
-            <motion.button
-              onClick={() => {
-                if (showIntro) setShowIntro(false);
-                if (coachBubble) setCoachBubble(null);
-                setChatOpen(!chatOpen);
-                if (visualState === 'attention') setVisualState('idle');
-              }}
-              className="relative group focus:outline-none"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              {/* ── Attention outer glow ── */}
-              {(visualState === 'attention' || visualState === 'intervention') && (
-                <motion.div
-                  className="absolute inset-[-16px] rounded-full pointer-events-none"
-                  style={{
-                    background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
-                  }}
-                  animate={{ scale: [1, 1.6, 1] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                />
-              )}
+            {/* ── Attention outer glow ── */}
+            {(visualState === 'attention' || visualState === 'intervention') && (
+              <motion.div
+                className="absolute inset-[-16px] rounded-full pointer-events-none"
+                style={{
+                  background: 'radial-gradient(circle, hsl(var(--gold) / 0.3) 0%, transparent 70%)',
+                }}
+                animate={{ scale: [1, 1.6, 1] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            )}
 
-              {/* ── Character body ── */}
-              <div className="character-body">
-                <SarisCoachAvatar state={animState} size={110} />
-              </div>
+            {/* ── Walking sprite character ── */}
+            <div
+              className="saris-walk-sprite"
+              style={{ width: 120, height: 180 }}
+            />
 
-              {/* ── Ground shadow ── */}
-              <div className="character-ground-shadow" />
+            {/* ── Ground shadow ── */}
+            <div className="character-ground-shadow" />
 
-              {/* ── Attention lightbulb badge ── */}
-              {(visualState === 'attention' || visualState === 'intervention') && (
-                <motion.div
-                  className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
-                  animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
-                  transition={{ duration: 1.2, repeat: Infinity }}
-                >
-                  <Lightbulb className="h-4 w-4 text-[hsl(var(--gold-foreground))]" />
-                </motion.div>
-              )}
+            {/* ── Attention lightbulb badge ── */}
+            {(visualState === 'attention' || visualState === 'intervention') && (
+              <motion.div
+                className="absolute -top-3 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[hsl(var(--gold))] flex items-center justify-center shadow-md"
+                animate={{ scale: [1, 1.25, 1], rotate: [0, 8, -8, 0], y: [0, -3, 0] }}
+                transition={{ duration: 1.2, repeat: Infinity }}
+              >
+                <Lightbulb className="h-4 w-4 text-[hsl(var(--gold-foreground))]" />
+              </motion.div>
+            )}
 
-              {/* ── Chat indicator ── */}
-              {chatOpen && (
-                <motion.div
-                  className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-primary border-2 border-card"
-                  animate={{ scale: [1, 1.3, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-              )}
-            </motion.button>
-          </motion.div>
+            {/* ── Chat indicator ── */}
+            {chatOpen && (
+              <motion.div
+                className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-primary border-2 border-card"
+                animate={{ scale: [1, 1.3, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              />
+            )}
+          </motion.button>
         </motion.div>
       )}
     </>
