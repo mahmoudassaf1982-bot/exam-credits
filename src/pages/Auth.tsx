@@ -450,11 +450,6 @@ export default function Auth() {
                     toast.error('فشل تسجيل الدخول عبر Google');
                     console.error('Google OAuth error:', error);
                   } else if (data?.url) {
-                    const oauthUrl = new URL(data.url);
-                    const allowedHosts = ['accounts.google.com'];
-                    if (!allowedHosts.some((h) => oauthUrl.hostname === h)) {
-                      throw new Error('Invalid OAuth redirect URL');
-                    }
                     window.location.href = data.url;
                   }
                 } else {
