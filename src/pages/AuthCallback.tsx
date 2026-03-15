@@ -15,8 +15,7 @@ export default function AuthCallback() {
         const code = url.searchParams.get('code');
 
         if (code) {
-          // Exchange the authorization code for a session
-          const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) {
             console.error('Auth callback error:', error);
             toast.error('حدث خطأ أثناء تسجيل الدخول. يرجى المحاولة مرة أخرى.');
