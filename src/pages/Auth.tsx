@@ -432,12 +432,40 @@ export default function Auth() {
             onClick={async () => {
               setSubmitting(true);
               try {
-                const { error } = await lovable.auth.signInWithOAuth("google", {
-                  redirect_uri: window.location.origin,
-                });
-                if (error) {
-                  toast.error('فشل تسجيل الدخول عبر Google');
-                  console.error('Google OAuth error:', error);
+                // Detect if we're on a custom domain (not Lovable preview/published)
+                const isCustomDomain =
+                  !window.location.hostname.includes('lovable.app') &&
+                  !window.location.hostname.includes('lovableproject.com');
+
+                if (isCustomDomain) {
+                  // Bypass Lovable auth-bridge for custom domains (e.g. Cloud Run)
+                  const { data, error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                      redirectTo: `${window.location.origin}/auth/callback`,
+                      skipBrowserRedirect: true,
+                    },
+                  });
+                  if (error) {
+                    toast.error('فشل تسجيل الدخول عبر Google');
+                    console.error('Google OAuth error:', error);
+                  } else if (data?.url) {
+                    const oauthUrl = new URL(data.url);
+                    const allowedHosts = ['accounts.google.com'];
+                    if (!allowedHosts.some((h) => oauthUrl.hostname === h)) {
+                      throw new Error('Invalid OAuth redirect URL');
+                    }
+                    window.location.href = data.url;
+                  }
+                } else {
+                  // For Lovable domains, use managed auth bridge
+                  const { error } = await lovable.auth.signInWithOAuth("google", {
+                    redirect_uri: window.location.origin,
+                  });
+                  if (error) {
+                    toast.error('فشل تسجيل الدخول عبر Google');
+                    console.error('Google OAuth error:', error);
+                  }
                 }
               } catch (err) {
                 toast.error('حدث خطأ أثناء تسجيل الدخول عبر Google');
